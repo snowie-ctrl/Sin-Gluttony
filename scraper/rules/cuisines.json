@@ -1,0 +1,20 @@
+{
+ "American": ["american", "united states", "usa", "southern us", "cajun", "tex mex"],
+ "British": ["british", "english", "scottish", "welsh", "uk"], "Irish": ["irish", "ireland"],
+ "French": ["french", "france"], "Italian": ["italian", "italy"], "Spanish": ["spanish", "spain"],
+ "Portuguese": ["portuguese", "portugal"], "Greek": ["greek", "greece"], "German": ["german", "germany"],
+ "Polish": ["polish", "poland"], "Russian": ["russian", "russia"], "Ukrainian": ["ukrainian", "ukraine"],
+ "Hungarian": ["hungarian", "hungary"], "Dutch": ["dutch", "netherlands"], "Swedish": ["swedish", "sweden"],
+ "Norwegian": ["norwegian", "norway"], "Croatian": ["croatian", "croatia"], "Turkish": ["turkish", "turkey"],
+ "Moroccan": ["moroccan", "morocco"], "Tunisian": ["tunisian", "tunisia"], "Algerian": ["algerian", "algeria"],
+ "Egyptian": ["egyptian", "egypt"], "Kenyan": ["kenyan", "kenya"], "Ethiopian": ["ethiopian", "ethiopia"],
+ "Lebanese": ["lebanese", "lebanon"], "Persian": ["persian", "iranian", "iran"],
+ "Saudi Arabian": ["saudi arabian", "saudi"], "Middle Eastern": ["middle eastern"],
+ "Indian": ["indian", "india"], "Pakistani": ["pakistani", "pakistan"], "Chinese": ["chinese", "china", "cantonese", "sichuan"],
+ "Japanese": ["japanese", "japan"], "Korean": ["korean", "korea"], "Thai": ["thai", "thailand"],
+ "Vietnamese": ["vietnamese", "vietnam"], "Malaysian": ["malaysian", "malaysia"], "Filipino": ["filipino", "philippines"],
+ "Indonesian": ["indonesian", "indonesia"], "Mexican": ["mexican", "mexico"], "Jamaican": ["jamaican", "jamaica"],
+ "Caribbean": ["caribbean"], "Cuban": ["cuban", "cuba"], "Brazilian": ["brazilian", "brazil"],
+ "Argentinian": ["argentinian", "argentine", "argentina"], "Uruguayan": ["uruguayan", "uruguay"],
+ "Canadian": ["canadian", "canada"], "Australian": ["australian", "australia"]
+}

@@ -1,0 +1,77 @@
+{
+ "takenAt": "fixture",
+ "recipes": [
+  {"id": 1, "kind": "food", "title": "Stub Coq au Vin", "course": "main", "cuisine": "French",
+   "servings": 4, "servingsFrom": "source", "prepMinutes": null, "cookMinutes": null, "totalMinutes": 105,
+   "timeFrom": "rule", "difficulty": 2, "difficultyFrom": "rule", "alcohol": null, "glass": null,
+   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "mealdb",
+   "sourceUrl": "https://www.themealdb.com/meal/0", "licence": "TheMealDB",
+   "credit": "Recipe data and imagery: TheMealDB",
+   "ingredients": [
+    {"line": "1.5 kg chicken thighs", "quantity": 1.5, "quantityMax": null, "unit": "kg", "ingredientId": 101, "name": "chicken thigh", "note": null, "optional": false, "group": null},
+    {"line": "750 ml red wine", "quantity": 750, "quantityMax": null, "unit": "ml", "ingredientId": 102, "name": "red wine", "note": null, "optional": false, "group": null},
+    {"line": "200 g lardons", "quantity": 200, "quantityMax": null, "unit": "g", "ingredientId": 103, "name": "bacon", "note": null, "optional": false, "group": null},
+    {"line": "12 pearl onions", "quantity": 12, "quantityMax": null, "unit": null, "ingredientId": null, "name": null, "note": null, "optional": false, "group": null},
+    {"line": "Salt to taste", "quantity": null, "quantityMax": null, "unit": null, "ingredientId": 105, "name": "salt", "note": null, "optional": false, "group": null}
+   ],
+   "steps": [
+    {"text": "Brown the lardons, then the chicken in batches.", "group": null},
+    {"text": "Pour in the wine, bring to a simmer, then cover and cook gently for 1 hour.", "group": null},
+    {"text": "Glaze the onions in butter and stir them through.", "group": null}
+   ],
+   "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": []},
+   "facts": {"complete": false, "contains": ["alcohol", "meat", "poultry"], "diets": []},
+   "versions": [{"id": 2, "title": "Coq au Vin (slow cooker)", "source": "wikibooks", "hasImage": false}]},
+  {"id": 2, "kind": "food", "title": "Coq au Vin (slow cooker)", "course": "main", "cuisine": "French",
+   "servings": null, "servingsFrom": null, "prepMinutes": 30, "cookMinutes": 330, "totalMinutes": 360,
+   "timeFrom": "source", "difficulty": 3, "difficultyFrom": "source", "alcohol": null, "glass": null,
+   "hasImage": false, "imageCredit": null, "videoUrl": null, "source": "wikibooks",
+   "sourceUrl": "https://en.wikibooks.org/wiki/Cookbook:Coq_au_Vin", "licence": "CC BY-SA 4.0",
+   "credit": "Wikibooks Cookbook contributors",
+   "ingredients": [
+    {"line": "2–3 cloves garlic, crushed", "quantity": 2, "quantityMax": 3, "unit": "clove", "ingredientId": 106, "name": "garlic", "note": "crushed", "optional": false, "group": "For the sauce"},
+    {"line": "1 ½ cups red wine", "quantity": 1.5, "quantityMax": null, "unit": "cup", "ingredientId": 102, "name": "red wine", "note": null, "optional": false, "group": "For the sauce"},
+    {"line": "4 chicken thighs", "quantity": 4, "quantityMax": null, "unit": null, "ingredientId": 101, "name": "chicken thigh", "note": null, "optional": false, "group": "For the chicken"}
+   ],
+   "steps": [
+    {"text": "Mix the sauce.", "group": "For the sauce"},
+    {"text": "Cook on low for 5 ½ hours at about 90°C.", "group": "For the chicken"}
+   ],
+   "tags": {"flavour": ["savoury"], "occasion": [], "source": []},
+   "facts": {"complete": true, "contains": ["alcohol", "poultry"], "diets": ["gluten-free", "dairy-free"]},
+   "versions": [{"id": 1, "title": "Stub Coq au Vin", "source": "mealdb", "hasImage": true}]},
+  {"id": 3, "kind": "drink", "title": "Stub Mojito", "course": "cocktail", "cuisine": null,
+   "servings": 1, "servingsFrom": "rule", "prepMinutes": null, "cookMinutes": null, "totalMinutes": 5,
+   "timeFrom": "rule", "difficulty": 1, "difficultyFrom": "rule", "alcohol": "alcoholic", "glass": "Highball glass",
+   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "cocktaildb",
+   "sourceUrl": null, "licence": "TheCocktailDB", "credit": "Recipe data and imagery: TheCocktailDB",
+   "ingredients": [
+    {"line": "2 oz white rum", "quantity": 2, "quantityMax": null, "unit": "fl oz", "ingredientId": 201, "name": "white rum", "note": null, "optional": false, "group": null},
+    {"line": "6 leaves mint", "quantity": 6, "quantityMax": null, "unit": null, "ingredientId": 202, "name": "mint", "note": null, "optional": false, "group": null},
+    {"line": "2 tsp sugar", "quantity": 2, "quantityMax": null, "unit": "tsp", "ingredientId": 203, "name": "sugar", "note": null, "optional": false, "group": null},
+    {"line": "Soda water", "quantity": null, "quantityMax": null, "unit": null, "ingredientId": 205, "name": "soda water", "note": null, "optional": true, "group": null}
+   ],
+   "steps": [{"text": "Muddle the mint with the sugar, add the rum and ice, and top with soda.", "group": null}],
+   "tags": {"flavour": ["sweet", "sour"], "occasion": ["party"], "source": []},
+   "facts": {"complete": true, "contains": ["alcohol"], "diets": ["vegetarian", "vegan", "gluten-free", "dairy-free"]},
+   "versions": []},
+  {"id": 4, "kind": "food", "title": "Stub Spinach Eggs", "course": "breakfast", "cuisine": "British",
+   "servings": 2, "servingsFrom": "source", "prepMinutes": 5, "cookMinutes": 10, "totalMinutes": 15,
+   "timeFrom": "source", "difficulty": 1, "difficultyFrom": "source", "alcohol": null, "glass": null,
+   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "wikibooks",
+   "sourceUrl": "https://en.wikibooks.org/wiki/Cookbook:Spinach_Eggs", "licence": "CC BY-SA 4.0",
+   "credit": "Wikibooks Cookbook contributors",
+   "ingredients": [
+    {"line": "4 eggs", "quantity": 4, "quantityMax": null, "unit": null, "ingredientId": 301, "name": "egg", "note": null, "optional": false, "group": null},
+    {"line": "100 g spinach", "quantity": 100, "quantityMax": null, "unit": "g", "ingredientId": 302, "name": "spinach", "note": null, "optional": false, "group": null},
+    {"line": "1 tbsp butter", "quantity": 1, "quantityMax": null, "unit": "tbsp", "ingredientId": 303, "name": "butter", "note": null, "optional": false, "group": null}
+   ],
+   "steps": [
+    {"text": "Heat the oven to 180°C.", "group": null},
+    {"text": "Wilt the spinach in the butter, crack in the eggs and bake for 10 minutes.", "group": null}
+   ],
+   "tags": {"flavour": ["savoury"], "occasion": ["brunch"], "source": []},
+   "facts": {"complete": true, "contains": ["dairy", "egg"], "diets": ["vegetarian", "gluten-free"]},
+   "versions": []}
+ ]
+}

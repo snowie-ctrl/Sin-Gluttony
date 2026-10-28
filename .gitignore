@@ -1,0 +1,30 @@
+# Secrets and machine-local config
+.env
+config/secrets.json
+server/gluttonyAdminConfig.json
+
+# Scraper working data
+scraper/data/
+scraper/run/
+scraper/logs/
+scraper/reports/
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+
+# Qt builds
+build/
+*.user
+
+# Local working areas
+.worktrees/
+.superpowers/
+
+# The app's machine-local config and the stub's recipe snapshot (the sources' content)
+app/config/secrets.json
+app/tests/stub/snapshot/
+
+# Build plans stay local; the public repository carries the specs and the API contract
+docs/superpowers/plans/
