@@ -30,7 +30,15 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
         const QVariantMap recipe = recipes.recipe();
         if (recipes.loading() && !recipe.isEmpty())
             return;
-        saved.showMine(recipe.isEmpty() ? 0 : recipes.recipeId(), recipe.value("mine").toMap());
+        // A recipe that is gone, or none yet, keeps nothing.
+        if (recipes.gone() || recipe.isEmpty()) {
+            saved.showMine(0, QVariantMap());
+            return;
+        }
+        // A reload that failed leaves the old detail held: what was changed since is newer than its `mine`.
+        if (!recipes.error().isEmpty())
+            return;
+        saved.showMine(recipes.recipeId(), recipe.value("mine").toMap());
     });
 
     // The catalog and Home are cleared before the diet, whose clearing switches it back on: by then nothing is

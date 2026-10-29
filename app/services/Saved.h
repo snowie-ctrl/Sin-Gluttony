@@ -108,6 +108,14 @@ private:
     int indexOfList(int listId) const;
     void setCount(int listId, int count);
     void noteFlag(int recipeId, const QString &key, const QVariant &value);
+    // A move of a list or of a recipe on the open list, waiting for its turn.
+    struct Move
+    {
+        QString route;
+        QJsonObject body;
+        bool ofList = false;
+    };
+    void queueMove(const Move &move);
     void sendNextMove();
     void beginEdit();
     void endEdit();
@@ -125,7 +133,7 @@ private:
     int m_flagsRevision = 0;
     int m_mineId = 0;
     QVariantMap m_mine;
-    QList<QJsonObject> m_moves;
+    QList<Move> m_moves;
     bool m_moving = false;
     int m_pending = 0;
     // Bumped by clear(), so an answer meant for the last person is dropped.

@@ -202,6 +202,39 @@ private slots:
         QCOMPARE(requestsTo("/lists/reorder").size(), 2);
     }
 
+    void aSecondListMoveWaitsForTheFirst()
+    {
+        loadLists();
+        server->responses[path("/lists/reorder")] = R"({"status":"ok"})";
+        server->holdNext[path("/lists/reorder")] = 1;
+        saved->moveList(12, -1);        // 3 12 11: 12 first after Cravings
+        saved->moveList(12, 1);         // 3 11 12: 12 after 11
+        QTRY_COMPARE(requestsTo("/lists/reorder").size(), 1);
+        QTest::qWait(150);
+        QCOMPARE(requestsTo("/lists/reorder").size(), 1);
+        server->releaseHeld();
+        QTRY_COMPARE(requestsTo("/lists/reorder").size(), 2);
+        const QList<QJsonObject> sent = bodiesTo("/lists/reorder");
+        QCOMPARE(sent[0].value("id").toInt(), 12);
+        QVERIFY(sent[0].value("after").isNull());
+        QCOMPARE(sent[1].value("id").toInt(), 12);
+        QCOMPARE(sent[1].value("after").toInt(), 11);
+    }
+
+    void aRefusedListMoveReloadsTheLists()
+    {
+        loadLists();
+        server->responses[path("/lists/reorder")] = R"({"status":"error","message":"that list is gone"})";
+        server->statuses[path("/lists/reorder")] = 404;
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->moveList(12, -1);
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(), QStringLiteral("lists"));
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("that list is gone"));
+        QTRY_COMPARE(requestsTo("/lists").size(), 2);
+        QTRY_COMPARE(saved->lists().at(1).toMap().value("id").toInt(), 11);
+    }
+
     void aCravingAddsToTheCravingsListAndFlagsEveryTile()
     {
         loadLists();

@@ -207,14 +207,7 @@ void Saved::moveList(int listId, int steps)
     emit listsChanged();
     QJsonObject body{{"id", listId}};
     body.insert("after", to == 1 ? QJsonValue() : QJsonValue(m_lists.at(to - 1).toMap().value("id").toInt()));
-    const int generation = m_generation;
-    m_api.post(QStringLiteral("/lists/reorder"), body, [this, generation](const Api::Result &result) {
-        if (generation != m_generation || result.ok)
-            return;
-        // The server holds another order: show the lists as it has them.
-        emit failed(QStringLiteral("lists"), reasonOf(result));
-        load();
-    });
+    queueMove({QStringLiteral("/lists/reorder"), body, true});
 }
 
 void Saved::openList(int listId)
@@ -294,29 +287,41 @@ void Saved::moveItem(int from, int to)
     m_listRecipes.moveRecipe(from, to);
     QJsonObject body{{"listId", m_openListId}, {"recipeId", recipeId}};
     body.insert("after", to == 0 ? QJsonValue() : QJsonValue(m_listRecipes.rowAt(to - 1).value("id").toInt()));
-    m_moves.append(body);
+    queueMove({QStringLiteral("/lists/items/reorder"), body, false});
+}
+
+void Saved::queueMove(const Move &move)
+{
+    m_moves.append(move);
     sendNextMove();
 }
 
 void Saved::sendNextMove()
 {
-    // One at a time: two requests at once may reach the server in either order, and each move names what the
-    // recipe follows as the grid stood after the move before it.
+    // One at a time, lists and recipes alike: two requests at once may reach the server in either order, and each
+    // move names what the one moved follows as the grid stood after the move before it.
     if (m_moving || m_moves.isEmpty())
         return;
     m_moving = true;
-    const QJsonObject body = m_moves.takeFirst();
+    const Move move = m_moves.takeFirst();
     const int generation = m_generation;
-    m_api.post(QStringLiteral("/lists/items/reorder"), body, [this, generation](const Api::Result &result) {
+    m_api.post(move.route, move.body, [this, generation, ofList = move.ofList](const Api::Result &result) {
         if (generation != m_generation)
             return;
         m_moving = false;
         if (!result.ok) {
-            // The list changed on the server (a recipe left it elsewhere): the moves still waiting were made on
-            // an order it no longer holds, so they go, and the list is shown as the server has it.
-            m_moves.clear();
-            emit failed(QStringLiteral("move"), reasonOf(result));
-            m_listRecipes.reload();
+            // The order changed on the server (a recipe left the list elsewhere, a list was deleted): the moves of
+            // this kind still waiting were made on an order it no longer holds, so they go, and what is shown is
+            // asked for again as the server has it. Moves of the other kind are untouched.
+            m_moves.removeIf([ofList](const Move &waiting) { return waiting.ofList == ofList; });
+            if (ofList) {
+                emit failed(QStringLiteral("lists"), reasonOf(result));
+                load();
+            } else {
+                emit failed(QStringLiteral("move"), reasonOf(result));
+                m_listRecipes.reload();
+            }
+            sendNextMove();
             return;
         }
         sendNextMove();

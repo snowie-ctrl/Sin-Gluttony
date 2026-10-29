@@ -266,6 +266,43 @@ private slots:
         QVERIFY(!saved->mine().value("craving").toBool());
     }
 
+    void aFailedReloadKeepsWhatWasChangedMeanwhile()
+    {
+        server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
+          "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        saved->load();
+        QTRY_VERIFY(saved->listsLoaded());
+        recipes->open(1);
+        QTRY_COMPARE(saved->mineId(), 1);
+        saved->setCraving(1, true);
+        QTRY_VERIFY(saved->mine().value("craving").toBool());
+
+        // "Try again" asks again, and the server is down: the old detail stays, but its `mine` is not newer.
+        server->responses[path("/recipes/1")] = R"({"status":"error","message":"server_error"})";
+        server->statuses[path("/recipes/1")] = 500;
+        recipes->reload();
+        QTRY_VERIFY(!recipes->loading());
+        QVERIFY(!recipes->error().isEmpty());
+        QCOMPARE(saved->mineId(), 1);
+        QVERIFY(saved->mine().value("craving").toBool());
+        QVERIFY(saved->flagsOf(QVariantMap{{"id", 1}}).value("craving").toBool());
+    }
+
+    void aReloadThatFindsTheRecipeGoneKeepsNoMineOfIt()
+    {
+        server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
+          "mine":{"craving":true,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        recipes->open(1);
+        QTRY_COMPARE(saved->mineId(), 1);
+        server->responses[path("/recipes/1")] = R"({"status":"error","message":"not found"})";
+        server->statuses[path("/recipes/1")] = 404;
+        recipes->reload();
+        QTRY_VERIFY(recipes->gone());
+        QCOMPARE(saved->mineId(), 0);
+        QVERIFY(saved->mine().isEmpty());
+    }
+
     void openingAnotherRecipeLeavesNoMineOfTheLastOne()
     {
         server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
