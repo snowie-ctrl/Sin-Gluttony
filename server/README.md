@@ -8,7 +8,7 @@ API at `/api/gluttony/` is public through the tunnel at `gluttony.forculus.net`,
 | File | Goes to |
 |---|---|
 | `gluttonyAdminRoutes.py`, `gluttonyRoutes.py`, `gluttonyRules.py` | `/database/API/util/` |
-| `gluttonySession.py`, `gluttonyUserRoutes.py` | `/database/API/util/` (from part 2) |
+| `gluttonySession.py`, `gluttonyKept.py`, `gluttonyUserRoutes.py` | `/database/API/util/` (from part 2) |
 | `gluttonyAdminConfig.json` (from the example; never committed) | `/database/API/util/`, `chmod 600` |
 | `gluttonySmoke.py` | `/database/API/util/` (only for the smoke test; harmless if left) |
 | `schema.sql` | run once by the owner |
@@ -72,9 +72,11 @@ Written in part 2's milestones, deployed together in milestone 4; nothing here i
 
 - **Smoke test:** as above, with `schema-part2.sql` loaded into the scratch database after `schema.sql`
   (`sudo mysql gluttony_smoke < schema-part2.sql`) and `gluttonyAdminRoutes.py`, `gluttonyRoutes.py`,
-  `gluttonyRules.py`, `gluttonySession.py` and `gluttonyUserRoutes.py` in `util/`, beside `gluttonySmoke.py`. It now
-  signs up with a key it inserts itself, browses with a session, checks the diet profile, Home and Go on, and
-  signs out.
+  `gluttonyRules.py`, `gluttonySession.py`, `gluttonyKept.py` and `gluttonyUserRoutes.py` in `util/`, beside
+  `gluttonySmoke.py`. It now signs up with a key it inserts itself, browses with a session, checks the diet
+  profile, Home and Go on, makes and edits lists, marks Devoured (once per clientId), stars and notes, signs up a
+  second account to check it sees none of the first one's, removes a recipe and checks only its saver still sees
+  it, and signs out. It inserts two login keys and a second recipe on the scratch database.
 - **Cut-over:** `sudo mysql gluttonyDB < schema-part2.sql`, then in `Caduceus.py`, inside the existing Gluttony
   block, beside `gluttonyBP`:
 

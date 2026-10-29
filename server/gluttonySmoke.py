@@ -13,6 +13,8 @@ import re
 import secrets
 import sys
 import tempfile
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import flask
@@ -46,6 +48,20 @@ def scratchConnections(database, connect):
 def check(condition, message):
     if not condition:
         raise SmokeFailed(message)
+
+
+def insertKey():
+    """A login key on the scratch database, inserted by hand as the owner does."""
+    key = "smoke-key-" + secrets.token_hex(8)
+    conn = DBUtils.initConnection("gluttony")
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO LoginKeys (KeyValue) VALUES (%s)", (key,))
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return key
 
 
 def call(client, method, path, body=None, expect=200):
@@ -110,16 +126,7 @@ def steps(media):
         return "listed and mapped"
 
     def account(client, state):
-        # The owner inserts keys by hand; the smoke test does the same on the scratch database.
-        key = "smoke-key-" + secrets.token_hex(8)
-        conn = DBUtils.initConnection("gluttony")
-        try:
-            cur = conn.cursor()
-            cur.execute("INSERT INTO LoginKeys (KeyValue) VALUES (%s)", (key,))
-            conn.commit()
-            cur.close()
-        finally:
-            conn.close()
+        key = insertKey()
         fingerprint = "smoke-device-" + secrets.token_hex(8)
         made = call(client, "POST", f"{R}/auth", {"username": "smoke-user", "password": "smoke-password",
                                                   "fingerprint": fingerprint, "key": key})
@@ -168,11 +175,108 @@ def steps(media):
         check(picked and picked["id"] == state["recipeId"], f"random: {picked}")
         return "today's pick holds, Go on, then finds the recipe"
 
+    def lists(client, state):
+        shown = call(client, "GET", f"{R}/lists")["data"]
+        check(len(shown) == 1 and shown[0]["kind"] == "cravings", f"a new account's lists: {shown}")
+        state["cravings"] = shown[0]["id"]
+        # A second version of the dish, so a list has two recipes to put in order.
+        second = call(client, "POST", f"{A}/recipes/batch",
+                      {"recipes": [payload(state["ids"], sourceId="smoke-2", title="Smoke Melt")]})
+        check(second["stored"] == ["mealdb:smoke-2"], f"second recipe: {second}")
+        found = call(client, "GET", f"{R}/recipes?q=smoke%20melt")["data"]["recipes"]
+        state["secondId"] = found[0]["id"]
+        made = call(client, "POST", f"{R}/lists/create", {"title": "Smoke weeknights"})["data"]
+        other = call(client, "POST", f"{R}/lists/create", {"title": "Smoke parties"})["data"]
+        state["list"] = made["id"]
+        call(client, "POST", f"{R}/lists/reorder", {"id": other["id"], "after": None})
+        order = [entry["id"] for entry in call(client, "GET", f"{R}/lists")["data"]]
+        check(order == [state["cravings"], other["id"], made["id"]], f"order after a move: {order}")
+        renamed = call(client, "POST", f"{R}/lists/rename", {"id": made["id"], "title": "Smoke fridays"})["data"]
+        check(renamed["title"] == "Smoke fridays", f"rename: {renamed}")
+        call(client, "POST", f"{R}/lists/rename", {"id": state["cravings"], "title": "Wants"}, expect=400)
+        for listId in (state["cravings"], made["id"]):
+            call(client, "POST", f"{R}/lists/items/add", {"listId": listId, "recipeId": state["recipeId"]})
+        twice = call(client, "POST", f"{R}/lists/items/add", {"listId": made["id"], "recipeId": state["recipeId"]})
+        check(twice["data"]["count"] == 1, f"adding twice: {twice}")
+        call(client, "POST", f"{R}/lists/items/add", {"listId": made["id"], "recipeId": state["secondId"]})
+        page = call(client, "GET", f"{R}/lists/{made['id']}/recipes")["data"]
+        check([t["id"] for t in page["recipes"]] == [state["secondId"], state["recipeId"]], f"newest on top: {page}")
+        check(page["recipes"][1]["craving"] is True, "the craving flag is missing from a list's tile")
+        call(client, "POST", f"{R}/lists/items/reorder",
+             {"listId": made["id"], "recipeId": state["secondId"], "after": state["recipeId"]})
+        page = call(client, "GET", f"{R}/lists/{made['id']}/recipes")["data"]
+        check([t["id"] for t in page["recipes"]] == [state["recipeId"], state["secondId"]], f"after a move: {page}")
+        call(client, "POST", f"{R}/lists/items/remove", {"listId": made["id"], "recipeId": state["secondId"]})
+        call(client, "POST", f"{R}/lists/delete", {"id": other["id"]})
+        check(len(call(client, "GET", f"{R}/lists")["data"]) == 2, "a deleted list is still there")
+        return "Cravings from sign-up, lists made, moved, renamed, filled, reordered, emptied and deleted"
+
+    def yours(client, state):
+        rid = state["recipeId"]
+        # The server's own today in UTC is always accepted, wherever plutus's clock is set.
+        today = datetime.now(timezone.utc).date().isoformat()
+        clientId = str(uuid.uuid4())
+        mark = call(client, "POST", f"{R}/devoured/add", {"recipeId": rid, "on": today, "clientId": clientId})["data"]
+        again = call(client, "POST", f"{R}/devoured/add", {"recipeId": rid, "on": today, "clientId": clientId})["data"]
+        check(again["already"] and again["id"] == mark["id"] and again["count"] == 1, f"a resent mark: {again}")
+        extra = call(client, "POST", f"{R}/devoured/add",
+                     {"recipeId": rid, "on": today, "clientId": str(uuid.uuid4())})["data"]
+        check(extra["count"] == 2, f"a second mark: {extra}")
+        call(client, "POST", f"{R}/devoured/remove", {"id": extra["id"]})
+        call(client, "POST", f"{R}/rating", {"recipeId": rid, "stars": 4})
+        cakes = "\U0001F370" * 2000
+        call(client, "POST", f"{R}/note", {"recipeId": rid, "text": cakes})
+        call(client, "POST", f"{R}/note", {"recipeId": rid, "text": cakes + "\U0001F370"}, expect=400)
+        mine = call(client, "GET", f"{R}/recipes/{rid}")["data"]["mine"]
+        check(mine == {"craving": True, "lists": [state["list"]], "devoured": [{"id": mark["id"], "on": today}],
+                       "stars": 4, "note": cakes}, f"mine: {str(mine)[:200]}")
+        history = call(client, "GET", f"{R}/devoured?sort=stars")["data"]
+        check(history["total"] == 1 and history["recipes"][0]["devouredId"] == mark["id"], f"history: {history}")
+        home = call(client, "GET", f"{R}/home?tz=UTC")["data"]
+        check(not home["pick"] or home["pick"]["id"] != rid, "today's temptation is a recipe devoured today")
+        check([t["id"] for t in home["again"]] == [rid], f"Again?: {home['again']}")
+        check(rid in [t["id"] for t in home["cravings"]], f"Cravings row: {home['cravings']}")
+        state["mark"] = mark["id"]
+        return "a mark stored once per clientId, stars, a 2,000-emoji note, mine, history, Home's rows"
+
+    def strangers(client, state):
+        own = client.environ_base["HTTP_X_SESSION_TOKEN"]
+        made = call(client, "POST", f"{R}/auth", {"username": "smoke-stranger", "password": "smoke-password",
+                                                  "fingerprint": "smoke-device-" + secrets.token_hex(8),
+                                                  "key": insertKey()})
+        state["strangerToken"] = made["token"]
+        client.environ_base["HTTP_X_SESSION_TOKEN"] = made["token"]
+        try:
+            call(client, "GET", f"{R}/lists/{state['list']}/recipes", expect=404)
+            call(client, "POST", f"{R}/lists/rename", {"id": state["list"], "title": "Mine now"}, expect=404)
+            call(client, "POST", f"{R}/lists/items/add", {"listId": state["list"], "recipeId": state["recipeId"]},
+                 expect=404)
+            call(client, "POST", f"{R}/devoured/remove", {"id": state["mark"]}, expect=404)
+            theirs = call(client, "GET", f"{R}/lists")["data"]
+            check(len(theirs) == 1 and theirs[0]["kind"] == "cravings", f"a stranger's lists: {theirs}")
+            mine = call(client, "GET", f"{R}/recipes/{state['recipeId']}")["data"]["mine"]
+            check(mine == {"craving": False, "lists": [], "devoured": [], "stars": None, "note": None},
+                  f"a stranger sees: {mine}")
+        finally:
+            client.environ_base["HTTP_X_SESSION_TOKEN"] = own
+        return "someone else's list, mark and keeps are 404 or empty for a second account"
+
     def remove(client, state):
         check(call(client, "POST", f"{A}/recipes/removed", {"keys": ["mealdb:smoke-1"]})["removed"] == 1, "not removed")
         check(call(client, "GET", f"{R}/recipes?q=smoke%20toast")["data"]["total"] == 0, "a removed recipe is shown")
-        call(client, "GET", f"{R}/recipes/{state['recipeId']}", expect=404)
-        return "removed and hidden"
+        detail = call(client, "GET", f"{R}/recipes/{state['recipeId']}")["data"]
+        check(detail["removed"] is True, "the saver lost a removed recipe")
+        listed = call(client, "GET", f"{R}/lists/{state['list']}/recipes")["data"]["recipes"]
+        check(listed and listed[0]["removed"] is True, f"the list lost a removed recipe: {listed}")
+        call(client, "GET", f"{R}/images/{state['recipeId']}")
+        own = client.environ_base["HTTP_X_SESSION_TOKEN"]
+        client.environ_base["HTTP_X_SESSION_TOKEN"] = state["strangerToken"]
+        try:
+            call(client, "GET", f"{R}/recipes/{state['recipeId']}", expect=404)
+            call(client, "GET", f"{R}/images/{state['recipeId']}", expect=404)
+        finally:
+            client.environ_base["HTTP_X_SESSION_TOKEN"] = own
+        return "removed: hidden from the catalog and strangers, still the saver's"
 
     def signout(client, state):
         call(client, "POST", f"{R}/auth/logout", {"fingerprint": state["fingerprint"]})
@@ -182,7 +286,8 @@ def steps(media):
         return "signed out, the session ends, the device is forgotten"
 
     return [("seed", seed), ("store", store), ("unknown", unknown), ("account", account), ("browse", browse),
-            ("diet", diet), ("home", home), ("remove", remove), ("signout", signout)]
+            ("diet", diet), ("home", home), ("lists", lists), ("yours", yours), ("strangers", strangers),
+            ("remove", remove), ("signout", signout)]
 
 
 def runSteps(client, media):
