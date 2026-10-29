@@ -91,6 +91,8 @@ export const yourLists = "Your lists"
 export const noListsYet = "No lists of your own yet."
 export const earlier = "‹"
 export const later = "›"
+export const deleteNote = "Delete note"
+export const removeMark = "Remove this mark"
 
 // The diet and avoid words match the server's lists (server/gluttonyRules.py DIETS and CONTAINS_ITEMS).
 export const DIETS = [

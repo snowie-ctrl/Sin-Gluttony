@@ -89,7 +89,7 @@ Popup {
                 placeholderText: Words.newList
                 // The server takes 60 characters; Qt counts an emoji as two here, so this never lets more through.
                 maximumLength: Saved.titleLimit
-                onAccepted: create.clicked()
+                onAccepted: if (create.enabled) create.clicked()
             }
             ActionButton {
                 id: create

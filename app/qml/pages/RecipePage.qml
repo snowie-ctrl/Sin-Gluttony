@@ -32,6 +32,10 @@ Item {
     // The day ✓ Devoured marks: today, unless moved back.
     property string devourDay: Saved.today()
     property string actionError: ""
+    // The Devoured mark chosen for removal (0: none); removing needs the named button that then appears.
+    property int pickedMark: 0
+    readonly property bool markPicked: root.pickedMark > 0
+        && (root.mine.devoured || []).some(mark => mark.id === root.pickedMark)
     // The stars rest while a star request for this recipe is on its way, so two quick taps cannot cross.
     readonly property bool starsBusy: Saved.starsSaving.indexOf(root.r.id || 0) >= 0
 
@@ -42,6 +46,7 @@ Item {
             flick.contentY = 0
             root.devourDay = Saved.today()
             root.actionError = ""
+            root.pickedMark = 0
         }
     }
 
@@ -51,7 +56,11 @@ Item {
             if (what === "item" || what === "devoured" || what === "stars")
                 root.actionError = message
         }
-        function onDone(what) { root.actionError = "" }
+        function onDone(what) {
+            root.actionError = ""
+            if (what === "devoured")
+                root.pickedMark = 0
+        }
     }
 
     ListPopup { id: listPopup; recipeId: root.r.id || 0 }
@@ -290,7 +299,8 @@ Item {
                     }
                 }
 
-                // Each time it was devoured, newest first; × takes a mark back off.
+                // Each time it was devoured, newest first. Choosing a mark offers a named, outlined button to take it
+                // back off, so a stray tap never erases one.
                 Flow {
                     width: parent.width
                     spacing: 6
@@ -301,9 +311,16 @@ Item {
                             required property var modelData
                             objectName: "devouredMark-" + modelData.id
                             text: "✓ " + Days.label(modelData.on, Saved.today())
-                            removable: true
-                            onRemoveClicked: Saved.undevour(modelData.id)
+                            selected: root.pickedMark === modelData.id
+                            onClicked: root.pickedMark = root.pickedMark === modelData.id ? 0 : modelData.id
                         }
+                    }
+                    ActionButton {
+                        objectName: "removeMark"
+                        visible: root.markPicked
+                        danger: true
+                        text: Words.removeMark
+                        onClicked: Saved.undevour(root.pickedMark)
                     }
                 }
 

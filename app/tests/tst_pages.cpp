@@ -1074,6 +1074,88 @@ private slots:
         QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 12);
     }
 
+    void enterInTheNewListFieldCreatesOnceWhileItIsOnItsWay()
+    {
+        server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0}]})";
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":12,"recipeId":1,"count":1}})";
+        server->responses[path("/lists/create")] = R"({"status":"ok","data":{"id":12,"title":"Fridays","kind":"custom","count":0}})";
+        start();
+        QTRY_VERIFY(saved->listsLoaded());
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionList"));
+        click(findVisible("actionList"));
+        QTRY_VERIFY(findVisible("newListField"));
+        click(findVisible("newListField"));
+        type("Fridays");
+        server->holdNext[path("/lists/create")] = 1;
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTRY_COMPARE(requestsTo("/lists/create").size(), 1);
+        // A second Enter while the first is on its way must not send another.
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTest::qWait(150);
+        QCOMPARE(requestsTo("/lists/create").size(), 1);
+        server->releaseHeld();
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 1);
+        QCOMPARE(requestsTo("/lists/create").size(), 1);
+    }
+
+    void aNoteIsDeletedByItsNamedButtonOnly()
+    {
+        server->responses[path("/note")] = R"({"status":"ok","data":{"recipeId":1,"note":null}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QJsonObject mine = noMine();
+        mine["note"] = "Less salt, more wine.";
+        openKeptRecipe(mine);
+        QTRY_VERIFY(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("recipeNote"));
+        click(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("noteDelete"));
+        // Saving cannot be mistaken for deleting: nothing has been sent yet.
+        QCOMPARE(requestsTo("/note").size(), 0);
+        QCOMPARE(findVisible("noteDelete")->property("text").toString(), QStringLiteral("Delete note"));
+        QVERIFY(findVisible("noteDelete")->property("danger").toBool());
+        click(findVisible("noteDelete"));
+        QTRY_COMPARE(requestsTo("/note").size(), 1);
+        QCOMPARE(lastBodyTo("/note").value("text").toString(), QString());
+        QTRY_VERIFY(!findVisible("notePopup"));
+        QTRY_VERIFY(!findVisible("recipeNote"));
+    }
+
+    void noDeleteButtonIsOfferedForANoteThatDoesNotExist()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionNote"));
+        click(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("notePopup"));
+        QVERIFY(!findVisible("noteDelete"));
+    }
+
+    void aMarkIsRemovedByItsNamedButtonNotByATap()
+    {
+        server->responses[path("/devoured/remove")] = R"({"status":"ok","data":{"id":41,"recipeId":1,"count":0}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QJsonObject mine = noMine();
+        mine["devoured"] = QJsonArray{QJsonObject{{"id", 41}, {"on", "2026-10-03"}}};
+        openKeptRecipe(mine);
+        QTRY_VERIFY(findVisible("devouredMark-41"));
+        QVERIFY(!findVisible("removeMark"));
+        // Tapping the mark only chooses it.
+        click(findVisible("devouredMark-41"));
+        QTRY_VERIFY(findVisible("removeMark"));
+        QCOMPARE(requestsTo("/devoured/remove").size(), 0);
+        QCOMPARE(findVisible("removeMark")->property("text").toString(), QStringLiteral("Remove this mark"));
+        QVERIFY(findVisible("removeMark")->property("danger").toBool());
+        click(findVisible("removeMark"));
+        QTRY_COMPARE(requestsTo("/devoured/remove").size(), 1);
+        QCOMPARE(lastBodyTo("/devoured/remove").value("id").toInt(), 41);
+        QTRY_VERIFY(!findVisible("devouredMark-41"));
+        QVERIFY(!findVisible("removeMark"));
+    }
+
     void theStarsAndTheNotesSaveRestWhileTheirRequestIsOnItsWay()
     {
         server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":1,"stars":3}})";

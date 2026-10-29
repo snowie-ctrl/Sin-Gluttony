@@ -102,6 +102,15 @@ Popup {
                 onClicked: Saved.setNote(popup.recipeId, field.text)
             }
             ActionButton { text: Words.cancel; onClicked: popup.close() }
+            // Deleting is its own named control, outlined in the danger colour, and only offered for a note that exists.
+            ActionButton {
+                objectName: "noteDelete"
+                danger: true
+                visible: Saved.mineId === popup.recipeId && !!Saved.mine.note
+                text: Words.deleteNote
+                enabled: !popup.sending
+                onClicked: Saved.setNote(popup.recipeId, "")
+            }
         }
     }
 }
