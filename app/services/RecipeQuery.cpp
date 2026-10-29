@@ -4,7 +4,35 @@
 #include <QJsonObject>
 
 
-RecipeQuery::RecipeQuery(Api &api, QObject *parent) : QObject(parent), m_api(api) {}
+RecipeQuery::RecipeQuery(Api &api, const QString &path, QObject *parent) : QObject(parent), m_api(api), m_path(path) {}
+
+void RecipeQuery::setPath(const QString &path)
+{
+    if (path == m_path)
+        return;
+    m_path = path;
+    ++m_generation;
+    m_model.clearRows();
+    m_hasQuery = false;
+    m_total = 0;
+    m_page = 0;
+    m_loading = false;
+    m_answered = false;
+    m_error.clear();
+    emit changed();
+}
+
+void RecipeQuery::dropRecipe(int recipeId)
+{
+    if (!exhausted()) {
+        reload();
+        return;
+    }
+    if (m_model.removeRecipe(recipeId)) {
+        m_total = qMax(0, m_total - 1);
+        emit changed();
+    }
+}
 
 void RecipeQuery::run(const QUrlQuery &query)
 {
@@ -47,7 +75,7 @@ void RecipeQuery::fetch(int page)
     m_loading = true;
     emit changed();
     const int generation = m_generation;
-    m_api.get(QStringLiteral("/recipes"), query, [this, generation, page](const Api::Result &result) {
+    m_api.get(m_path, query, [this, generation, page](const Api::Result &result) {
         if (generation != m_generation)
             return;
         m_loading = false;

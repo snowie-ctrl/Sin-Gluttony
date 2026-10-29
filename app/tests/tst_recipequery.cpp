@@ -25,14 +25,14 @@ class TestRecipeQuery : public QObject
 {
     Q_OBJECT
 
-    FakeServer server;
+    std::unique_ptr<FakeServer> server;
     std::unique_ptr<Api> api;
     std::unique_ptr<RecipeQuery> query;
 
     QList<QUrl> recipeRequests() const
     {
         QList<QUrl> found;
-        for (const QUrl &url : server.requests)
+        for (const QUrl &url : server->requests)
             if (url.path() == recipesPath)
                 found << url;
         return found;
@@ -48,21 +48,18 @@ class TestRecipeQuery : public QObject
 private slots:
     void init()
     {
-        server.responses.clear();
-        server.queued.clear();
-        server.statuses.clear();
-        server.queuedStatuses.clear();
-        server.requests.clear();
-        server.holdNext.clear();
         query.reset();
+        api.reset();
+        // A new server for every case, listening before the last one goes, so a late request never reaches it.
+        server = std::make_unique<FakeServer>();
         api = std::make_unique<Api>();
-        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server.serverPort()));
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         query = std::make_unique<RecipeQuery>(*api);
     }
 
     void theFirstPageThenTheNext()
     {
-        server.queued[recipesPath] = {page(30, 1, 24), page(30, 25, 6)};
+        server->queued[recipesPath] = {page(30, 1, 24), page(30, 25, 6)};
         query->run(kind("food"));
         QTRY_COMPARE(query->count(), 24);
         QCOMPARE(query->total(), 30);
@@ -81,7 +78,7 @@ private slots:
 
     void theSameQueryTwiceAsksOnce()
     {
-        server.responses[recipesPath] = page(1, 1, 1);
+        server->responses[recipesPath] = page(1, 1, 1);
         query->run(kind("food"));
         query->run(kind("food"));
         QTRY_VERIFY(query->answered());
@@ -92,13 +89,13 @@ private slots:
 
     void anOlderAnswerNeverLandsInANewerList()
     {
-        server.queued[recipesPath] = {page(1, 100, 1), page(1, 200, 1)};
-        server.holdNext[recipesPath] = 1;
+        server->queued[recipesPath] = {page(1, 100, 1), page(1, 200, 1)};
+        server->holdNext[recipesPath] = 1;
         query->run(kind("food"));
         QTRY_COMPARE(recipeRequests().size(), 1);
         query->run(kind("drink"));
         QTRY_COMPARE(query->count(), 1);
-        server.releaseHeld();
+        server->releaseHeld();
         QTest::qWait(200);
         auto *model = qobject_cast<QAbstractListModel *>(query->tiles());
         QCOMPARE(model->data(model->index(0), Qt::UserRole + 1).toMap().value("id").toInt(), 200);
@@ -106,8 +103,8 @@ private slots:
 
     void aFailedPageKeepsTheRowsAndMoreAsksForItAgain()
     {
-        server.queued[recipesPath] = {page(30, 1, 24), R"({"status":"error","message":"busy"})", page(30, 25, 6)};
-        server.queuedStatuses[recipesPath] = {200, 500, 200};
+        server->queued[recipesPath] = {page(30, 1, 24), R"({"status":"error","message":"busy"})", page(30, 25, 6)};
+        server->queuedStatuses[recipesPath] = {200, 500, 200};
         query->run(kind("food"));
         QTRY_COMPARE(query->count(), 24);
         query->more();
@@ -117,6 +114,73 @@ private slots:
         query->more();
         QTRY_COMPARE(query->count(), 30);
         QVERIFY(query->error().isEmpty());
+    }
+
+    void aQueryOfItsOwnAsksItsOwnPath()
+    {
+        const QString listPath = QStringLiteral("/api/gluttony/lists/11/recipes");
+        server->responses[listPath] = page(2, 1, 2);
+        RecipeQuery list(*api, QStringLiteral("/lists/11/recipes"));
+        list.run(QUrlQuery());
+        QTRY_COMPARE(list.count(), 2);
+        QCOMPARE(server->requests.last().path(), listPath);
+        QCOMPARE(QUrlQuery(server->requests.last()).queryItemValue("page"), QStringLiteral("1"));
+    }
+
+    void aNewPathDropsTheRowsAndAsksAgain()
+    {
+        server->responses["/api/gluttony/lists/11/recipes"] = page(2, 1, 2);
+        server->responses["/api/gluttony/lists/12/recipes"] = page(1, 50, 1);
+        RecipeQuery list(*api, QStringLiteral("/lists/11/recipes"));
+        list.run(QUrlQuery());
+        QTRY_COMPARE(list.count(), 2);
+        list.setPath(QStringLiteral("/lists/12/recipes"));
+        QCOMPARE(list.count(), 0);
+        QVERIFY(!list.answered());
+        list.run(QUrlQuery());
+        QTRY_COMPARE(list.count(), 1);
+        QCOMPARE(list.rowAt(0).value("id").toInt(), 50);
+    }
+
+    void droppingARowOfAWholeListTakesItOut()
+    {
+        server->responses[recipesPath] = page(3, 1, 3);
+        query->run(kind("food"));
+        QTRY_COMPARE(query->count(), 3);
+        query->dropRecipe(2);
+        QCOMPARE(query->count(), 2);
+        QCOMPARE(query->total(), 2);
+        QVERIFY(query->exhausted());
+        QCOMPARE(query->rowAt(1).value("id").toInt(), 3);
+        QTest::qWait(100);
+        QCOMPARE(recipeRequests().size(), 1);
+    }
+
+    void droppingARowOfALongerListAsksAgainFromTheStart()
+    {
+        // The server's later pages have moved up by one, so asking for page 2 would skip a recipe.
+        server->queued[recipesPath] = {page(30, 1, 24), page(29, 1, 24)};
+        query->run(kind("food"));
+        QTRY_COMPARE(query->count(), 24);
+        query->dropRecipe(5);
+        QTRY_COMPARE(recipeRequests().size(), 2);
+        QCOMPARE(QUrlQuery(recipeRequests().last()).queryItemValue("page"), QStringLiteral("1"));
+        QTRY_COMPARE(query->total(), 29);
+    }
+
+    void movingARowKeepsEveryOther()
+    {
+        server->responses[recipesPath] = page(3, 1, 3);
+        query->run(kind("food"));
+        QTRY_COMPARE(query->count(), 3);
+        query->moveRecipe(0, 2);
+        QCOMPARE(query->rowAt(0).value("id").toInt(), 2);
+        QCOMPARE(query->rowAt(1).value("id").toInt(), 3);
+        QCOMPARE(query->rowAt(2).value("id").toInt(), 1);
+        query->moveRecipe(2, 0);
+        QCOMPARE(query->rowAt(0).value("id").toInt(), 1);
+        query->moveRecipe(0, 9);        // out of range: nothing moves
+        QCOMPARE(query->rowAt(0).value("id").toInt(), 1);
     }
 };
 

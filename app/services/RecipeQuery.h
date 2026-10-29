@@ -7,9 +7,10 @@
 #include "api/TileModel.h"
 
 
-// One list of recipes asked of GET /recipes a page at a time: Browse's results. The server's orders (the daily
-// shuffle, quickest, relevance) are stable, so pages are asked for by number. A page asked for before a new
-// query is dropped when it answers, so it never lands in the newer list.
+// One list of recipes asked of the server a page at a time: Browse's results (GET /recipes), a list's recipes
+// (GET /lists/<id>/recipes) or the Devoured history (GET /devoured). The server's orders are stable, so pages are
+// asked for by number. A page asked for before a new query or path is dropped when it answers, so it never lands
+// in the newer list.
 class RecipeQuery : public QObject
 {
     Q_OBJECT
@@ -28,7 +29,18 @@ class RecipeQuery : public QObject
 public:
     static constexpr int PageSize = 24;
 
-    explicit RecipeQuery(Api &api, QObject *parent = nullptr);
+    explicit RecipeQuery(Api &api, const QString &path = QStringLiteral("/recipes"), QObject *parent = nullptr);
+
+    QString path() const { return m_path; }
+    // Another list (another list's id, another sort): the rows go, and the next run() asks from page 1.
+    void setPath(const QString &path);
+    // The tile at a row, or an empty map.
+    QVariantMap rowAt(int index) const { return m_model.rows().value(index).toMap(); }
+    // A recipe that left the list. With every row shown it simply goes; otherwise the list is asked for again from
+    // the start, since the server's later pages have each moved up by one and page by number would skip one.
+    void dropRecipe(int recipeId);
+    // A row dragged to another place; the server is told by whoever moved it (Saved).
+    void moveRecipe(int from, int to) { m_model.moveRow(from, to); }
 
     QObject *tiles() { return &m_model; }
     int count() const { return m_model.rowCount(); }
@@ -55,6 +67,7 @@ private:
     void fetch(int page);
 
     Api &m_api;
+    QString m_path;
     TileModel m_model;
     QUrlQuery m_query;
     bool m_hasQuery = false;

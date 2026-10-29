@@ -1,4 +1,4 @@
-// Copied from Pageturner Pageturner/api/TileModel.h at ad9342e; comments only.
+// Copied from Pageturner Pageturner/api/TileModel.h at ad9342e; removeRecipe and moveRow are new (lists in Saved).
 #pragma once
 
 #include <QAbstractListModel>
@@ -59,6 +59,32 @@ public:
         beginResetModel();
         m_rows.clear();
         endResetModel();
+    }
+
+    // Takes out the row of this recipe (rows are tiles with an "id"); true when one was there.
+    bool removeRecipe(int recipeId)
+    {
+        for (int i = 0; i < m_rows.size(); ++i) {
+            if (m_rows.at(i).toMap().value("id").toInt() != recipeId)
+                continue;
+            beginRemoveRows(QModelIndex(), i, i);
+            m_rows.removeAt(i);
+            endRemoveRows();
+            return true;
+        }
+        return false;
+    }
+
+    // One row to another place, as a drag leaves it. A move, not a reset, so the view keeps its delegates.
+    void moveRow(int from, int to)
+    {
+        const int size = int(m_rows.size());
+        if (from == to || from < 0 || to < 0 || from >= size || to >= size)
+            return;
+        // beginMoveRows names the row the moved one goes before, counted before the move.
+        beginMoveRows(QModelIndex(), from, from, QModelIndex(), to > from ? to + 1 : to);
+        m_rows.move(from, to);
+        endMoveRows();
     }
 
     QVariantList rows() const { return m_rows; }

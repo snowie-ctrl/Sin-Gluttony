@@ -42,6 +42,8 @@ qt_add_executable(appGluttony
     services/Home.cpp
     services/Recipes.h
     services/Recipes.cpp
+    services/Saved.h
+    services/Saved.cpp
     services/Wiring.h
     services/Wiring.cpp
 )

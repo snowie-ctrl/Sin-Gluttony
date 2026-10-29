@@ -26,6 +26,7 @@
 #include "services/Home.h"
 #include "services/Nav.h"
 #include "services/Recipes.h"
+#include "services/Saved.h"
 #include "services/Session.h"
 #include "services/Wiring.h"
 
@@ -52,7 +53,7 @@ class TestPages : public QObject
     Q_OBJECT
 
     QTemporaryDir dir;
-    FakeServer server;
+    std::unique_ptr<FakeServer> server;
     std::unique_ptr<Preferences> preferences;
     std::unique_ptr<Api> api;
     std::unique_ptr<Nav> nav;
@@ -62,6 +63,7 @@ class TestPages : public QObject
     std::unique_ptr<Catalog> catalog;
     std::unique_ptr<Home> home;
     std::unique_ptr<Recipes> recipes;
+    std::unique_ptr<Saved> saved;
     // Declared last, so it is destroyed first: pages go before the services they call.
     std::unique_ptr<QQmlApplicationEngine> engine;
 
@@ -109,16 +111,16 @@ class TestPages : public QObject
     // The body of the last request to a route that carried one (a GET has none).
     QJsonObject lastBodyTo(const char *route) const
     {
-        for (int i = server.requests.size() - 1; i >= 0; --i)
-            if (server.requests[i].path() == path(route) && !server.bodies[i].isEmpty())
-                return QJsonDocument::fromJson(server.bodies[i]).object();
+        for (int i = server->requests.size() - 1; i >= 0; --i)
+            if (server->requests[i].path() == path(route) && !server->bodies[i].isEmpty())
+                return QJsonDocument::fromJson(server->bodies[i]).object();
         return {};
     }
 
     QList<QUrl> requestsTo(const char *route) const
     {
         QList<QUrl> found;
-        for (const QUrl &url : server.requests)
+        for (const QUrl &url : server->requests)
             if (url.path() == path(route))
                 found << url;
         return found;
@@ -147,6 +149,7 @@ class TestPages : public QObject
         context->setContextProperty("Catalog", catalog.get());
         context->setContextProperty("Home", home.get());
         context->setContextProperty("Recipes", recipes.get());
+        context->setContextProperty("Saved", saved.get());
         engine->loadFromModule("Gluttony", "Main");
         QVERIFY(window());
         // Tall enough that the whole filter panel and the recipe page's first screen are on it, so clicks land.
@@ -158,7 +161,7 @@ class TestPages : public QObject
     void openRecipeOne()
     {
         // The title holds ")" followed by a quote, so the literal needs its own delimiter.
-        server.responses[path("/recipes/1")] = R"json({"status":"ok","data":{"id":1,"kind":"food","title":"Stub Coq au Vin",
+        server->responses[path("/recipes/1")] = R"json({"status":"ok","data":{"id":1,"kind":"food","title":"Stub Coq au Vin",
           "course":"main","cuisine":"French","servings":4,"servingsFrom":"source","totalMinutes":105,"timeFrom":"rule",
           "difficulty":2,"difficultyFrom":"rule","hasImage":false,"source":"mealdb","sourceUrl":null,"licence":"TheMealDB",
           "credit":"Recipe data and imagery: TheMealDB","imageCredit":null,"videoUrl":null,
@@ -183,6 +186,7 @@ private slots:
     void init()
     {
         engine.reset();
+        saved.reset();
         recipes.reset();
         home.reset();
         catalog.reset();
@@ -192,21 +196,17 @@ private slots:
         nav.reset();
         api.reset();
         preferences.reset();
-        server.responses.clear();
-        server.statuses.clear();
-        server.queued.clear();
-        server.requests.clear();
-        server.bodies.clear();
-        server.holdNext.clear();
-        server.responses[path("/device/identify")] = signedIn;
-        server.responses[path("/me/diet")] = noDiet;
-        server.responses[path("/filters")] = options;
-        server.responses[path("/home")] = emptyHome;
+        // A new server for every case, listening before the last one goes, so a late request never reaches it.
+        server = std::make_unique<FakeServer>();
+        server->responses[path("/device/identify")] = signedIn;
+        server->responses[path("/me/diet")] = noDiet;
+        server->responses[path("/filters")] = options;
+        server->responses[path("/home")] = emptyHome;
 
         preferences = std::make_unique<Preferences>();
         preferences->resetAll();
         api = std::make_unique<Api>();
-        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server.serverPort()));
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         nav = std::make_unique<Nav>();
         accounts = std::make_unique<AccountStore>(dir.path() + "/data");
         session = std::make_unique<Session>(*api);
@@ -214,7 +214,9 @@ private slots:
         catalog = std::make_unique<Catalog>(*api, *diet);
         home = std::make_unique<Home>(*api, *diet);
         recipes = std::make_unique<Recipes>(*api);
-        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes);
+        saved = std::make_unique<Saved>(*api);
+        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes, *saved);
+        server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0}]})";
 
         // Any warning from Gluttony's own QML (a binding error, an unknown property) fails the test.
         QTest::failOnWarning(QRegularExpression(QStringLiteral("qrc:/qt/qml/Gluttony/")));
@@ -233,11 +235,54 @@ private slots:
         QTRY_COMPARE(requestsTo("/me/diet").size(), 1);
         QTRY_COMPARE(requestsTo("/filters").size(), 1);
         QTRY_COMPARE(requestsTo("/home").size(), 1);
+        QTRY_COMPARE(requestsTo("/lists").size(), 1);
+    }
+
+    void aReloadOfTheOpenRecipeKeepsWhatWasChangedMeanwhile()
+    {
+        // Recipes says "changed" when a reload starts, while the old detail (and its old `mine`) is still held:
+        // showing that would wipe the heart made since. Only a loaded answer is shown.
+        const QByteArray detail = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
+          "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        server->responses[path("/recipes/1")] = detail;
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        saved->load();
+        QTRY_VERIFY(saved->listsLoaded());
+        recipes->open(1);
+        QTRY_COMPARE(saved->mineId(), 1);
+        saved->setCraving(1, true);
+        QTRY_VERIFY(saved->mine().value("craving").toBool());
+
+        server->holdNext[path("/recipes/1")] = 1;
+        recipes->reload();
+        QVERIFY(recipes->loading());
+        QCOMPARE(saved->mineId(), 1);
+        QVERIFY(saved->mine().value("craving").toBool());
+
+        // The answer is the newest word, so it is shown once it is in. Parked only once the request has arrived.
+        QTRY_COMPARE(requestsTo("/recipes/1").size(), 2);
+        server->releaseHeld();
+        QTRY_VERIFY(!recipes->loading());
+        QVERIFY(!saved->mine().value("craving").toBool());
+    }
+
+    void openingAnotherRecipeLeavesNoMineOfTheLastOne()
+    {
+        server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
+          "mine":{"craving":true,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        recipes->open(1);
+        QTRY_COMPARE(saved->mineId(), 1);
+        server->holdNext[path("/recipes/2")] = 1;
+        recipes->open(2);
+        QCOMPARE(saved->mineId(), 0);
+        QVERIFY(saved->mine().isEmpty());
+        QTRY_COMPARE(requestsTo("/recipes/2").size(), 1);
+        server->releaseHeld();
     }
 
     void aNewDeviceSeesTheFormAndCanAskForAKey()
     {
-        server.responses[path("/device/identify")] = R"({"status":"new"})";
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
         start();
         QTRY_VERIFY(findVisible("usernameField"));
         QVERIFY(!findVisible("keyField"));
@@ -247,9 +292,9 @@ private slots:
 
     void aRefusedSignInSaysWhy()
     {
-        server.responses[path("/device/identify")] = R"({"status":"new"})";
-        server.responses[path("/auth")] = R"({"status":"invalid_credentials","message":"invalid_credentials"})";
-        server.statuses[path("/auth")] = 401;
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
+        server->responses[path("/auth")] = R"({"status":"invalid_credentials","message":"invalid_credentials"})";
+        server->statuses[path("/auth")] = 401;
         start();
         QTRY_VERIFY(findVisible("usernameField"));
         session->login("stub", "wrong", QString());
@@ -270,8 +315,8 @@ private slots:
         // The forced 404 makes QML's Image say so ("QML QQuickImage: Error transferring …"); that is the case under
         // test, not a fault in Gluttony's QML.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Image: Error transferring"));
-        server.responses[path("/thumbs/1")] = R"({"status":"error","message":"no picture"})";
-        server.statuses[path("/thumbs/1")] = 404;
+        server->responses[path("/thumbs/1")] = R"({"status":"error","message":"no picture"})";
+        server->statuses[path("/thumbs/1")] = 404;
         start();
         QTRY_VERIFY(find("navShell"));
         QQmlComponent component(engine.get());
@@ -290,7 +335,7 @@ private slots:
 
     void homeShowsTheTemptationTheMoodsAndThePicks()
     {
-        server.responses[path("/home")] = R"({"status":"ok","data":{"date":"2026-10-27",
+        server->responses[path("/home")] = R"({"status":"ok","data":{"date":"2026-10-27",
           "pick":{"id":1,"kind":"food","title":"Stub Coq au Vin","cuisine":"French","totalMinutes":105,"timeFrom":"rule","difficulty":2,"hasImage":false},
           "picks":[{"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false}]}})";
         start();
@@ -306,7 +351,7 @@ private slots:
         for (int i = 0; i < 8; ++i)
             picks.append(QJsonObject{{"id", 10 + i}, {"kind", "food"}, {"title", "Stub pick"}, {"hasImage", false}});
         const QJsonObject data{{"date", "2026-10-27"}, {"pick", QJsonValue()}, {"picks", picks}};
-        server.responses[path("/home")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", data}}).toJson();
+        server->responses[path("/home")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", data}}).toJson();
         start();
         // The widest grab and the narrowest window the app allows.
         for (const int width : {1600, 1100}) {
@@ -335,7 +380,7 @@ private slots:
 
     void nothingFitsOffersToSwitchTheDietOff()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["gluten","soy"]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["gluten","soy"]}})";
         start();
         QTRY_VERIFY(findVisible("nothingFits"));
         QTRY_VERIFY(findVisible("dietOffButton"));
@@ -346,9 +391,9 @@ private slots:
 
     void anOutageNeverOffersToSwitchTheDietOff()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["gluten","soy"]}})";
-        server.responses[path("/home")] = R"({"status":"error","message":"server_error"})";
-        server.statuses[path("/home")] = 500;
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["gluten","soy"]}})";
+        server->responses[path("/home")] = R"({"status":"error","message":"server_error"})";
+        server->statuses[path("/home")] = 500;
         start();
         QTRY_VERIFY(findVisible("homeError"));
         QVERIFY(!findVisible("nothingFits"));
@@ -357,15 +402,15 @@ private slots:
 
     void aFailedReloadAfterADietChangeShowsNoStalePick()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
-        server.responses[path("/home")] = R"({"status":"ok","data":{"date":"2026-10-27",
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
+        server->responses[path("/home")] = R"({"status":"ok","data":{"date":"2026-10-27",
           "pick":{"id":1,"kind":"food","title":"Stub Coq au Vin","hasImage":false},
           "picks":[{"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false}]}})";
         start();
         QTRY_VERIFY(findVisible("homePickTitle"));
         QTRY_VERIFY(diet->loaded());
-        server.responses[path("/home")] = R"({"status":"error","message":"server_error"})";
-        server.statuses[path("/home")] = 500;
+        server->responses[path("/home")] = R"({"status":"error","message":"server_error"})";
+        server->statuses[path("/home")] = 500;
         click(findVisible("dietEdit"));
         QTRY_VERIFY(findVisible("dietPopup"));
         click(findVisible("avoid-peanut"));
@@ -377,7 +422,7 @@ private slots:
 
     void goOnThenOpensTheRecipe()
     {
-        server.responses[path("/random")] = R"({"status":"ok","data":{"recipe":{"id":3,"title":"Stub Mojito"}}})";
+        server->responses[path("/random")] = R"({"status":"ok","data":{"recipe":{"id":3,"title":"Stub Mojito"}}})";
         start();
         QTRY_VERIFY(findVisible("goOnThen"));
         click(findVisible("goOnThen"));
@@ -387,7 +432,7 @@ private slots:
 
     void theDietEditorSavesTheProfile()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
         start();
         QTRY_VERIFY(findVisible("dietChip"));
         click(findVisible("dietEdit"));
@@ -402,8 +447,8 @@ private slots:
 
     void aDietThatFailedToLoadCannotBeOverwritten()
     {
-        server.responses[path("/me/diet")] = R"({"status":"error","message":"server_error"})";
-        server.statuses[path("/me/diet")] = 500;
+        server->responses[path("/me/diet")] = R"({"status":"error","message":"server_error"})";
+        server->statuses[path("/me/diet")] = 500;
         start();
         QTRY_VERIFY(find("navShell"));
         QTRY_VERIFY(!diet->error().isEmpty());
@@ -414,8 +459,8 @@ private slots:
         QVERIFY(!findVisible("dietSave")->isEnabled());
         QTRY_VERIFY(findVisible("dietLoadFailed"));
         // Once the server answers, the saved profile fills the editor and Save comes back.
-        server.statuses.remove(path("/me/diet"));
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
+        server->statuses.remove(path("/me/diet"));
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
         click(findVisible("dietLoadRetry"));
         QTRY_VERIFY(findVisible("dietSave")->isEnabled());
         QVERIFY(!findVisible("dietLoadFailed"));
@@ -425,7 +470,7 @@ private slots:
 
     void clickingTheDietChipSwitchesItOffForNow()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
         start();
         QTRY_VERIFY(findVisible("dietChip"));
         click(findVisible("dietChip"));
@@ -434,7 +479,7 @@ private slots:
 
     void browseShowsTheTilesAndTheCount()
     {
-        server.responses[path("/recipes")] = R"({"status":"ok","data":{"total":2,"page":1,"pageSize":24,"recipes":[
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":2,"page":1,"pageSize":24,"recipes":[
           {"id":1,"kind":"food","title":"Stub Coq au Vin","hasImage":false},
           {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false}]}})";
         start();
@@ -465,8 +510,8 @@ private slots:
 
     void emptyResultsSayNothingFitsAndOfferTheDietOff()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":[]}})";
-        server.responses[path("/recipes")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,"recipes":[]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":[]}})";
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,"recipes":[]}})";
         start();
         QTRY_VERIFY(diet->loaded());
         catalog->openWith({{"kind", "drink"}}, "Bottoms up");
@@ -495,7 +540,7 @@ private slots:
 
     void resultsShowTheDietChipWithThePanelCollapsed()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
         preferences->filterPanelCollapsed = true;
         start();
         QTRY_VERIFY(diet->loaded());
@@ -509,7 +554,7 @@ private slots:
 
     void anIngredientPickedBecomesMustInclude()
     {
-        server.responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
+        server->responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
         start();
         QTRY_VERIFY(find("navShell"));
         nav->navigateTo("results-page");
@@ -526,9 +571,9 @@ private slots:
 
     void typingShowsRecipesAndIngredients()
     {
-        server.responses[path("/recipes")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":6,"recipes":[
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":6,"recipes":[
           {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false}]}})";
-        server.responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
+        server->responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
         start();
         QTRY_VERIFY(find("navShell"));
         click(findVisible("searchField"));
@@ -573,9 +618,9 @@ private slots:
 
     void theArrowsWalkToAnIngredientAndEnterIncludesIt()
     {
-        server.responses[path("/recipes")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":6,"recipes":[
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":6,"recipes":[
           {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false}]}})";
-        server.responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
+        server->responses[path("/ingredients")] = R"({"status":"ok","data":[{"id":301,"name":"egg"}]})";
         start();
         QTRY_VERIFY(find("navShell"));
         click(findVisible("searchField"));
@@ -639,7 +684,7 @@ private slots:
 
     void anIncompleteRecipeWarnsWhileTheDietIsOn()
     {
-        server.responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
         start();
         QTRY_VERIFY(diet->loaded());
         openRecipeOne();
@@ -650,8 +695,8 @@ private slots:
 
     void theRecipePageSaysWhenARecipeHasGone()
     {
-        server.responses[path("/recipes/999")] = R"({"status":"error","message":"no such recipe"})";
-        server.statuses[path("/recipes/999")] = 404;
+        server->responses[path("/recipes/999")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/recipes/999")] = 404;
         start();
         QTRY_VERIFY(find("navShell"));
         nav->navigateTo("home-page");
@@ -669,8 +714,8 @@ private slots:
         openRecipeOne();
         QTRY_VERIFY(findVisible("recipeTitle"));
         // Recipes keeps the old recipe map on a 404, so the page itself must put the gone state first.
-        server.responses[path("/recipes/1")] = R"({"status":"error","message":"no such recipe"})";
-        server.statuses[path("/recipes/1")] = 404;
+        server->responses[path("/recipes/1")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/recipes/1")] = 404;
         recipes->reload();
         QTRY_VERIFY(findVisible("recipeGone"));
         QVERIFY(!findVisible("recipeTitle"));
@@ -700,7 +745,7 @@ private slots:
                                  {"steps", steps}, {"facts", QJsonObject{{"complete", true}, {"contains", QJsonArray()},
                                                                          {"diets", QJsonArray()}}},
                                  {"tags", QJsonObject{{"flavour", QJsonArray()}}}, {"versions", QJsonArray()}};
-        server.responses[path("/recipes/5")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", recipe}}).toJson();
+        server->responses[path("/recipes/5")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", recipe}}).toJson();
         start();
         QTRY_VERIFY(find("navShell"));
         // Shorter than the forty lines, so they cannot all be in view at once.

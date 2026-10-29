@@ -22,6 +22,7 @@
 #include "services/Home.h"
 #include "services/Nav.h"
 #include "services/Recipes.h"
+#include "services/Saved.h"
 #include "services/Session.h"
 #include "services/Wiring.h"
 
@@ -52,10 +53,11 @@ int main(int argc, char *argv[])
     Catalog catalog(api, diet);
     Home home(api, diet);
     Recipes recipes(api);
+    Saved saved(api);
     // Pictures load as plain Images through managers this makes, so they carry the session token.
     AuthNetworkFactory networkFactory;
 
-    wireServices(session, accountStore, diet, catalog, home, recipes);
+    wireServices(session, accountStore, diet, catalog, home, recipes, saved);
 
     // Declared after everything QML is given, so it is destroyed first.
     QQmlApplicationEngine engine;
@@ -68,6 +70,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("Catalog", &catalog);
     context->setContextProperty("Home", &home);
     context->setContextProperty("Recipes", &recipes);
+    context->setContextProperty("Saved", &saved);
 
     engine.loadFromModule("Gluttony", "Main");
     if (engine.rootObjects().isEmpty())
