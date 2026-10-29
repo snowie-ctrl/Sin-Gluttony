@@ -17,6 +17,7 @@ Popup {
     padding: Preferences.spacingLarge
 
     readonly property var mineLists: Saved.mineId === popup.recipeId && Saved.mine.lists ? Saved.mine.lists : []
+    readonly property var customLists: Saved.lists.filter(l => l.kind === "custom")
 
     function onList(listId) {
         for (let i = 0; i < popup.mineLists.length; ++i)
@@ -49,10 +50,12 @@ Popup {
 
     // The object name sits here, not on the Popup: a Popup is not an item, so only its content can be found.
     contentItem: Column {
+        id: body
         objectName: "listPopup"
         spacing: Preferences.spacingSmall
 
         Text {
+            id: heading
             text: Words.yourLists
             color: Preferences.textPrimary
             font.family: Preferences.headingFont
@@ -61,25 +64,50 @@ Popup {
         }
 
         Text {
-            visible: Saved.listsLoaded && Saved.lists.filter(l => l.kind === "custom").length === 0
+            visible: Saved.listsLoaded && popup.customLists.length === 0
             text: Words.noListsYet
             color: Preferences.textMuted
             font.family: Preferences.appFont
             font.pixelSize: Preferences.fontSizeBody
         }
 
-        Repeater {
-            model: Saved.lists.filter(l => l.kind === "custom")
-            delegate: Chip {
-                required property var modelData
-                objectName: "listRow-" + modelData.id
-                text: (popup.onList(modelData.id) ? "✓ " : "") + modelData.title
-                selected: popup.onList(modelData.id)
-                onClicked: Saved.setInList(modelData.id, popup.recipeId, !popup.onList(modelData.id))
+        // The lists scroll, so the heading, "New list" and its error stay in the window however many there are (the
+        // server allows 50).
+        Flickable {
+            id: listScroll
+            objectName: "listScroll"
+            visible: popup.customLists.length > 0
+            width: parent.width
+            height: Math.min(contentHeight, Math.max(0, (popup.parent ? popup.parent.height : 0)
+                                                        - 2 * popup.padding - 2 * Preferences.spacingLarge
+                                                        - heading.height - newListRow.height
+                                                        - (popupError.visible ? popupError.height + body.spacing : 0)
+                                                        - 2 * body.spacing))
+            contentWidth: width
+            contentHeight: listFlow.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+
+            Flow {
+                id: listFlow
+                width: listScroll.width
+                spacing: Preferences.spacingSmall
+                Repeater {
+                    model: popup.customLists
+                    delegate: Chip {
+                        required property var modelData
+                        objectName: "listRow-" + modelData.id
+                        text: (popup.onList(modelData.id) ? "✓ " : "") + modelData.title
+                        selected: popup.onList(modelData.id)
+                        onClicked: Saved.setInList(modelData.id, popup.recipeId, !popup.onList(modelData.id))
+                    }
+                }
             }
         }
 
         Row {
+            id: newListRow
             width: parent.width
             spacing: Preferences.spacingSmall
             InputField {
@@ -101,6 +129,7 @@ Popup {
         }
 
         Text {
+            id: popupError
             objectName: "listPopupError"
             visible: popup.error.length > 0
             width: parent.width

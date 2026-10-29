@@ -1116,6 +1116,43 @@ private slots:
         QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 12);
     }
 
+    void aLongListOfListsKeepsNewListInReach()
+    {
+        // Cravings and 49 of the person's own: the most the server allows.
+        QJsonArray lists{QJsonObject{{"id", 3}, {"title", "Cravings"}, {"kind", "cravings"}, {"count", 0}}};
+        for (int i = 0; i < 49; ++i)
+            lists.append(QJsonObject{{"id", 100 + i}, {"title", QStringLiteral("A list with a longish name %1").arg(i + 1)},
+                                     {"kind", "custom"}, {"count", 0}});
+        server->responses[path("/lists")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", lists}}).toJson();
+        start();
+        // A laptop's window, shorter than 49 rows.
+        window()->resize(1366, 768);
+        QTRY_VERIFY(saved->listsLoaded());
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionList"));
+        click(findVisible("actionList"));
+        QTRY_VERIFY(findVisible("newListField"));
+        const auto inWindow = [this](const QString &name) {
+            QQuickItem *item = findVisible(name);
+            if (!item)
+                return false;
+            const QRectF box = item->mapRectToItem(window()->contentItem(), QRectF(0, 0, item->width(), item->height()));
+            return box.top() >= 0 && box.bottom() <= window()->height();
+        };
+        QTRY_VERIFY(inWindow("newListField"));
+        QVERIFY(inWindow("newListCreate"));
+        // The last list is in the popup's scrolled part, and scrolls into the window.
+        auto *scroll = find("listScroll");
+        QVERIFY(scroll);
+        QTRY_VERIFY(find("listRow-148"));
+        QVERIFY(scroll->isAncestorOf(find("listRow-148")));
+        scroll->setProperty("contentY", scroll->property("contentHeight").toReal() - scroll->height());
+        QTRY_VERIFY(inWindow("listRow-148"));
+        click(findVisible("listRow-148"));
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 148);
+    }
+
     void enterInTheNewListFieldCreatesOnceWhileItIsOnItsWay()
     {
         server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0}]})";
