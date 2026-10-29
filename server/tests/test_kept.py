@@ -104,3 +104,15 @@ def test_isoDateReadsWhatMysqlGives(rules):
     assert rules.isoDate(date(2026, 3, 9)) == "2026-03-09"
     assert rules.isoDate(datetime(2026, 3, 9, 23, 59)) == "2026-03-09"
     assert rules.isoDate(None) is None
+
+
+def test_aDeletedNoteKeepsNothing(kept):
+    # A deleted note is a row with no text (it remembers when it was deleted); it must not keep a removed recipe.
+    assert "FROM Notes WHERE UserID = %s AND RecipeID = %s AND Text <> ''" in kept.KEPT_SQL
+
+
+def test_mineReadsADeletedNoteAsNone(kept):
+    from fakes import FakeCursor
+    cur = FakeCursor(fetchall=[[], []], fetchone=[{"Stars": None, "Note": None}])
+    kept.mineOf(cur, 7, 1)
+    assert "NULLIF(Text, '')" in cur.statements("SELECT (SELECT Stars")[0][0]

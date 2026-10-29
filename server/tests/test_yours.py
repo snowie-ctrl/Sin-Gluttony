@@ -146,7 +146,9 @@ def test_starsAreSetAndCleared(userClient, useDb):
     assert conn.cur.statements("INSERT INTO Ratings")[0][1] == (UID, 7, 4)
     conn = useDb(fetchone=[VISIBLE])
     assert post(userClient, "/rating", {"recipeId": 7, "stars": None}).get_json()["data"] == {"recipeId": 7, "stars": None}
-    assert conn.cur.statements("DELETE FROM Ratings")[0][1] == (UID, 7)
+    # A cleared rating stays as a row holding when it was cleared, so a late queue can't bring the old stars back.
+    assert conn.cur.statements("INSERT INTO Ratings")[0][1] == (UID, 7, None)
+    assert not conn.cur.statements("DELETE FROM Ratings")
 
 
 @pytest.mark.parametrize("body", [{"recipeId": 7, "stars": 0}, {"recipeId": 7, "stars": 6},
@@ -173,7 +175,18 @@ def test_aNoteIsTrimmedAndAnEmptyOneDeletes(userClient, useDb):
     assert conn.cur.statements("INSERT INTO Notes")[0][1] == (UID, 7, "less salt")
     conn = useDb(fetchone=[VISIBLE])
     assert post(userClient, "/note", {"recipeId": 7, "text": "  \n "}).get_json()["data"] == {"recipeId": 7, "note": None}
-    assert conn.cur.statements("DELETE FROM Notes")[0][1] == (UID, 7)
+    assert conn.cur.statements("INSERT INTO Notes")[0][1] == (UID, 7, "")
+    assert not conn.cur.statements("DELETE FROM Notes")
+
+
+def test_aChangeIsStampedWithTheServersUtcTime(userClient, useDb):
+    # MySQL's own clock follows the server's zone; the stamp a queued change is compared with must be UTC.
+    for route, table, change in (("/rating", "Ratings", {"stars": 4}), ("/note", "Notes", {"text": "x"})):
+        conn = useDb(fetchone=[VISIBLE])
+        post(userClient, route, dict(recipeId=7, **change))
+        sql = conn.cur.statements(f"INSERT INTO {table}")[0][0]
+        assert "UTC_TIMESTAMP(3)" in sql and "UpdatedAt = VALUES(UpdatedAt)" in sql, table
+        assert conn.commits == 1
 
 
 @pytest.mark.parametrize("text", [None, 5, ["a"]])

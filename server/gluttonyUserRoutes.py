@@ -626,11 +626,10 @@ def rate():
     with database() as (conn, cur):
         if not kept.visibleRecipe(cur, uid, recipeId):
             return fail("no such recipe", 404)
-        if stars is None:
-            cur.execute("DELETE FROM Ratings WHERE UserID = %s AND RecipeID = %s", (uid, recipeId))
-        else:
-            cur.execute("INSERT INTO Ratings (UserID, RecipeID, Stars) VALUES (%s, %s, %s) "
-                        "ON DUPLICATE KEY UPDATE Stars = VALUES(Stars)", (uid, recipeId, stars))
+        # Cleared stars stay as a row (Stars NULL) stamped with when they were cleared (schema-part2.sql).
+        cur.execute("INSERT INTO Ratings (UserID, RecipeID, Stars, UpdatedAt) VALUES (%s, %s, %s, UTC_TIMESTAMP(3)) "
+                    "ON DUPLICATE KEY UPDATE Stars = VALUES(Stars), UpdatedAt = VALUES(UpdatedAt)",
+                    (uid, recipeId, stars))
         conn.commit()
     return ok({"recipeId": recipeId, "stars": stars})
 
@@ -648,10 +647,9 @@ def note():
     with database() as (conn, cur):
         if not kept.visibleRecipe(cur, uid, recipeId):
             return fail("no such recipe", 404)
-        if not text:
-            cur.execute("DELETE FROM Notes WHERE UserID = %s AND RecipeID = %s", (uid, recipeId))
-        else:
-            cur.execute("INSERT INTO Notes (UserID, RecipeID, Text) VALUES (%s, %s, %s) "
-                        "ON DUPLICATE KEY UPDATE Text = VALUES(Text)", (uid, recipeId, text))
+        # A deleted note stays as a row with no text, stamped with when it was deleted (schema-part2.sql).
+        cur.execute("INSERT INTO Notes (UserID, RecipeID, Text, UpdatedAt) VALUES (%s, %s, %s, UTC_TIMESTAMP(3)) "
+                    "ON DUPLICATE KEY UPDATE Text = VALUES(Text), UpdatedAt = VALUES(UpdatedAt)",
+                    (uid, recipeId, text))
         conn.commit()
     return ok({"recipeId": recipeId, "note": text or None})
