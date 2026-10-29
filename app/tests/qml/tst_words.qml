@@ -31,4 +31,14 @@ TestCase {
         compare(Words.DIETS.map(d => d.value), ["vegetarian", "vegan", "gluten-free", "dairy-free"])
         compare(Words.AVOID.length, 13)
     }
+
+    function test_theBadgesSayLittle() {
+        compare(Words.devouredBadge(1), "✓")
+        compare(Words.devouredBadge(3), "✓3")
+        compare(Words.devouredBadge(0), "")
+        compare(Words.starsBadge(4), "★4")
+        compare(Words.starsBadge(0), "")
+        compare(Words.MONTHS.length, 12)
+        compare(Words.goneFromSource, "gone from its source")
+    }
 }

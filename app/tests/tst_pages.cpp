@@ -96,6 +96,18 @@ class TestPages : public QObject
         return window() ? findIn(window()->contentItem(), name, true) : nullptr;
     }
 
+    int countVisible(const QString &name) const
+    {
+        int found = 0;
+        QList<QQuickItem *> pending{window()->contentItem()};
+        while (!pending.isEmpty()) {
+            QQuickItem *item = pending.takeFirst();
+            found += item->objectName() == name && item->isVisible();
+            pending += item->childItems();
+        }
+        return found;
+    }
+
     void click(QQuickItem *item)
     {
         QVERIFY(item);
@@ -855,6 +867,57 @@ private slots:
         QTRY_COMPARE(requestsTo("/home").size(), 2);
         QTest::qWait(100);
         QCOMPARE(requestsTo("/home").size(), 2);
+    }
+
+    void tilesShowTheirBadges()
+    {
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":2,"page":1,"pageSize":24,"recipes":[
+          {"id":1,"kind":"food","title":"Stub Coq au Vin","hasImage":false,"craving":true,"devouredCount":2,"stars":4},
+          {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false,"craving":false,"devouredCount":0,"stars":null}]}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        catalog->openWith({{"kind", "food"}}, "Browse");
+        nav->navigateTo("results-page");
+        QTRY_COMPARE(findVisible("resultsGrid")->property("count").toInt(), 2);
+        QTRY_COMPARE(countVisible("badgeCraving"), 1);
+        QCOMPARE(countVisible("badgeDevoured"), 1);
+        QCOMPARE(findVisible("badgeDevoured")->property("text").toString(), QStringLiteral("✓2"));
+        QCOMPARE(findVisible("badgeStars")->property("text").toString(), QStringLiteral("★4"));
+    }
+
+    void aCravingMadeNowShowsOnItsTilesAtOnce()
+    {
+        server->responses[path("/recipes")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":24,"recipes":[
+          {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false,"craving":false,"devouredCount":0,"stars":null}]}})";
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":4,"count":1}})";
+        start();
+        QTRY_VERIFY(saved->listsLoaded());
+        catalog->openWith({{"kind", "food"}}, "Browse");
+        nav->navigateTo("results-page");
+        QTRY_COMPARE(findVisible("resultsGrid")->property("count").toInt(), 1);
+        QCOMPARE(countVisible("badgeCraving"), 0);
+        saved->setCraving(4, true);
+        QTRY_COMPARE(countVisible("badgeCraving"), 1);
+        // Nothing was asked again to show it.
+        QCOMPARE(requestsTo("/recipes").size(), 1);
+    }
+
+    void aRemovedTileSaysItIsGoneFromItsSource()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QQmlComponent tileComponent(engine.get());
+        tileComponent.loadFromModule("Gluttony", "RecipeTile");
+        QVERIFY2(tileComponent.isReady(), qPrintable(tileComponent.errorString()));
+        std::unique_ptr<QObject> made(tileComponent.createWithInitialProperties(
+            {{"recipe", QVariantMap{{"id", 9}, {"title", "Stub Gone"}, {"hasImage", false}, {"kind", "food"},
+                                    {"totalMinutes", 20}, {"removed", true}}}}));
+        auto *tile = qobject_cast<QQuickItem *>(made.get());
+        QVERIFY(tile);
+        tile->setParentItem(window()->contentItem());
+        QQuickItem *meta = findIn(tile, "tileMeta");
+        QVERIFY(meta);
+        QCOMPARE(meta->property("text").toString(), QStringLiteral("gone from its source"));
     }
 };
 

@@ -78,6 +78,7 @@ qt_add_qml_module(gluttony_ui
         qml/logic/tiles.mjs
         qml/logic/filters.mjs
         qml/logic/credit.mjs
+        qml/logic/days.mjs
 )
 target_link_libraries(gluttony_ui PRIVATE Qt6::Quick Qt6::QuickControls2)
 
