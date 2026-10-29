@@ -60,10 +60,11 @@ CREATE TABLE UserAvoids (
 -- fires in practice: part 1 only hides recipes (RemovedAt), and a hidden one stays visible to whoever kept it.
 
 -- Each account has exactly one 'cravings' list, made at sign-up, which can't be renamed or deleted. CravingsOf is
--- the user's id on that list and NULL on every other (the sign-up sets it), so the unique key allows one Cravings
--- per account and any number of custom lists, even under a race. It is a plain column, not a generated one: MySQL
--- refuses ON DELETE CASCADE on a foreign key over the base column of a stored generated column. OrderIndex orders
--- the custom lists (Cravings always shows first).
+-- the user's id on that list and NULL on every other (the sign-up sets it, and the CHECK keeps it in step with
+-- Kind, which is always written in lowercase), so the unique key allows one Cravings per account and any number
+-- of custom lists, even under a race. It is a plain column, not a generated one: MySQL refuses ON DELETE CASCADE
+-- on a foreign key over the base column of a stored generated column. OrderIndex orders the custom lists
+-- (Cravings always shows first).
 CREATE TABLE Lists (
   ListID INT NOT NULL AUTO_INCREMENT,
   UserID INT NOT NULL,
@@ -76,6 +77,7 @@ CREATE TABLE Lists (
   KEY ix_lists_user (UserID),
   UNIQUE KEY ux_lists_cravings (CravingsOf),
   CONSTRAINT ck_lists_kind CHECK (Kind IN ('cravings', 'custom')),
+  CONSTRAINT ck_lists_cravingsof CHECK ((Kind = 'cravings') = (CravingsOf IS NOT NULL)),
   CONSTRAINT fk_lists_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

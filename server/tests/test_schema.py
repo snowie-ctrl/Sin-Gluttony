@@ -98,3 +98,8 @@ def test_anAccountCanHoldOnlyOneCravingsList():
     assert "CravingsOf INT NULL," in lists
     assert "GENERATED" not in lists
     assert "UNIQUE KEY ux_lists_cravings (CravingsOf)" in lists
+
+
+def test_cravingsOfIsSetExactlyOnCravings():
+    # A list is Cravings exactly when it names its owner in CravingsOf, so the unique key can't be sidestepped.
+    assert "CONSTRAINT ck_lists_cravingsof CHECK ((Kind = 'cravings') = (CravingsOf IS NOT NULL))" in block("Lists")

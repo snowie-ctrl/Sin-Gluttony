@@ -55,6 +55,22 @@ def test_signUpSpendsTheKeyInOneTransaction(anonUserClient, useDb):
     assert conn.commits == 1
 
 
+def test_signUpMakesTheCravingsListInTheSameTransaction(anonUserClient, useDb):
+    conn = useDb(fetchone=[{"KeyValue": "k1", "Used": 0}, None], lastrowids={"Users": [12]})
+    post(anonUserClient, "/auth", {"username": "bea", "password": "long-enough", "fingerprint": "f2", "key": "k1"})
+    made = conn.cur.statements("INSERT INTO Lists")
+    # CravingsOf carries the user's id, so the table's unique key allows one Cravings per account.
+    assert made == [("INSERT INTO Lists (UserID, Title, Kind, OrderIndex, CravingsOf) "
+                     "VALUES (%s, %s, 'cravings', 0, %s)", (12, "Cravings", 12))]
+    assert conn.commits == 1
+
+
+def test_signingInMakesNoList(anonUserClient, useDb):
+    conn = useDb(fetchone=[{"UserID": 7, "Username": "ann", "PasswordHash": HASH}])
+    post(anonUserClient, "/auth", {"username": "ann", "password": "right-password", "fingerprint": "f1"})
+    assert not conn.cur.statements("INSERT INTO Lists")
+
+
 @pytest.mark.parametrize("found", [None, {"KeyValue": "k1", "Used": 1}])
 def test_anUnknownOrUsedKeyIs403(anonUserClient, useDb, found):
     useDb(fetchone=[found])

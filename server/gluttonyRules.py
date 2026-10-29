@@ -478,3 +478,36 @@ def isoDate(value):
     if value is None:
         return None
     return value.date().isoformat() if hasattr(value, "date") else value.isoformat()
+
+
+# ---- what a person keeps ----
+
+LIST_TITLE_MAX = 60
+MAX_LISTS = 50
+MAX_LIST_ITEMS = 2000
+
+
+def listTitle(value):
+    """(title, problem): a list's title, trimmed, 1 to 60 characters."""
+    title = value.strip() if isinstance(value, str) else ""
+    if not 1 <= len(title) <= LIST_TITLE_MAX:
+        return None, f"a list title is 1 to {LIST_TITLE_MAX} characters"
+    return title, None
+
+
+def positiveId(value):
+    """An id from a JSON body: a positive whole number (never a bool, never text), or None."""
+    if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= INT_LIMIT:
+        return value
+    return None
+
+
+def pageArgs(args):
+    """(page, pageSize, problem) for a paged list of the person's own, with /recipes' bounds."""
+    page, problem = wholeNumberArg(args, "page", 1, 1, 10000)
+    if problem:
+        return None, None, problem
+    pageSize, problem = wholeNumberArg(args, "pageSize", PAGE_SIZE, 1, MAX_PAGE_SIZE)
+    if problem:
+        return None, None, problem
+    return page, pageSize, None

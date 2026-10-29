@@ -1,11 +1,12 @@
 # Copied from Pageturner/server/pageturnerRoutes.py at 062da3b; changes: the account routes only, on
-# gluttonyDB's Users.UserID; usernames 3-32 characters; a sign-up's password is checked like a new one;
-# the diet profile routes are new.
+# gluttonyDB's Users.UserID; usernames 3-32 characters; a sign-up's password is checked like a new one and makes
+# the Cravings list; the diet profile, lists, Devoured, rating and note routes are new.
 """
-Accounts and what a person keeps (the diet profile, at /me/diet), at /api/gluttony beside the read API
-(gluttonyRoutes.py), which applies the saved profile to every search. docs/api.md is the contract. Users sign up with a login key the
-owner inserts by hand, and a device that signed in once signs in by itself (/device/identify) until it signs
-out.
+Accounts and what a person keeps (the diet profile at /me/diet; lists, Cravings among them; Devoured marks, stars
+and notes), at /api/gluttony beside the read API (gluttonyRoutes.py), which applies the saved profile to every
+search. docs/api.md is the contract. Users sign up with a login key the owner inserts by hand, and a device that
+signed in once signs in by itself (/device/identify) until it signs out. Everything a person keeps is looked up
+together with their id, so someone else's id is answered 404, like an unknown one.
 """
 import hashlib
 import secrets
@@ -14,7 +15,7 @@ from datetime import timedelta
 from flask import Blueprint, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import gluttonyRules as rules, gluttonySession as session
+from . import gluttonyKept as kept, gluttonyRules as rules, gluttonySession as session
 
 gluttonyUserBP = Blueprint("gluttonyUser", __name__)
 session.install(gluttonyUserBP)
@@ -25,6 +26,8 @@ USERNAME_MIN, USERNAME_MAX = 3, 32
 PASSWORD_MIN, PASSWORD_MAX = 8, 256
 # MySQL's error number for a duplicate key.
 DUPLICATE_ENTRY = 1062
+# The one list every account has from sign-up. The app shows it in its own words; this is what the row holds.
+CRAVINGS_TITLE = "Cravings"
 
 
 def ok(data=None, status="ok", **extra):
@@ -128,6 +131,10 @@ def auth():
                         (username, generate_password_hash(password)))
             uid = cur.lastrowid
             cur.execute("UPDATE LoginKeys SET Used = 1, UsedBy = %s WHERE KeyValue = %s", (uid, found["KeyValue"]))
+            # In the same transaction as the account, so no account ever exists without its Cravings.
+            # CravingsOf names the owner, so the table's unique key allows no second Cravings.
+            cur.execute("INSERT INTO Lists (UserID, Title, Kind, OrderIndex, CravingsOf) "
+                        "VALUES (%s, %s, 'cravings', 0, %s)", (uid, CRAVINGS_TITLE, uid))
         else:
             cur.execute("SELECT UserID, Username, PasswordHash FROM Users WHERE Username = %s", (username,))
             user = cur.fetchone()
@@ -269,3 +276,239 @@ def setDiet():
             cur.execute("INSERT INTO UserAvoids (UserID, Item) VALUES (%s, %s)", (uid, item))
         conn.commit()
     return ok({"diets": diets, "avoid": avoid})
+
+
+# ---- lists (Cravings is the one of kind 'cravings') ----
+
+def listRow(row):
+    return {"id": row["ListID"], "title": row["Title"], "kind": row["Kind"], "count": int(row.get("Count") or 0)}
+
+
+def ownList(cur, uid, listId, lock=False):
+    """One of this person's lists, or None (an unknown id and someone else's look the same). Locked when the
+    caller is about to change it, so two changes to one list happen one after the other."""
+    cur.execute("SELECT ListID, Title, Kind, OrderIndex FROM Lists WHERE ListID = %s AND UserID = %s"
+                + (" FOR UPDATE" if lock else ""), (listId, uid))
+    return cur.fetchone()
+
+
+def listCount(cur, listId):
+    cur.execute("SELECT COUNT(*) AS n FROM ListItems WHERE ListID = %s", (listId,))
+    return int((cur.fetchone() or {}).get("n") or 0)
+
+
+def moveAfter(cur, table, idColumn, scope, scopeParams, movedId, anchorIndex):
+    """Puts one row right after the row at anchorIndex, or first when anchorIndex is None, within `scope` (one
+    list's items, or one person's custom lists). Only the rows past the anchor shift, so a long list costs two
+    statements, and a row added meanwhile on another device keeps its place."""
+    if anchorIndex is None:
+        cur.execute(f"SELECT COALESCE(MIN(OrderIndex), 0) AS low FROM {table} WHERE {scope}", scopeParams)
+        low = int((cur.fetchone() or {}).get("low") or 0)
+        cur.execute(f"UPDATE {table} SET OrderIndex = %s WHERE {scope} AND {idColumn} = %s",
+                    (low - 1, *scopeParams, movedId))
+        return
+    cur.execute(f"UPDATE {table} SET OrderIndex = OrderIndex + 1 WHERE {scope} AND OrderIndex > %s "
+                f"AND {idColumn} <> %s", (*scopeParams, anchorIndex, movedId))
+    cur.execute(f"UPDATE {table} SET OrderIndex = %s WHERE {scope} AND {idColumn} = %s",
+                (anchorIndex + 1, *scopeParams, movedId))
+
+
+@gluttonyUserBP.route("/lists", methods=["GET"])
+def lists():
+    with database() as (conn, cur):
+        cur.execute("SELECT l.ListID, l.Title, l.Kind, COUNT(li.RecipeID) AS Count FROM Lists l "
+                    "LEFT JOIN ListItems li ON li.ListID = l.ListID WHERE l.UserID = %s "
+                    "GROUP BY l.ListID, l.Title, l.Kind, l.OrderIndex "
+                    "ORDER BY l.Kind = 'custom', l.OrderIndex, l.ListID", (session.requestUID(),))
+        rows = cur.fetchall()
+    return ok([listRow(r) for r in rows])
+
+
+@gluttonyUserBP.route("/lists/create", methods=["POST"])
+def createList():
+    title, problem = rules.listTitle(body().get("title"))
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        # The person's row is locked, so two creates racing cannot both be the fiftieth.
+        cur.execute("SELECT UserID FROM Users WHERE UserID = %s FOR UPDATE", (uid,))
+        cur.execute("SELECT COUNT(*) AS n, COALESCE(MAX(OrderIndex), 0) AS top FROM Lists WHERE UserID = %s", (uid,))
+        found = cur.fetchone() or {}
+        if int(found.get("n") or 0) >= rules.MAX_LISTS:
+            return fail(f"you can have at most {rules.MAX_LISTS} lists", 400)
+        cur.execute("INSERT INTO Lists (UserID, Title, Kind, OrderIndex) VALUES (%s, %s, 'custom', %s)",
+                    (uid, title, int(found.get("top") or 0) + 1))
+        listId = cur.lastrowid
+        conn.commit()
+    return ok({"id": listId, "title": title, "kind": "custom", "count": 0})
+
+
+@gluttonyUserBP.route("/lists/rename", methods=["POST"])
+def renameList():
+    data = body()
+    listId = rules.positiveId(data.get("id"))
+    if not listId:
+        return fail("id must be a list id", 400)
+    title, problem = rules.listTitle(data.get("title"))
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        row = ownList(cur, uid, listId, lock=True)
+        if not row:
+            return fail("no such list", 404)
+        if row["Kind"] == "cravings":
+            return fail("Cravings can't be renamed", 400)
+        cur.execute("UPDATE Lists SET Title = %s WHERE ListID = %s AND UserID = %s", (title, listId, uid))
+        count = listCount(cur, listId)
+        conn.commit()
+    return ok({"id": listId, "title": title, "kind": "custom", "count": count})
+
+
+@gluttonyUserBP.route("/lists/delete", methods=["POST"])
+def deleteList():
+    """A list goes with its items (ON DELETE CASCADE); the recipes stay in the catalog."""
+    listId = rules.positiveId(body().get("id"))
+    if not listId:
+        return fail("id must be a list id", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        row = ownList(cur, uid, listId, lock=True)
+        if not row:
+            return fail("no such list", 404)
+        if row["Kind"] == "cravings":
+            return fail("Cravings can't be deleted", 400)
+        cur.execute("DELETE FROM Lists WHERE ListID = %s AND UserID = %s", (listId, uid))
+        conn.commit()
+    return ok()
+
+
+@gluttonyUserBP.route("/lists/reorder", methods=["POST"])
+def reorderLists():
+    """One custom list moves after another (or first, after null or after Cravings). Cravings always shows first."""
+    data = body()
+    listId = rules.positiveId(data.get("id"))
+    after = data.get("after")
+    afterId = rules.positiveId(after)
+    if not listId or (after is not None and not afterId):
+        return fail("id must be a list id, and after a list id or null", 400)
+    if afterId == listId:
+        return fail("a list can't go after itself", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        moving = ownList(cur, uid, listId, lock=True)
+        if not moving:
+            return fail("no such list", 404)
+        if moving["Kind"] == "cravings":
+            return fail("Cravings stays first", 400)
+        anchorIndex = None
+        if afterId:
+            anchor = ownList(cur, uid, afterId)
+            if not anchor:
+                return fail("no such list", 404)
+            anchorIndex = None if anchor["Kind"] == "cravings" else anchor["OrderIndex"]
+        moveAfter(cur, "Lists", "ListID", "UserID = %s AND Kind = 'custom'", (uid,), listId, anchorIndex)
+        conn.commit()
+    return ok()
+
+
+def itemIds(data):
+    return rules.positiveId(data.get("listId")), rules.positiveId(data.get("recipeId"))
+
+
+@gluttonyUserBP.route("/lists/items/add", methods=["POST"])
+def addToList():
+    """Adding a recipe already on the list changes nothing, so a resent add is harmless."""
+    listId, recipeId = itemIds(body())
+    if not listId or not recipeId:
+        return fail("listId and recipeId must be ids", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not ownList(cur, uid, listId, lock=True):
+            return fail("no such list", 404)
+        if not kept.visibleRecipe(cur, uid, recipeId):
+            return fail("no such recipe", 404)
+        cur.execute("SELECT COUNT(*) AS n, COALESCE(MIN(OrderIndex), 0) AS low, SUM(RecipeID = %s) AS here "
+                    "FROM ListItems WHERE ListID = %s", (recipeId, listId))
+        found = cur.fetchone() or {}
+        count = int(found.get("n") or 0)
+        if not int(found.get("here") or 0):
+            if count >= rules.MAX_LIST_ITEMS:
+                return fail(f"a list holds at most {rules.MAX_LIST_ITEMS} recipes", 400)
+            cur.execute("INSERT INTO ListItems (ListID, RecipeID, OrderIndex) VALUES (%s, %s, %s)",
+                        (listId, recipeId, int(found.get("low") or 0) - 1))
+            count += 1
+        conn.commit()
+    return ok({"listId": listId, "recipeId": recipeId, "count": count})
+
+
+@gluttonyUserBP.route("/lists/items/remove", methods=["POST"])
+def removeFromList():
+    listId, recipeId = itemIds(body())
+    if not listId or not recipeId:
+        return fail("listId and recipeId must be ids", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not ownList(cur, uid, listId, lock=True):
+            return fail("no such list", 404)
+        cur.execute("DELETE FROM ListItems WHERE ListID = %s AND RecipeID = %s", (listId, recipeId))
+        count = listCount(cur, listId)
+        conn.commit()
+    return ok({"listId": listId, "recipeId": recipeId, "count": count})
+
+
+def itemIndex(cur, listId, recipeId):
+    cur.execute("SELECT OrderIndex FROM ListItems WHERE ListID = %s AND RecipeID = %s", (listId, recipeId))
+    row = cur.fetchone()
+    return None if row is None else row["OrderIndex"]
+
+
+@gluttonyUserBP.route("/lists/items/reorder", methods=["POST"])
+def reorderItems():
+    """One recipe moves after another on the same list (or to the top, after null). A recipe or anchor that has
+    left the list meanwhile (another device) is a 404, and the app shows the list again as the server holds it."""
+    data = body()
+    listId, recipeId = itemIds(data)
+    after = data.get("after")
+    afterId = rules.positiveId(after)
+    if not listId or not recipeId or (after is not None and not afterId):
+        return fail("listId and recipeId must be ids, and after a recipe id or null", 400)
+    if afterId == recipeId:
+        return fail("a recipe can't go after itself", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not ownList(cur, uid, listId, lock=True):
+            return fail("no such list", 404)
+        if itemIndex(cur, listId, recipeId) is None:
+            return fail("that recipe is not on this list", 404)
+        anchorIndex = None
+        if afterId:
+            anchorIndex = itemIndex(cur, listId, afterId)
+            if anchorIndex is None:
+                return fail("that recipe is not on this list", 404)
+        moveAfter(cur, "ListItems", "RecipeID", "ListID = %s", (listId,), recipeId, anchorIndex)
+        conn.commit()
+    return ok()
+
+
+@gluttonyUserBP.route("/lists/<int:listId>/recipes", methods=["GET"])
+def listRecipes(listId):
+    """A list's recipes, a page at a time, in the person's order. A recipe part 1 has removed stays, marked removed:
+    the person kept it, so it is theirs to open."""
+    page, pageSize, problem = rules.pageArgs(request.args)
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        row = ownList(cur, uid, listId)
+        if not row:
+            return fail("no such list", 404)
+        total = listCount(cur, listId)
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt FROM ListItems li "
+                    "JOIN Recipes r ON r.RecipeID = li.RecipeID WHERE li.ListID = %s "
+                    "ORDER BY li.OrderIndex, li.AddedAt DESC, r.RecipeID LIMIT %s OFFSET %s",
+                    (listId, pageSize, (page - 1) * pageSize))
+        tiles = kept.attachTileFlags(cur, uid, [kept.savedTile(r) for r in cur.fetchall()])
+    return ok({"total": total, "page": page, "pageSize": pageSize, "list": listRow(dict(row, Count=total)),
+               "recipes": tiles})

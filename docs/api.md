@@ -85,3 +85,22 @@ the person's id, so someone else's id, like an unknown one, is `404`, never `403
   Its detail and pictures answer only to a person who has it in a list (Cravings included), has devoured it, or has
   a note on it; the detail then has `removed: true` (`false` otherwise). Everyone else gets `404`. Tiles from the
   person's own lists and history carry `removed` too.
+
+### Lists
+
+Every account has one list of kind `cravings` (♥ Cravings), made at sign-up; it can't be renamed, deleted or moved.
+The rest are `custom`. A list reads in the person's order; a recipe added goes on top.
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /lists` | | `data: [{id, title, kind, count}]`, Cravings first, then the person's order |
+| `POST /lists/create` | `{title}` | `data`: the new list. `400 "a list title is 1 to 60 characters"` (trimmed); `400 "you can have at most 50 lists"` (Cravings counts) |
+| `POST /lists/rename` | `{id, title}` | `data`: the list. `400 "Cravings can't be renamed"` |
+| `POST /lists/delete` | `{id}` | `{status:"ok"}`; the items go, the recipes stay. `400 "Cravings can't be deleted"` |
+| `POST /lists/reorder` | `{id, after}` | `{status:"ok"}`; the list moves right after `after` (a list id), or first for `null` or Cravings' id. `400 "Cravings stays first"` |
+| `POST /lists/items/add` | `{listId, recipeId}` | `data: {listId, recipeId, count}`; adding a recipe already there changes nothing. `400 "a list holds at most 2000 recipes"`; `404 "no such recipe"` for one the person may not see |
+| `POST /lists/items/remove` | `{listId, recipeId}` | `data: {listId, recipeId, count}`; a recipe not on the list is nothing to remove |
+| `POST /lists/items/reorder` | `{listId, recipeId, after}` | `{status:"ok"}`; the recipe moves right after `after` (a recipe id on this list), or to the top for `null`. `404 "that recipe is not on this list"` for either id |
+| `GET /lists/<id>/recipes` | `?page=&pageSize=` (≤ 60) | `data: {total, page, pageSize, list: {id, title, kind, count}, recipes: [tile]}`; tiles carry the flags and `removed` |
+
+An unknown or someone else's list is `404 "no such list"`. Ids in bodies are whole numbers; anything else is `400`.
