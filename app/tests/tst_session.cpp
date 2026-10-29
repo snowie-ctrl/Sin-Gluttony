@@ -1,4 +1,4 @@
-// Copied from Pageturner Pageturner/tests/tst_session.cpp at ad9342e; Gluttony paths; an offline start needs a saved recipe, not a download.
+// Copied from Pageturner Pageturner/tests/tst_session.cpp at ad9342e; Gluttony paths; an offline start needs a saved recipe, not a download; usernames are 3 to 32 characters.
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -307,7 +307,7 @@ private slots:
         QCOMPARE(session.username(), QStringLiteral("stub"));
     }
 
-    void anEmptyOrLongUsernameAsksNothing()
+    void aUsernameOutsideThreeToThirtyTwoAsksNothing()
     {
         FakeServer server;
         Api api;
@@ -317,9 +317,11 @@ private slots:
         QSignalSpy failed(&session, &Session::accountFailed);
 
         session.changeUsername("   ");
-        session.changeUsername(QString(65, QLatin1Char('x')));
-        QCOMPARE(failed.count(), 2);
-        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("A username is 1 to 64 characters"));
+        session.changeUsername(" ab ");
+        session.changeUsername(QString(33, QLatin1Char('x')));
+        QCOMPARE(failed.count(), 3);
+        // The server's own limits (gluttonyUserRoutes.USERNAME_MIN and _MAX), in the app's words.
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("A username is 3 to 32 characters"));
         QTest::qWait(50);
         QCOMPARE(requestsTo(server, usernamePath), 0);
     }

@@ -1,5 +1,5 @@
 // Copied from Pageturner Pageturner/assets/Preferences.cpp at ad9342e; Gluttony's limits and choices, its own ini
-// name, the bundled Playfair Display; no per-series settings.
+// name, the bundled Playfair Display; no per-series settings; resetColours is new.
 #include "Preferences.h"
 
 #include <QDebug>
@@ -153,6 +153,14 @@ void Preferences::resetAll()
 {
     for (auto it = m_defaults.constBegin(); it != m_defaults.constEnd(); ++it)
         reset(it.key());
+}
+
+void Preferences::resetColours()
+{
+    // Found rather than listed, so a colour token added later is reset too.
+    for (const QMetaProperty &property : preferenceProperties(metaObject()))
+        if (property.metaType().id() == QMetaType::QColor)
+            reset(QString::fromLatin1(property.name()));
 }
 
 void Preferences::scheduleSave()

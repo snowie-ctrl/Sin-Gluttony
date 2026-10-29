@@ -1,6 +1,6 @@
 // Copied from Pageturner Pageturner/assets/Preferences.h at ad9342e; Gluttony's look ("Gula") replaces the
-// ink-blue tokens; the reader, storage and per-series settings are gone; units, tileWidth and the filter panel
-// are new.
+// ink-blue tokens; the reader, storage and per-series settings are gone; units, tileWidth, the filter panel and
+// resetColours are new.
 #pragma once
 #include <QColor>
 #include <QObject>
@@ -61,6 +61,8 @@ public:
     Q_INVOKABLE QStringList choices(const QString &key) const;
     Q_INVOKABLE void reset(const QString &key);
     Q_INVOKABLE void resetAll();
+    // Settings › Colours: every colour token back to Gula's, everything else as it is.
+    Q_INVOKABLE void resetColours();
 
         // Type: Tahoma for reading, Playfair Display (bundled) for headings, mood names and page titles.
     QString appFont =           QStringLiteral("Tahoma");

@@ -5,6 +5,7 @@ export const appName = "Gluttony"
 export const navHome = "Home"
 export const navBrowse = "Browse"
 export const navSaved = "Saved"
+export const navSettings = "Settings"
 export const searchPlaceholder = "What are you hungry for?"
 export const searchRecipes = "Recipes"
 export const searchIngredients = "Ingredients"
@@ -111,6 +112,28 @@ export const noDevoured = "Nothing devoured yet"
 export const noDevouredHint = "Tap ✓ Devoured on a recipe once you have made it."
 export const dragToMove = "Drag to move"
 export const removeFromList = "Take off this list"
+export const settingsTitle = "Settings"
+export const accountTitle = "Account"
+export const usernameHint = "3 to 32 characters"
+export const changeUsername = "Change username"
+export const currentPassword = "Current password"
+export const newPassword = "New password"
+export const changePassword = "Change password"
+export const passwordHint = "8 to 256 characters. Your other devices will be signed out."
+export const devicesTitle = "Devices"
+export const thisDevice = "this device"
+export const forget = "Forget"
+export const notSignedInLately = "not signed in lately"
+export const unitsTitle = "Units"
+export const coloursTitle = "Colours"
+export const resetColours = "Reset colours"
+export const resetColoursHint = "Back to Gula's own colours."
+export const connectionTitle = "Connection"
+export const connectedAtHome = "Connected at home"
+export const connectedAway = "Connected away from home"
+export const notConnected = "Not connected"
+// What Settings says once Session has done what was asked ("username", "password" or "device").
+export const ACCOUNT_DONE = { username: "Username changed", password: "Password changed", device: "Device forgotten" }
 export const deleteNote = "Delete note"
 export const removeMark = "Remove this mark"
 
@@ -210,4 +233,8 @@ export function deleteListQuestion(title) {
 // A tab's name: Cravings in the app's own word, the person's lists as they named them, each with its count.
 export function listTabTitle(list) {
     return (list.kind === "cravings" ? cravings : list.title) + "  " + list.count
+}
+
+export function lastSignedIn(label) {
+    return "last signed in " + label
 }

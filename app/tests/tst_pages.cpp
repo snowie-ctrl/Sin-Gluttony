@@ -1,5 +1,6 @@
 #include <QDate>
 #include <QJsonArray>
+#include <QColor>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
@@ -246,6 +247,14 @@ class TestPages : public QObject
         QTRY_VERIFY(findVisible("railSaved"));
         click(findVisible("railSaved"));
         QTRY_VERIFY(findVisible("savedPage"));
+    }
+
+    void openSettings()
+    {
+        start();
+        QTRY_VERIFY(findVisible("railSettings"));
+        click(findVisible("railSettings"));
+        QTRY_VERIFY(findVisible("settingsPage"));
     }
 
 private slots:
@@ -1467,6 +1476,108 @@ private slots:
         nav->navigateTo("saved-page");
         QTRY_VERIFY(findVisible("tab-devoured") && findVisible("tab-devoured")->property("selected").toBool());
         QTRY_VERIFY(findVisible("sort-stars"));
+    }
+
+    void settingsShowTheAccountAndTheConnection()
+    {
+        server->responses[path("/devices")] = R"({"status":"ok","data":[
+          {"id":"f00dfeedf00dfeed","label":"f00dfeed","current":true,"lastSignIn":"2026-10-27T08:00:00Z"},
+          {"id":"0a1b2c3d4e5f6071","label":"0a1b2c3d","current":false,"lastSignIn":null}]})";
+        openSettings();
+        QCOMPARE(findVisible("usernameField")->property("text").toString(), QStringLiteral("stub"));
+        // The test's only address is the public one.
+        QCOMPARE(findVisible("connectionState")->property("text").toString(), QStringLiteral("Connected away from home"));
+        QTRY_VERIFY(findVisible("device-0a1b2c3d4e5f6071"));
+        QVERIFY(findVisible("forget-0a1b2c3d4e5f6071"));
+        // This device signs out instead of being forgotten.
+        QVERIFY(!findVisible("forget-f00dfeedf00dfeed"));
+        QCOMPARE(requestsTo("/devices").size(), 1);
+    }
+
+    void aNewUsernameIsCheckedAsTheServerChecksIt()
+    {
+        server->responses[path("/user/username")] = R"({"status":"ok","username":"reader"})";
+        openSettings();
+        findVisible("usernameField")->setProperty("text", QStringLiteral("ab"));
+        click(findVisible("usernameSave"));
+        QTRY_COMPARE(find("accountMessage")->property("text").toString(),
+                     QStringLiteral("A username is 3 to 32 characters"));
+        QVERIFY(requestsTo("/user/username").isEmpty());
+        findVisible("usernameField")->setProperty("text", QStringLiteral("reader"));
+        click(findVisible("usernameSave"));
+        QTRY_COMPARE(requestsTo("/user/username").size(), 1);
+        QTRY_COMPARE(session->username(), QStringLiteral("reader"));
+        QTRY_COMPARE(find("accountMessage")->property("text").toString(), QStringLiteral("Username changed"));
+    }
+
+    void aWrongCurrentPasswordSaysSoAndKeepsTheSession()
+    {
+        server->responses[path("/user/password")] = R"({"status":"invalid_credentials","message":"invalid_credentials"})";
+        server->statuses[path("/user/password")] = 401;
+        openSettings();
+        findVisible("currentPasswordField")->setProperty("text", QStringLiteral("wrong-one"));
+        findVisible("newPasswordField")->setProperty("text", QStringLiteral("a-new-password"));
+        click(findVisible("passwordSave"));
+        QTRY_COMPARE(find("accountMessage")->property("text").toString(),
+                     QStringLiteral("Your current password is not right"));
+        QVERIFY(session->authenticated());
+    }
+
+    void anotherDeviceIsForgotten()
+    {
+        server->responses[path("/devices")] = R"({"status":"ok","data":[
+          {"id":"0a1b2c3d4e5f6071","label":"0a1b2c3d","current":false,"lastSignIn":null}]})";
+        server->responses[path("/devices/remove")] = R"({"status":"ok"})";
+        openSettings();
+        QTRY_VERIFY(findVisible("forget-0a1b2c3d4e5f6071"));
+        click(findVisible("forget-0a1b2c3d4e5f6071"));
+        QTRY_COMPARE(requestsTo("/devices/remove").size(), 1);
+        QCOMPARE(lastBodyTo("/devices/remove").value("id").toString(), QStringLiteral("0a1b2c3d4e5f6071"));
+        QTRY_COMPARE(requestsTo("/devices").size(), 2);
+    }
+
+    void unitsAndColoursAreSetHere()
+    {
+        openSettings();
+        click(findVisible("settings-units-us"));
+        QTRY_COMPARE(preferences->units, QStringLiteral("us"));
+        preferences->setProperty("accentColor", QColor(0x00ff00));
+        click(findVisible("resetColours"));
+        QTRY_COMPARE(preferences->accentColor, QColor(0xff7a1a));
+        QCOMPARE(preferences->units, QStringLiteral("us"));
+    }
+
+    void theDietIsEditedFromSettings()
+    {
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
+        openSettings();
+        QTRY_COMPARE(findVisible("settingsDiet")->property("text").toString(), QStringLiteral("Vegetarian · no peanuts"));
+        click(findVisible("settingsDietEdit"));
+        QTRY_VERIFY(findVisible("dietPopup"));
+    }
+
+    void signingOutFromSettingsGoesBackToTheForm()
+    {
+        openSettings();
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(findVisible("loginPage"));
+        QVERIFY(!session->authenticated());
+    }
+
+    void enterInThePasswordFieldsIsHeldBackUntilTheButtonWouldAllowIt()
+    {
+        server->responses[path("/user/password")] = R"({"status":"ok"})";
+        openSettings();
+        findVisible("newPasswordField")->forceActiveFocus();
+        type("a-new-password");
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTest::qWait(100);
+        // The current password is still empty, so the button is off and Enter asks nothing.
+        QVERIFY(requestsTo("/user/password").isEmpty());
+        findVisible("currentPasswordField")->forceActiveFocus();
+        type("the-old-one");
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTRY_COMPARE(requestsTo("/user/password").size(), 1);
     }
 };
 

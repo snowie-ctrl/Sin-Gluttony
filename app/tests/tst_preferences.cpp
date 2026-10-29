@@ -88,6 +88,20 @@ private slots:
         QCOMPARE(p.units, QStringLiteral("metric"));
         QCOMPARE(p.choices("units"), (QStringList{"metric", "us"}));
     }
+
+    void resettingColoursPutsGulaBackAndLeavesTheRest()
+    {
+        Preferences p;
+        p.setProperty("accentColor", QColor(0x00ff00));
+        p.setProperty("surfaceArt", QColor(0x123456));
+        p.setProperty("units", QStringLiteral("us"));
+        p.setProperty("tileWidth", 260);
+        p.resetColours();
+        QCOMPARE(p.accentColor, QColor(0xff7a1a));
+        QCOMPARE(p.surfaceArt, QColor(0x161312));
+        QCOMPARE(p.units, QStringLiteral("us"));
+        QCOMPARE(p.tileWidth, 260);
+    }
 };
 
 // A GUI application: Preferences registers the bundled font, which needs one.

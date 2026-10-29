@@ -61,6 +61,7 @@ qt_add_qml_module(gluttony_ui
         qml/pages/ResultsPage.qml
         qml/pages/RecipePage.qml
         qml/pages/SavedPage.qml
+        qml/pages/SettingsPage.qml
         qml/component/TintedIcon.qml
         qml/component/ActionButton.qml
         qml/component/InputField.qml

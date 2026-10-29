@@ -1,4 +1,4 @@
-// Copied from Pageturner Pageturner/services/Session.cpp at ad9342e; the account folder holds saved recipes instead of downloads.
+// Copied from Pageturner Pageturner/services/Session.cpp at ad9342e; the account folder holds saved recipes instead of downloads; usernames are 3 to 32 characters, as Gluttony's server takes them.
 #include "services/Session.h"
 #include "api/AppConfig.h"
 
@@ -349,8 +349,9 @@ void Session::forget()
 void Session::changeUsername(const QString &username)
 {
     const QString name = username.trimmed();
-    if (name.isEmpty() || name.size() > 64) {
-        emit accountFailed(QStringLiteral("username"), QStringLiteral("A username is 1 to 64 characters"));
+    // The server's limits (gluttonyUserRoutes.USERNAME_MIN and USERNAME_MAX), so it is never asked for one it refuses.
+    if (name.size() < 3 || name.size() > 32) {
+        emit accountFailed(QStringLiteral("username"), QStringLiteral("A username is 3 to 32 characters"));
         return;
     }
     const int generation = m_generation;

@@ -17,7 +17,8 @@ Rectangle {
 
     // Each page adds its own entry here.
     readonly property var pageComponents: ({ "home-page": homePage, "results-page": resultsPage,
-                                             "recipe-page": recipePage, "saved-page": savedPage })
+                                             "recipe-page": recipePage, "saved-page": savedPage,
+                                             "settings-page": settingsPage })
     readonly property string startPage: root.pageComponents[Nav.currentPage] !== undefined ? Nav.currentPage : "home-page"
 
     Component.onCompleted: {
@@ -41,6 +42,7 @@ Rectangle {
     Component { id: resultsPage; ResultsPage {} }
     Component { id: recipePage; RecipePage { onBackRequested: Nav.navigateTo(root.lastListPage) } }
     Component { id: savedPage; SavedPage {} }
+    Component { id: settingsPage; SettingsPage {} }
 
     Rectangle {
         id: rail
@@ -85,27 +87,14 @@ Rectangle {
             }
         }
 
+        // Settings holds the account, and signing out, as well as the rest.
         RailButton {
-            id: account
-            objectName: "railAccount"
+            objectName: "railSettings"
             anchors { bottom: parent.bottom; bottomMargin: 16; horizontalCenter: parent.horizontalCenter }
-            label: Words.signedInAs(Session.username)
+            label: Words.navSettings
+            pageTag: "settings-page"
             iconSource: "qrc:/images/settings.svg"
-            onActivated: accountMenu.open()
-
-            // Basic's menu is light; this one is drawn in the app's colours, like the rest of the shell.
-            Menu {
-                id: accountMenu
-                x: account.width + 8
-                background: Rectangle {
-                    implicitWidth: 220
-                    color: Preferences.backgroundSecondary
-                    border.color: Preferences.borderColor
-                    radius: Preferences.controlRadius
-                }
-                AccountItem { text: Words.signedInAs(Session.username); enabled: false }
-                AccountItem { objectName: "signOut"; text: Words.signOut; onTriggered: Session.logout() }
-            }
+            onActivated: Nav.navigateTo("settings-page")
         }
     }
 
@@ -145,25 +134,6 @@ Rectangle {
         id: pageLoader
         anchors { left: rail.right; right: parent.right; top: banner.bottom; bottom: parent.bottom }
         sourceComponent: root.pageComponents[root.currentPage] || null
-    }
-
-    // An account menu entry: the panel's text on its ground, the hover a shade lighter.
-    component AccountItem: MenuItem {
-        id: item
-        contentItem: Text {
-            leftPadding: Preferences.spacingSmall
-            text: item.text
-            color: item.enabled ? Preferences.textPrimary : Preferences.textSecondary
-            font.family: Preferences.appFont
-            font.pixelSize: Preferences.fontSizeLabel
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Rectangle {
-            implicitWidth: 220
-            implicitHeight: 36
-            radius: Preferences.controlRadius
-            color: item.highlighted ? Preferences.backgroundTertiary : "transparent"
-        }
     }
 
     // An icon with its label as a tooltip: the rail stays narrow so pages get the width.
