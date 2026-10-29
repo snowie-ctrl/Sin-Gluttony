@@ -104,3 +104,15 @@ The rest are `custom`. A list reads in the person's order; a recipe added goes o
 | `GET /lists/<id>/recipes` | `?page=&pageSize=` (≤ 60) | `data: {total, page, pageSize, list: {id, title, kind, count}, recipes: [tile]}`; tiles carry the flags and `removed` |
 
 An unknown or someone else's list is `404 "no such list"`. Ids in bodies are whole numbers; anything else is `400`.
+
+### Yours: Devoured, stars and notes
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /devoured/add` | `{recipeId, on, clientId}` | `data: {id, recipeId, on, count, already}`. `on` is the day in the person's own calendar, `YYYY-MM-DD`, from 1900-01-01 to tomorrow in UTC (`400 "on must be a date (YYYY-MM-DD), not after tomorrow"`). `clientId` is a lowercase UUID the app makes (`400 "clientId must be a UUID"`); sending the same one again answers the stored mark with `already: true`, even when two sends race. A `clientId` is unique across all accounts: one already held by another account is `409 "that clientId is in use"`, and the other account's mark is never revealed or changed. `count` is the person's marks on that recipe. |
+| `POST /devoured/remove` | `{id}` | `data: {id, recipeId, count}`; `404 "no such Devoured mark"` |
+| `GET /devoured` | `?page=&pageSize=&sort=recent\|stars` | `data: {total, page, pageSize, recipes: [tile]}`, one tile per mark, each with `devouredId` and `on` beside the flags and `removed`; `recent` (default) is newest first, `stars` best first (unrated last) |
+| `POST /rating` | `{recipeId, stars}` | `data: {recipeId, stars}`; `stars` 1–5, or `null` to clear (`400 "stars must be a whole number from 1 to 5, or null"`) |
+| `POST /note` | `{recipeId, text}` | `data: {recipeId, note}`; the text is trimmed, empty text deletes the note (`note: null`); `400 "a note is at most 2000 characters"`, counted in characters (an emoji is one) |
+
+A recipe the person may not see is `404 "no such recipe"`.

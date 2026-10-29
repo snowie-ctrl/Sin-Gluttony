@@ -4,7 +4,7 @@ SQL they become, and the JSON shapes. Nothing here touches the database or the
 disk, so every rule is tested directly and the routes stay thin.
 """
 import re
-from datetime import timezone
+from datetime import date, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 INT_LIMIT = 2 ** 31 - 1
@@ -511,3 +511,50 @@ def pageArgs(args):
     if problem:
         return None, None, problem
     return page, pageSize, None
+
+
+NOTE_MAX = 2000
+# A Devoured day before this is a typo, not a memory.
+EARLIEST_DAY = date(1900, 1, 1)
+_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+# The app makes its ids with QUuid, lowercase and without braces; anything else is not one of its ids.
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def madeOn(value, todayUtc):
+    """(day, problem) for the day a recipe was made, "YYYY-MM-DD" in the person's own calendar. Every zone's today
+    is at most tomorrow in UTC (UTC+14), so tomorrow is the latest day accepted; the day after is a mistake."""
+    problem = "on must be a date (YYYY-MM-DD), not after tomorrow"
+    if not isinstance(value, str) or not _DAY.fullmatch(value):
+        return None, problem
+    try:
+        day = date.fromisoformat(value)
+    except ValueError:
+        return None, problem
+    if not EARLIEST_DAY <= day <= todayUtc + timedelta(days=1):
+        return None, problem
+    return day, None
+
+
+def clientIdProblem(value):
+    return None if isinstance(value, str) and _UUID.fullmatch(value) else "clientId must be a UUID"
+
+
+def starsValue(value):
+    """(stars, problem): a whole number 1 to 5, or None to clear them."""
+    if value is None:
+        return None, None
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5:
+        return value, None
+    return None, "stars must be a whole number from 1 to 5, or null"
+
+
+def noteText(value):
+    """(text, problem): the note trimmed, at most 2,000 characters. Python counts characters as MySQL's utf8mb4 does
+    (an emoji is one), so the limit here is the column's. Empty text means no note."""
+    if not isinstance(value, str):
+        return None, "text must be text"
+    text = value.strip()
+    if len(text) > NOTE_MAX:
+        return None, f"a note is at most {NOTE_MAX} characters"
+    return text, None

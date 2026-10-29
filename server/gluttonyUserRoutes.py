@@ -10,7 +10,7 @@ together with their id, so someone else's id is answered 404, like an unknown on
 """
 import hashlib
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -512,3 +512,146 @@ def listRecipes(listId):
         tiles = kept.attachTileFlags(cur, uid, [kept.savedTile(r) for r in cur.fetchall()])
     return ok({"total": total, "page": page, "pageSize": pageSize, "list": listRow(dict(row, Count=total)),
                "recipes": tiles})
+
+
+# ---- Devoured, stars and notes ----
+
+def devouredCount(cur, uid, recipeId):
+    cur.execute("SELECT COUNT(*) AS n FROM Devoured WHERE UserID = %s AND RecipeID = %s", (uid, recipeId))
+    return int((cur.fetchone() or {}).get("n") or 0)
+
+
+@gluttonyUserBP.route("/devoured/add", methods=["POST"])
+def devour():
+    """One more time the person made the recipe. The app names the mark (clientId), so the same mark sent again,
+    by a retry or a queue, is answered with the row already stored and never counted twice."""
+    data = body()
+    recipeId = rules.positiveId(data.get("recipeId"))
+    if not recipeId:
+        return fail("recipeId must be a recipe id", 400)
+    day, problem = rules.madeOn(data.get("on"), datetime.now(timezone.utc).date())
+    if problem:
+        return fail(problem, 400)
+    clientId = data.get("clientId")
+    problem = rules.clientIdProblem(clientId)
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not kept.visibleRecipe(cur, uid, recipeId):
+            return fail("no such recipe", 404)
+        cur.execute("SELECT DevouredID, RecipeID, MadeOn FROM Devoured WHERE ClientID = %s AND UserID = %s",
+                    (clientId, uid))
+        found = cur.fetchone()
+        already = found is not None
+        if not found:
+            try:
+                cur.execute("INSERT INTO Devoured (UserID, RecipeID, MadeOn, ClientID) VALUES (%s, %s, %s, %s)",
+                            (uid, recipeId, day, clientId))
+                found = {"DevouredID": cur.lastrowid, "RecipeID": recipeId, "MadeOn": day}
+            except Exception as error:
+                if getattr(error, "errno", None) != DUPLICATE_ENTRY:
+                    raise
+                # The unique key on ClientID is global, so the row that holds this id is either this person's own
+                # (a resend that raced its twin: answer it as stored) or someone else's (never theirs to see, and
+                # never overwritten: refuse). A locking read, because the transaction's snapshot predates the twin.
+                cur.execute("SELECT DevouredID, RecipeID, MadeOn, UserID FROM Devoured WHERE ClientID = %s "
+                            "LOCK IN SHARE MODE", (clientId,))
+                found = cur.fetchone()
+                if not found or found["UserID"] != uid:
+                    return fail("that clientId is in use", 409)
+                already = True
+        count = devouredCount(cur, uid, found["RecipeID"])
+        conn.commit()
+    return ok({"id": found["DevouredID"], "recipeId": found["RecipeID"], "on": rules.isoDate(found["MadeOn"]),
+               "count": count, "already": already})
+
+
+@gluttonyUserBP.route("/devoured/remove", methods=["POST"])
+def undevour():
+    markId = rules.positiveId(body().get("id"))
+    if not markId:
+        return fail("id must be a Devoured mark's id", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        cur.execute("SELECT RecipeID FROM Devoured WHERE DevouredID = %s AND UserID = %s", (markId, uid))
+        row = cur.fetchone()
+        if not row:
+            return fail("no such Devoured mark", 404)
+        cur.execute("DELETE FROM Devoured WHERE DevouredID = %s AND UserID = %s", (markId, uid))
+        count = devouredCount(cur, uid, row["RecipeID"])
+        conn.commit()
+    return ok({"id": markId, "recipeId": row["RecipeID"], "count": count})
+
+
+HISTORY_ORDER = {"recent": "d.MadeOn DESC, d.DevouredID DESC",
+                 "stars": "t.Stars IS NULL, t.Stars DESC, d.MadeOn DESC, d.DevouredID DESC"}
+
+
+@gluttonyUserBP.route("/devoured", methods=["GET"])
+def devouredHistory():
+    """Every time the person made something, newest first or best-starred first, a page at a time. Each tile is one
+    mark, with its day and id; a recipe part 1 has removed stays, marked removed."""
+    page, pageSize, problem = rules.pageArgs(request.args)
+    if problem:
+        return fail(problem, 400)
+    sort = request.args.get("sort") or "recent"
+    if sort not in HISTORY_ORDER:
+        return fail("sort must be recent or stars", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        cur.execute("SELECT COUNT(*) AS n FROM Devoured WHERE UserID = %s", (uid,))
+        total = int((cur.fetchone() or {}).get("n") or 0)
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt, d.DevouredID, d.MadeOn FROM Devoured d "
+                    "JOIN Recipes r ON r.RecipeID = d.RecipeID "
+                    "LEFT JOIN Ratings t ON t.UserID = d.UserID AND t.RecipeID = d.RecipeID "
+                    f"WHERE d.UserID = %s ORDER BY {HISTORY_ORDER[sort]} LIMIT %s OFFSET %s",
+                    (uid, pageSize, (page - 1) * pageSize))
+        tiles = [dict(kept.savedTile(r), devouredId=r["DevouredID"], on=rules.isoDate(r["MadeOn"]))
+                 for r in cur.fetchall()]
+        kept.attachTileFlags(cur, uid, tiles)
+    return ok({"total": total, "page": page, "pageSize": pageSize, "recipes": tiles})
+
+
+@gluttonyUserBP.route("/rating", methods=["POST"])
+def rate():
+    data = body()
+    recipeId = rules.positiveId(data.get("recipeId"))
+    if not recipeId:
+        return fail("recipeId must be a recipe id", 400)
+    stars, problem = rules.starsValue(data.get("stars"))
+    if problem or "stars" not in data:
+        return fail(problem or "stars must be a whole number from 1 to 5, or null", 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not kept.visibleRecipe(cur, uid, recipeId):
+            return fail("no such recipe", 404)
+        if stars is None:
+            cur.execute("DELETE FROM Ratings WHERE UserID = %s AND RecipeID = %s", (uid, recipeId))
+        else:
+            cur.execute("INSERT INTO Ratings (UserID, RecipeID, Stars) VALUES (%s, %s, %s) "
+                        "ON DUPLICATE KEY UPDATE Stars = VALUES(Stars)", (uid, recipeId, stars))
+        conn.commit()
+    return ok({"recipeId": recipeId, "stars": stars})
+
+
+@gluttonyUserBP.route("/note", methods=["POST"])
+def note():
+    data = body()
+    recipeId = rules.positiveId(data.get("recipeId"))
+    if not recipeId:
+        return fail("recipeId must be a recipe id", 400)
+    text, problem = rules.noteText(data.get("text"))
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        if not kept.visibleRecipe(cur, uid, recipeId):
+            return fail("no such recipe", 404)
+        if not text:
+            cur.execute("DELETE FROM Notes WHERE UserID = %s AND RecipeID = %s", (uid, recipeId))
+        else:
+            cur.execute("INSERT INTO Notes (UserID, RecipeID, Text) VALUES (%s, %s, %s) "
+                        "ON DUPLICATE KEY UPDATE Text = VALUES(Text)", (uid, recipeId, text))
+        conn.commit()
+    return ok({"recipeId": recipeId, "note": text or None})
