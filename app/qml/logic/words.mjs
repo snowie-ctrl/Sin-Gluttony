@@ -4,6 +4,7 @@
 export const appName = "Gluttony"
 export const navHome = "Home"
 export const navBrowse = "Browse"
+export const navSaved = "Saved"
 export const searchPlaceholder = "What are you hungry for?"
 export const searchRecipes = "Recipes"
 export const searchIngredients = "Ingredients"
@@ -91,6 +92,25 @@ export const yourLists = "Your lists"
 export const noListsYet = "No lists of your own yet."
 export const earlier = "‹"
 export const later = "›"
+export const savedTitle = "Saved"
+export const newListPlus = "+ New list"
+export const listLimitReached = "50 lists is the most"
+export const rename = "Rename"
+export const renameList = "Rename list"
+export const moveEarlier = "‹ Earlier"
+export const moveLater = "Later ›"
+export const deleteListWord = "Delete list"
+export const deleteListHint = "The recipes stay in the catalog."
+export const newestFirst = "Newest"
+export const byStars = "Your stars"
+export const noCravings = "No cravings yet"
+export const noCravingsHint = "Tap ♥ Craving on a recipe to keep it here."
+export const emptyList = "Nothing on this list yet"
+export const emptyListHint = "Tap + List on a recipe to put it here."
+export const noDevoured = "Nothing devoured yet"
+export const noDevouredHint = "Tap ✓ Devoured on a recipe once you have made it."
+export const dragToMove = "Drag to move"
+export const removeFromList = "Take off this list"
 export const deleteNote = "Delete note"
 export const removeMark = "Remove this mark"
 
@@ -181,4 +201,13 @@ export function starsBadge(stars) {
 // The note editor's count, in characters as the server counts them.
 export function noteCount(n, limit) {
     return n + " / " + limit
+}
+
+export function deleteListQuestion(title) {
+    return "Delete “" + title + "”?"
+}
+
+// A tab's name: Cravings in the app's own word, the person's lists as they named them, each with its count.
+export function listTabTitle(list) {
+    return (list.kind === "cravings" ? cravings : list.title) + "  " + list.count
 }

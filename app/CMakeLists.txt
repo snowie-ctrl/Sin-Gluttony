@@ -60,6 +60,7 @@ qt_add_qml_module(gluttony_ui
         qml/pages/HomePage.qml
         qml/pages/ResultsPage.qml
         qml/pages/RecipePage.qml
+        qml/pages/SavedPage.qml
         qml/component/TintedIcon.qml
         qml/component/ActionButton.qml
         qml/component/InputField.qml
@@ -74,6 +75,7 @@ qt_add_qml_module(gluttony_ui
         qml/component/Stars.qml
         qml/component/ListPopup.qml
         qml/component/NotePopup.qml
+        qml/component/TitlePopup.qml
         qml/logic/scale.mjs
         qml/logic/units.mjs
         qml/logic/words.mjs

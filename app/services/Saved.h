@@ -45,6 +45,8 @@ class Saved : public QObject
     // Every time the person made something, one tile per mark (GET /devoured), newest first or by their stars.
     Q_PROPERTY(QObject *devouredHistory READ devouredHistory CONSTANT)
     Q_PROPERTY(QString devouredSort READ devouredSort NOTIFY devouredSortChanged)
+    // The Saved page's open tab is Devoured rather than a list; kept here because the page is rebuilt every visit.
+    Q_PROPERTY(bool devouredOpen READ devouredOpen NOTIFY openListChanged)
     Q_PROPERTY(int noteLimit READ noteLimit CONSTANT)
     // A Devoured mark is on its way: a second tap waits for it rather than counting twice.
     Q_PROPERTY(bool devouring READ devouring NOTIFY devouringChanged)
@@ -76,6 +78,7 @@ public:
     bool busy() const { return m_pending > 0; }
     QObject *devouredHistory() { return &m_history; }
     QString devouredSort() const { return m_sort; }
+    bool devouredOpen() const { return m_devouredOpen; }
     static int noteLimit() { return NoteLimit; }
     bool devouring() const { return m_devouring; }
     QVariantList starsSaving() const;
@@ -181,6 +184,7 @@ private:
     // A mark or a star changed since the history was shown, so the next openDevoured asks again.
     bool m_historyStale = false;
     bool m_devouring = false;
+    bool m_devouredOpen = false;
     // One entry per request on its way, so two for the same recipe are both counted.
     QList<int> m_starsSaving;
     QList<int> m_noteSaving;

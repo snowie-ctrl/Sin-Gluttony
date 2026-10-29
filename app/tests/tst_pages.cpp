@@ -215,6 +215,39 @@ class TestPages : public QObject
                            {"stars", QJsonValue()}, {"note", QJsonValue()}};
     }
 
+    // Cravings with two recipes, and a list "Weeknights" with three.
+    void keepSomeLists()
+    {
+        server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":2},
+          {"id":11,"title":"Weeknights","kind":"custom","count":3},{"id":12,"title":"Parties","kind":"custom","count":0}]})";
+        server->responses[path("/lists/3/recipes")] = R"({"status":"ok","data":{"total":2,"page":1,"pageSize":24,
+          "list":{"id":3,"title":"Cravings","kind":"cravings","count":2},"recipes":[
+          {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false,"craving":true},
+          {"id":9,"kind":"food","title":"Stub Gone","hasImage":false,"craving":true,"removed":true}]}})";
+        server->responses[path("/lists/11/recipes")] = R"({"status":"ok","data":{"total":3,"page":1,"pageSize":24,
+          "list":{"id":11,"title":"Weeknights","kind":"custom","count":3},"recipes":[
+          {"id":1,"kind":"food","title":"Stub One","hasImage":false},{"id":2,"kind":"food","title":"Stub Two","hasImage":false},
+          {"id":3,"kind":"food","title":"Stub Three","hasImage":false}]}})";
+    }
+
+    // The text of an item inside a visible cell, or "" while the cell is not there: a grid builds its cells a frame
+    // after its model changes, so a cell is always looked for again rather than kept.
+    QString textIn(const QString &cell, const QString &name) const
+    {
+        QQuickItem *found = findVisible(cell);
+        QQuickItem *item = found ? findIn(found, name) : nullptr;
+        return item ? item->property("text").toString() : QString();
+    }
+
+    void openSaved()
+    {
+        start();
+        QTRY_VERIFY(saved->listsLoaded());
+        QTRY_VERIFY(findVisible("railSaved"));
+        click(findVisible("railSaved"));
+        QTRY_VERIFY(findVisible("savedPage"));
+    }
+
 private slots:
     void initTestCase()
     {
@@ -1212,6 +1245,228 @@ private slots:
         QTRY_VERIFY(findVisible("removedNote"));
         QVERIFY(findVisible("recipeTitle") && findVisible("recipeActions"));
         QVERIFY(!findVisible("recipeGone"));
+    }
+
+    void theSavedPageOpensOnCravings()
+    {
+        keepSomeLists();
+        openSaved();
+        QTRY_COMPARE(findVisible("savedGrid")->property("count").toInt(), 2);
+        QVERIFY(findVisible("tab-3")->property("selected").toBool());
+        QCOMPARE(findVisible("savedTitle")->property("text").toString(), QStringLiteral("Cravings"));
+        // Cravings can't be renamed, moved or deleted.
+        QVERIFY(!findVisible("renameList") && !findVisible("deleteList") && !findVisible("moveListLater"));
+        QCOMPARE(requestsTo("/lists/3/recipes").size(), 1);
+    }
+
+    void aRemovedRecipeOnAListSaysGoneAndStillOpens()
+    {
+        keepSomeLists();
+        openSaved();
+        QTRY_VERIFY(findVisible("savedCell-1"));
+        QTRY_COMPARE(textIn("savedCell-1", "tileMeta"), QStringLiteral("gone from its source"));
+        click(findIn(findVisible("savedCell-1"), "tileTitle"));
+        QTRY_COMPARE(recipes->recipeId(), 9);
+        QCOMPARE(nav->currentPage(), QStringLiteral("recipe-page"));
+    }
+
+    void aListTabShowsItsRecipesAndItsTools()
+    {
+        keepSomeLists();
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-11"));
+        click(findVisible("tab-11"));
+        QTRY_COMPARE(findVisible("savedGrid")->property("count").toInt(), 3);
+        QCOMPARE(findVisible("savedTitle")->property("text").toString(), QStringLiteral("Weeknights"));
+        QVERIFY(findVisible("renameList") && findVisible("deleteList") && findVisible("moveListLater"));
+        // The tab is kept for the next visit.
+        nav->navigateTo("home-page");
+        QTRY_VERIFY(findVisible("homePage"));
+        nav->navigateTo("saved-page");
+        QTRY_VERIFY(findVisible("savedPage"));
+        QTRY_VERIFY(findVisible("tab-11") && findVisible("tab-11")->property("selected").toBool());
+    }
+
+    void aNewListIsMadeFromTheTabs()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/create")] = R"({"status":"ok","data":{"id":13,"title":"Fridays","kind":"custom","count":0}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("newListTab"));
+        click(findVisible("newListTab"));
+        QTRY_VERIFY(findVisible("titlePopup"));
+        click(findVisible("titleField"));
+        type("Fridays");
+        click(findVisible("titleSave"));
+        QTRY_COMPARE(requestsTo("/lists/create").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/create").value("title").toString(), QStringLiteral("Fridays"));
+        QTRY_VERIFY(!findVisible("titlePopup"));
+        QTRY_VERIFY(findVisible("tab-13"));
+    }
+
+    void aRefusedNewListSaysWhyInThePopup()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/create")] = R"({"status":"error","message":"you can have at most 50 lists"})";
+        server->statuses[path("/lists/create")] = 400;
+        openSaved();
+        QTRY_VERIFY(findVisible("newListTab"));
+        click(findVisible("newListTab"));
+        QTRY_VERIFY(findVisible("titlePopup"));
+        click(findVisible("titleField"));
+        type("One more");
+        click(findVisible("titleSave"));
+        QTRY_VERIFY(findVisible("titleError"));
+        QCOMPARE(findVisible("titleError")->property("text").toString(), QStringLiteral("you can have at most 50 lists"));
+        QVERIFY(findVisible("titlePopup"));
+    }
+
+    void aListIsRenamedMovedAndDeleted()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/rename")] = R"({"status":"ok","data":{"id":11,"title":"Fridays","kind":"custom","count":3}})";
+        server->responses[path("/lists/reorder")] = R"({"status":"ok"})";
+        server->responses[path("/lists/delete")] = R"({"status":"ok"})";
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-11"));
+        click(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("renameList"));
+        click(findVisible("renameList"));
+        QTRY_VERIFY(findVisible("titlePopup"));
+        QCOMPARE(findVisible("titleField")->property("text").toString(), QStringLiteral("Weeknights"));
+        findVisible("titleField")->setProperty("text", QStringLiteral("Fridays"));
+        click(findVisible("titleSave"));
+        QTRY_COMPARE(findVisible("savedTitle")->property("text").toString(), QStringLiteral("Fridays"));
+        click(findVisible("moveListLater"));
+        QTRY_COMPARE(requestsTo("/lists/reorder").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/reorder").value("after").toInt(), 12);
+        QVERIFY(findVisible("deleteList")->property("danger").toBool());
+        QCOMPARE(findVisible("deleteList")->property("text").toString(), QStringLiteral("Delete list"));
+        click(findVisible("deleteList"));
+        QTRY_VERIFY(findVisible("deletePopup"));
+        QVERIFY(findVisible("deleteConfirm")->property("danger").toBool());
+        click(findVisible("deleteConfirm"));
+        QTRY_COMPARE(requestsTo("/lists/delete").size(), 1);
+        QTRY_VERIFY(!find("tab-11"));
+        QTRY_VERIFY(findVisible("tab-3") && findVisible("tab-3")->property("selected").toBool());
+    }
+
+    void draggingATileMovesItOnTheList()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/items/reorder")] = R"({"status":"ok"})";
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-11"));
+        click(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedCell-2"));
+        QQuickItem *handle = findIn(findVisible("savedCell-0"), "dragHandle");
+        QVERIFY(handle);
+        QQuickItem *target = findVisible("savedCell-2");
+        const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+        const QPoint to = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
+        QTest::mousePress(window(), Qt::LeftButton, Qt::NoModifier, from);
+        for (int i = 1; i <= 10; ++i)
+            QTest::mouseMove(window(), from + (to - from) * i / 10);
+        QTest::mouseRelease(window(), Qt::LeftButton, Qt::NoModifier, to);
+        QTRY_COMPARE(requestsTo("/lists/items/reorder").size(), 1);
+        const QJsonObject sent = lastBodyTo("/lists/items/reorder");
+        QCOMPARE(sent.value("recipeId").toInt(), 1);
+        QCOMPARE(sent.value("after").toInt(), 3);
+        QTRY_COMPARE(textIn("savedCell-2", "tileTitle"), QStringLiteral("Stub One"));
+    }
+
+    void aTileIsTakenOffTheList()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/items/remove")] = R"({"status":"ok","data":{"listId":11,"recipeId":2,"count":2}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-11"));
+        click(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedCell-1"));
+        // Destructive, so a button named in words and outlined in the danger colour, never a bare glyph.
+        QQuickItem *remove = findIn(findVisible("savedCell-1"), "removeFromList");
+        QVERIFY(remove && remove->property("danger").toBool());
+        QCOMPARE(remove->property("text").toString(), QStringLiteral("Take off this list"));
+        click(remove);
+        QTRY_COMPARE(requestsTo("/lists/items/remove").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/items/remove").value("recipeId").toInt(), 2);
+        QTRY_COMPARE(findVisible("savedGrid")->property("count").toInt(), 2);
+    }
+
+    void theDevouredTabIsNewestFirstAndSortsByStars()
+    {
+        keepSomeLists();
+        server->responses[path("/devoured")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":24,"recipes":[
+          {"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false,"devouredId":41,"on":"2025-12-24","stars":5,"devouredCount":1}]}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-devoured"));
+        click(findVisible("tab-devoured"));
+        QTRY_COMPARE(findVisible("savedGrid")->property("count").toInt(), 1);
+        QVERIFY(!findVisible("dragHandle") && !findVisible("removeFromList"));
+        QTRY_COMPARE(textIn("savedCell-0", "tileMeta"), QStringLiteral("24 Dec 2025"));
+        QVERIFY(findVisible("sort-recent")->property("selected").toBool());
+        click(findVisible("sort-stars"));
+        QTRY_COMPARE(requestsTo("/devoured").size(), 2);
+        QCOMPARE(QUrlQuery(requestsTo("/devoured").last()).queryItemValue("sort"), QStringLiteral("stars"));
+    }
+
+    void emptyCravingsSaySoInPlainWords()
+    {
+        server->responses[path("/lists/3/recipes")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,
+          "list":{"id":3,"title":"Cravings","kind":"cravings","count":0},"recipes":[]}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("savedEmpty"));
+    }
+
+    void aFailedListSaysWhyWithTryAgain()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/3/recipes")] = R"({"status":"error","message":"lists are down"})";
+        server->statuses[path("/lists/3/recipes")] = 500;
+        openSaved();
+        QTRY_VERIFY(findVisible("savedError"));
+        QVERIFY(findVisible("savedError")->property("text").toString().contains(QStringLiteral("lists are down")));
+    }
+
+    void enterInTheTitleFieldSavesOnceWhileItIsOnItsWay()
+    {
+        keepSomeLists();
+        server->responses[path("/lists/create")] = R"({"status":"ok","data":{"id":13,"title":"Fridays","kind":"custom","count":0}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("newListTab"));
+        click(findVisible("newListTab"));
+        QTRY_VERIFY(findVisible("titlePopup"));
+        // Nothing to save yet: Enter on an empty title sends nothing.
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/lists/create").size(), 0);
+        click(findVisible("titleField"));
+        type("Fridays");
+        server->holdNext[path("/lists/create")] = 1;
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTRY_COMPARE(requestsTo("/lists/create").size(), 1);
+        // A second Enter while the first is on its way must not send another.
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTest::qWait(150);
+        QCOMPARE(requestsTo("/lists/create").size(), 1);
+        server->releaseHeld();
+        QTRY_VERIFY(findVisible("tab-13"));
+        QCOMPARE(requestsTo("/lists/create").size(), 1);
+    }
+
+    void theDevouredTabIsKeptForTheNextVisit()
+    {
+        keepSomeLists();
+        server->responses[path("/devoured")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,"recipes":[]}})";
+        openSaved();
+        QTRY_VERIFY(findVisible("tab-devoured"));
+        click(findVisible("tab-devoured"));
+        QTRY_VERIFY(findVisible("savedEmpty"));
+        nav->navigateTo("home-page");
+        QTRY_VERIFY(findVisible("homePage"));
+        nav->navigateTo("saved-page");
+        QTRY_VERIFY(findVisible("tab-devoured") && findVisible("tab-devoured")->property("selected").toBool());
+        QTRY_VERIFY(findVisible("sort-stars"));
     }
 };
 

@@ -15,8 +15,9 @@ Rectangle {
     // The last page that is not a recipe, which the recipe page's Back returns to.
     property string lastListPage: "home-page"
 
-    // Each page adds its own entry here (Tasks 19-22).
-    readonly property var pageComponents: ({ "home-page": homePage, "results-page": resultsPage, "recipe-page": recipePage })
+    // Each page adds its own entry here.
+    readonly property var pageComponents: ({ "home-page": homePage, "results-page": resultsPage,
+                                             "recipe-page": recipePage, "saved-page": savedPage })
     readonly property string startPage: root.pageComponents[Nav.currentPage] !== undefined ? Nav.currentPage : "home-page"
 
     Component.onCompleted: {
@@ -39,6 +40,7 @@ Rectangle {
     Component { id: homePage; HomePage {} }
     Component { id: resultsPage; ResultsPage {} }
     Component { id: recipePage; RecipePage { onBackRequested: Nav.navigateTo(root.lastListPage) } }
+    Component { id: savedPage; SavedPage {} }
 
     Rectangle {
         id: rail
@@ -73,6 +75,13 @@ Rectangle {
                         Catalog.openWith({}, "")
                     Nav.navigateTo("results-page")
                 }
+            }
+            RailButton {
+                objectName: "railSaved"
+                label: Words.navSaved
+                pageTag: "saved-page"
+                iconSource: "qrc:/images/heart-outline.svg"
+                onActivated: Nav.navigateTo("saved-page")
             }
         }
 

@@ -587,6 +587,19 @@ private slots:
         saved->openDevoured(QStringLiteral("stars"));       // a star changed the order: asked again
         QTRY_COMPARE(requestsTo("/devoured").size(), 3);
     }
+
+    void theOpenTabIsRememberedForTheNextVisit()
+    {
+        loadLists();
+        QVERIFY(!saved->devouredOpen());
+        saved->openDevoured(QStringLiteral("recent"));
+        QVERIFY(saved->devouredOpen());
+        openWeeknights({1});
+        QVERIFY(!saved->devouredOpen());
+        saved->openDevoured(QStringLiteral("recent"));
+        saved->clear();
+        QVERIFY(!saved->devouredOpen());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestSaved)

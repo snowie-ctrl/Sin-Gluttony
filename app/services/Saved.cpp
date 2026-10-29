@@ -206,6 +206,10 @@ void Saved::openDevoured(const QString &sort)
     m_historyStale = false;
     if (changed)
         emit devouredSortChanged();
+    if (!m_devouredOpen) {
+        m_devouredOpen = true;
+        emit openListChanged();
+    }
 }
 
 QString Saved::cleanTitle(const QString &title)
@@ -401,7 +405,8 @@ void Saved::openList(int listId)
 {
     if (listId <= 0)
         return;
-    const bool other = listId != m_openListId;
+    const bool other = listId != m_openListId || m_devouredOpen;
+    m_devouredOpen = false;
     m_openListId = listId;
     m_listRecipes.setPath(QStringLiteral("/lists/%1/recipes").arg(listId));
     if (m_openStale && !other && m_listRecipes.answered())
@@ -540,6 +545,7 @@ void Saved::clear()
     m_listsError.clear();
     m_openListId = 0;
     m_openStale = false;
+    m_devouredOpen = false;
     m_listRecipes.setPath(QString());
     m_listRecipes.clear();
     m_flags.clear();
