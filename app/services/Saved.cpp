@@ -405,11 +405,14 @@ void Saved::openList(int listId)
 {
     if (listId <= 0)
         return;
-    const bool other = listId != m_openListId || m_devouredOpen;
+    // `other` is for the signal: coming from the Devoured tab changes what is open. Whether the rows shown are this
+    // list's is a separate question, and the Devoured tab does not change it (the list's rows stay loaded beneath it).
+    const bool same = listId == m_openListId;
+    const bool other = !same || m_devouredOpen;
     m_devouredOpen = false;
     m_openListId = listId;
     m_listRecipes.setPath(QStringLiteral("/lists/%1/recipes").arg(listId));
-    if (m_openStale && !other && m_listRecipes.answered())
+    if (m_openStale && same && m_listRecipes.answered())
         m_listRecipes.reload();
     else
         m_listRecipes.run(QUrlQuery());

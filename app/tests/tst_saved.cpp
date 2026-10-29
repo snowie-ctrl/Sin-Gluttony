@@ -301,6 +301,37 @@ private slots:
         QCOMPARE(requestsTo("/lists/11/recipes").size(), 2);
     }
 
+    void aStaleListIsAskedAgainAfterTheDevouredTab()
+    {
+        loadLists();
+        openWeeknights({1});
+        server->responses[path("/devoured")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,"recipes":[]}})";
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":11,"recipeId":2,"count":2}})";
+        saved->setInList(11, 2, true);                   // made from the recipe page, while the open list is Weeknights
+        QTRY_COMPARE(saved->lists().at(1).toMap().value("count").toInt(), 2);
+        saved->openDevoured(QStringLiteral("recent"));
+        QVERIFY(saved->devouredOpen());
+        server->responses[path("/lists/11/recipes")] = listPage({2, 1});
+        saved->openList(11);
+        QVERIFY(!saved->devouredOpen());
+        QTRY_COMPARE(open()->count(), 2);
+        QCOMPARE(requestsTo("/lists/11/recipes").size(), 2);
+    }
+
+    void aFreshListIsNotAskedAgainAfterTheDevouredTab()
+    {
+        loadLists();
+        openWeeknights({1});
+        server->responses[path("/devoured")] = R"({"status":"ok","data":{"total":0,"page":1,"pageSize":24,"recipes":[]}})";
+        saved->openDevoured(QStringLiteral("recent"));
+        QTRY_COMPARE(requestsTo("/devoured").size(), 1);
+        saved->openList(11);
+        QTest::qWait(100);
+        QVERIFY(!saved->devouredOpen());
+        QCOMPARE(requestsTo("/lists/11/recipes").size(), 1);
+        QCOMPARE(open()->count(), 1);
+    }
+
     void aMoveSendsTheRecipeAndWhatItNowFollows()
     {
         loadLists();
