@@ -1593,6 +1593,51 @@ private slots:
         QTRY_VERIFY(findVisible("dietPopup"));
     }
 
+    void aDietStillLoadingIsNotCalledNone()
+    {
+        server->holdNext[path("/me/diet")] = 1;
+        openSettings();
+        QTRY_COMPARE(requestsTo("/me/diet").size(), 1);
+        QVERIFY(findVisible("settingsDiet"));
+        QCOMPARE(findVisible("settingsDiet")->property("text").toString(), QStringLiteral("Setting the table…"));
+        QVERIFY(!findVisible("settingsDietRetry"));
+        server->releaseHeld();
+        QTRY_VERIFY(diet->loaded());
+        QTRY_COMPARE(findVisible("settingsDiet")->property("text").toString(), QStringLiteral("No diet set"));
+    }
+
+    void aDietThatFailedToLoadSaysWhyWithTryAgain()
+    {
+        server->responses[path("/me/diet")] = R"({"status":"error","message":"the kitchen is closed"})";
+        server->statuses[path("/me/diet")] = 500;
+        openSettings();
+        QTRY_VERIFY(!diet->error().isEmpty());
+        QTRY_COMPARE(findVisible("settingsDiet")->property("text").toString(), diet->error());
+        QVERIFY(findVisible("settingsDiet")->property("text").toString() != QStringLiteral("No diet set"));
+        QTRY_VERIFY(findVisible("settingsDietRetry"));
+        QCOMPARE(findVisible("settingsDietRetry")->property("text").toString(), QStringLiteral("Try again"));
+        server->statuses.remove(path("/me/diet"));
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
+        const int asked = int(requestsTo("/me/diet").size());
+        click(findVisible("settingsDietRetry"));
+        QTRY_COMPARE(int(requestsTo("/me/diet").size()), asked + 1);
+        QTRY_COMPARE(findVisible("settingsDiet")->property("text").toString(), QStringLiteral("Vegetarian"));
+        QVERIFY(!findVisible("settingsDietRetry"));
+    }
+
+    void aPasswordChangeAsksForTheDevicesAgain()
+    {
+        server->responses[path("/user/password")] = R"({"status":"ok"})";
+        openSettings();
+        QTRY_COMPARE(requestsTo("/devices").size(), 1);
+        findVisible("currentPasswordField")->setProperty("text", QStringLiteral("the-old-one"));
+        findVisible("newPasswordField")->setProperty("text", QStringLiteral("a-new-password"));
+        click(findVisible("passwordSave"));
+        QTRY_COMPARE(requestsTo("/user/password").size(), 1);
+        // The server signed the other devices out, so they leave the list.
+        QTRY_COMPARE(requestsTo("/devices").size(), 2);
+    }
+
     void signingOutFromSettingsGoesBackToTheForm()
     {
         openSettings();

@@ -29,6 +29,8 @@ Flickable {
             if (what === "password") {
                 currentPassword.text = ""
                 newPassword.text = ""
+                // The server signed the other devices out, so the list is asked for again without them.
+                Session.loadDevices()
             }
         }
         function onAccountFailed(what, message) {
@@ -177,10 +179,19 @@ Flickable {
                 Text {
                     objectName: "settingsDiet"
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Diet.hasProfile ? Words.dietChip(Diet.diets, Diet.avoid) : Words.dietNone
+                    // Until the profile has loaded, nothing is known of it: "No diet set" would tell someone with a
+                    // saved profile they have none.
+                    text: !Diet.loaded ? (Diet.error.length > 0 ? Diet.error : Words.loadingWords)
+                          : (Diet.hasProfile ? Words.dietChip(Diet.diets, Diet.avoid) : Words.dietNone)
                     color: Preferences.textPrimary
                     font.family: Preferences.appFont
                     font.pixelSize: Preferences.fontSizeBody
+                }
+                Chip {
+                    objectName: "settingsDietRetry"
+                    visible: !Diet.loaded && Diet.error.length > 0
+                    text: Words.tryAgain
+                    onClicked: Diet.load()
                 }
                 Chip {
                     objectName: "settingsDietEdit"
