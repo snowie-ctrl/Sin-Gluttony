@@ -350,7 +350,9 @@ void Session::changeUsername(const QString &username)
 {
     const QString name = username.trimmed();
     // The server's limits (gluttonyUserRoutes.USERNAME_MIN and USERNAME_MAX), so it is never asked for one it refuses.
-    if (name.size() < 3 || name.size() > 32) {
+    // Counted in code points, as the server counts them; Qt's own size() counts an emoji twice.
+    const qsizetype length = name.toUcs4().size();
+    if (length < 3 || length > 32) {
         emit accountFailed(QStringLiteral("username"), QStringLiteral("A username is 3 to 32 characters"));
         return;
     }

@@ -60,6 +60,8 @@ public:
     static constexpr int ListLimit = 50;
     static constexpr int TitleLimit = 60;
     static constexpr int NoteLimit = 2000;
+    // Recipes on one list, Cravings included.
+    static constexpr int ItemLimit = 2000;
 
     explicit Saved(Api &api, QObject *parent = nullptr);
 

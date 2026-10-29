@@ -239,6 +239,25 @@ private slots:
         QTRY_COMPARE(saved->lists().at(1).toMap().value("id").toInt(), 11);
     }
 
+    void aFullListIsNeverSentAnotherRecipe()
+    {
+        server->responses[path("/lists")] = R"({"status":"ok","data":[
+  {"id":3,"title":"Cravings","kind":"cravings","count":2},{"id":11,"title":"Weeknights","kind":"custom","count":2000}]})";
+        saved->load();
+        QTRY_VERIFY(saved->listsLoaded());
+        server->responses[path("/lists/items/remove")] = R"({"status":"ok","data":{"listId":11,"recipeId":9,"count":1999}})";
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->setInList(11, 9, true);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(), QStringLiteral("item"));
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("A list holds at most 2000 recipes"));
+        // Taking one off is always sent.
+        saved->setInList(11, 9, false);
+        QTRY_COMPARE(requestsTo("/lists/items/remove").size(), 1);
+        QVERIFY(requestsTo("/lists/items/add").isEmpty());
+        QCOMPARE(failed.count(), 1);
+    }
+
     void aCravingAddsToTheCravingsListAndFlagsEveryTile()
     {
         loadLists();

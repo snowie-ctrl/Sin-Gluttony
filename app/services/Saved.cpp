@@ -455,6 +455,12 @@ void Saved::setInList(int listId, int recipeId, bool in)
 {
     if (listId <= 0 || recipeId <= 0)
         return;
+    // A full list is refused by the server, so nothing is sent; taking a recipe off always is.
+    const int at = indexOfList(listId);
+    if (in && at >= 0 && m_lists.at(at).toMap().value("count").toInt() >= ItemLimit) {
+        emit failed(QStringLiteral("item"), QStringLiteral("A list holds at most 2000 recipes"));
+        return;
+    }
     const int generation = m_generation;
     const QJsonObject body{{"listId", listId}, {"recipeId", recipeId}};
     m_api.post(in ? QStringLiteral("/lists/items/add") : QStringLiteral("/lists/items/remove"), body,

@@ -326,6 +326,34 @@ private slots:
         QCOMPARE(requestsTo(server, usernamePath), 0);
     }
 
+    void aUsernameIsCountedInCharactersAsTheServerCountsThem()
+    {
+        FakeServer server;
+        server.responses[usernamePath] = R"({"status":"ok","username":"x"})";
+        Api api;
+        api.setBases(QString(), baseOf(server));
+        Session session(api);
+        signIn(server, session);
+        QSignalSpy failed(&session, &Session::accountFailed);
+        QSignalSpy updated(&session, &Session::accountUpdated);
+        // One character to the server, two UTF-16 units to Qt.
+        const QString grin = QString::fromUtf8("\xF0\x9F\x98\x80");
+
+        session.changeUsername(grin.repeated(2));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("A username is 3 to 32 characters"));
+        QTest::qWait(50);
+        QCOMPARE(requestsTo(server, usernamePath), 0);
+
+        session.changeUsername(grin.repeated(3));
+        QTRY_COMPARE(updated.count(), 1);
+        QCOMPARE(lastBody(server, usernamePath).value("username").toString(), grin.repeated(3));
+        session.changeUsername(grin.repeated(32));
+        QTRY_COMPARE(updated.count(), 2);
+        QCOMPARE(requestsTo(server, usernamePath), 2);
+        QCOMPARE(failed.count(), 1);
+    }
+
     void aWrongCurrentPasswordKeepsTheSession()
     {
         FakeServer server;
