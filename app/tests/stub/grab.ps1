@@ -1,5 +1,5 @@
 # Copied from Pageturner Pageturner/tests/stub/grab.ps1 at ad9342e; Gluttony's switches and hooks, the stub run
-# with the server's venv, no download seeding.
+# with the server's venv, no download seeding, -Kept and -Removed for the stub's kept lists and removed recipes.
 # Runs the test build of the app against the stub API and saves a screenshot.
 #   grab.ps1 -Out home.png
 #   grab.ps1 -Out login.png -NewDevice                          (the sign-in form)
@@ -10,6 +10,11 @@
 #   grab.ps1 -Out gone.png -Recipe 999                          (a recipe that has gone)
 #   grab.ps1 -Out down.png -HomeDown                            (Home when /home fails)
 #   grab.ps1 -Out plates.png -PicturesFail                      (every picture a placeholder)
+#   grab.ps1 -Out kept.png -Kept                                (Home with Cravings and Again?)
+#   grab.ps1 -Out saved.png -Kept -Page saved-page              (the Saved page on Cravings)
+#   grab.ps1 -Out actions.png -Kept -Recipe 1                   (the recipe page's actions, with a note)
+#   grab.ps1 -Out removed.png -Kept -Removed 1 -Recipe 1        (a removed recipe its saver still opens)
+#   grab.ps1 -Out settings.png -Page settings-page              (Settings)
 param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Page = 'home-page',
@@ -25,7 +30,9 @@ param(
     [string]$Diet = '',
     [switch]$HomeDown,
     [switch]$PicturesFail,
-    [int]$Slow = 0
+    [int]$Slow = 0,
+    [switch]$Kept,
+    [string]$Removed = ''
 )
 $ErrorActionPreference = 'Stop'
 $here   = $PSScriptRoot
@@ -57,6 +64,8 @@ $env:STUB_DIET          = $Diet
 $env:STUB_HOME_DOWN     = if ($HomeDown) { '1' } else { '' }
 $env:STUB_PICTURES_FAIL = if ($PicturesFail) { '1' } else { '' }
 $env:STUB_SLOW          = if ($Slow) { "$Slow" } else { '' }
+$env:STUB_KEPT          = if ($Kept) { '1' } else { '' }
+$env:STUB_REMOVED       = $Removed
 
 $stub = $null
 try {

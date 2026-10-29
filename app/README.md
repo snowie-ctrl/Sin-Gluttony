@@ -17,7 +17,8 @@ file naming its source and commit. Windows first; iOS is part 7.
 
 The stub (`tests/stub/stub_server.py`, port 5079) imitates `docs/api.md`. It serves `tests/stub/snapshot/` (real
 recipes, taken once with `tests/stub/snapshot.py`; never committed) or, without one, four fixture recipes. Sign in as
-`stub` / `stub-password`; sign up with the key `stub-key`.
+`stub` / `stub-password`; sign up with the key `stub-key`. Lists, Devoured marks, stars and notes last until the
+stub stops; `STUB_KEPT=1` starts with some kept, and `STUB_REMOVED=<ids>` marks recipes removed by their source.
 
 1. `config/secrets.json` (git ignores it): `{"apiBase": "http://127.0.0.1:5079/api/gluttony"}`.
 2. `..\server\.venv\Scripts\python.exe tests\stub\stub_server.py`
@@ -34,8 +35,10 @@ page and state. `grab.ps1` finds the server's venv beside the app; in a git work
 
 - `api/`: Api (envelope, LAN or public, offline), AppConfig (`secrets.json`), SessionAuth and AuthNetworkFactory
   (the token on picture requests), TileModel.
-- `services/`: Nav, AccountStore, Session, Diet, RecipeQuery, Catalog, Home, Recipes, and Wiring (what follows
-  a sign-in and a sign-out).
-- `qml/`: Main, NavShell, `pages/` (Login, Home, Results, Recipe), `component/`, and `logic/*.mjs` (words, moods,
-  tiles, filters, scale, units, credit). Every word the app shows is in `logic/words.mjs`.
+- `services/`: Nav, AccountStore, Session, Diet, RecipeQuery (any paged list of tiles), Catalog, Home, Recipes,
+  Saved (lists, Cravings, Devoured, stars, notes, and the flags every tile reads), and Wiring (what follows a
+  sign-in and a sign-out).
+- `qml/`: Main, NavShell, `pages/` (Login, Home, Results, Recipe, Saved, Settings), `component/`, and
+  `logic/*.mjs` (words, moods, tiles, filters, scale, units, credit, days). Every word the app shows is in
+  `logic/words.mjs`; every date is handled by `logic/days.mjs`, never by `new Date(text)`.
 - `assets/`: Preferences (the Gula look's tokens), Playfair Display (SIL OFL), icons.
