@@ -1,6 +1,6 @@
 -- Gluttony part 2: accounts and what each person keeps, beside part 1's catalog tables (schema.sql), which
 -- are never changed. The owner runs this once, after the smoke test, with: sudo mysql gluttonyDB < schema-part2.sql
--- Milestone 1: accounts and the diet profile. Milestone 2 appends lists, Devoured, ratings and notes here.
+-- Milestone 1: accounts and the diet profile. Milestone 2: lists, Devoured, ratings and notes (below).
 
 CREATE TABLE Users (
   UserID INT NOT NULL AUTO_INCREMENT,
@@ -53,4 +53,80 @@ CREATE TABLE UserAvoids (
   Item VARCHAR(20) NOT NULL,
   PRIMARY KEY (UserID, Item),
   CONSTRAINT fk_useravoids_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- What each person keeps. Every row names its user, and the routes look every one up together with the
+-- user's id, so someone else's id is simply not found. Rows reference Recipes with ON DELETE CASCADE, which never
+-- fires in practice: part 1 only hides recipes (RemovedAt), and a hidden one stays visible to whoever kept it.
+
+-- Each account has exactly one 'cravings' list, made at sign-up, which can't be renamed or deleted. CravingsOf is
+-- the user's id on that list and NULL on every other (the sign-up sets it), so the unique key allows one Cravings
+-- per account and any number of custom lists, even under a race. It is a plain column, not a generated one: MySQL
+-- refuses ON DELETE CASCADE on a foreign key over the base column of a stored generated column. OrderIndex orders
+-- the custom lists (Cravings always shows first).
+CREATE TABLE Lists (
+  ListID INT NOT NULL AUTO_INCREMENT,
+  UserID INT NOT NULL,
+  Title VARCHAR(60) NOT NULL,
+  Kind VARCHAR(10) NOT NULL,
+  OrderIndex INT NOT NULL DEFAULT 0,
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CravingsOf INT NULL,
+  PRIMARY KEY (ListID),
+  KEY ix_lists_user (UserID),
+  UNIQUE KEY ux_lists_cravings (CravingsOf),
+  CONSTRAINT ck_lists_kind CHECK (Kind IN ('cravings', 'custom')),
+  CONSTRAINT fk_lists_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- A list reads in OrderIndex order, smallest first; a new item takes the smallest index minus one, so it is on top.
+CREATE TABLE ListItems (
+  ListID INT NOT NULL,
+  RecipeID INT NOT NULL,
+  OrderIndex INT NOT NULL,
+  AddedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ListID, RecipeID),
+  KEY ix_listitems_recipe (RecipeID),
+  KEY ix_listitems_order (ListID, OrderIndex),
+  CONSTRAINT fk_listitems_list FOREIGN KEY (ListID) REFERENCES Lists (ListID) ON DELETE CASCADE,
+  CONSTRAINT fk_listitems_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- One row per time a person made the recipe. ClientID is made by the app, so a mark sent twice (a retry, or
+-- milestone 3's offline queue) is stored once.
+CREATE TABLE Devoured (
+  DevouredID INT NOT NULL AUTO_INCREMENT,
+  UserID INT NOT NULL,
+  RecipeID INT NOT NULL,
+  MadeOn DATE NOT NULL,
+  ClientID CHAR(36) NOT NULL,
+  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (DevouredID),
+  UNIQUE KEY ux_devoured_client (ClientID),
+  KEY ix_devoured_user_made (UserID, MadeOn),
+  KEY ix_devoured_recipe (RecipeID),
+  CONSTRAINT fk_devoured_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE,
+  CONSTRAINT fk_devoured_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE Ratings (
+  UserID INT NOT NULL,
+  RecipeID INT NOT NULL,
+  Stars TINYINT NOT NULL,
+  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (UserID, RecipeID),
+  CONSTRAINT ck_ratings_stars CHECK (Stars BETWEEN 1 AND 5),
+  CONSTRAINT fk_ratings_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE,
+  CONSTRAINT fk_ratings_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- A private note, up to 2,000 characters (utf8mb4 counts characters, as the routes do). An empty note is no row.
+CREATE TABLE Notes (
+  UserID INT NOT NULL,
+  RecipeID INT NOT NULL,
+  Text VARCHAR(2000) NOT NULL,
+  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (UserID, RecipeID),
+  CONSTRAINT fk_notes_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE,
+  CONSTRAINT fk_notes_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
