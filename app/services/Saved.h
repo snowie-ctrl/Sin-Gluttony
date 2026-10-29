@@ -42,10 +42,17 @@ class Saved : public QObject
     Q_PROPERTY(QVariantMap mine READ mine NOTIFY mineChanged)
     // A list being made, renamed or deleted: the popups wait for it.
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // Every time the person made something, one tile per mark (GET /devoured), newest first or by their stars.
+    Q_PROPERTY(QObject *devouredHistory READ devouredHistory CONSTANT)
+    Q_PROPERTY(QString devouredSort READ devouredSort NOTIFY devouredSortChanged)
+    Q_PROPERTY(int noteLimit READ noteLimit CONSTANT)
+    // A Devoured mark is on its way: a second tap waits for it rather than counting twice.
+    Q_PROPERTY(bool devouring READ devouring NOTIFY devouringChanged)
 
 public:
     static constexpr int ListLimit = 50;
     static constexpr int TitleLimit = 60;
+    static constexpr int NoteLimit = 2000;
 
     explicit Saved(Api &api, QObject *parent = nullptr);
 
@@ -62,6 +69,17 @@ public:
     int mineId() const { return m_mineId; }
     QVariantMap mine() const { return m_mine; }
     bool busy() const { return m_pending > 0; }
+    QObject *devouredHistory() { return &m_history; }
+    QString devouredSort() const { return m_sort; }
+    static int noteLimit() { return NoteLimit; }
+    bool devouring() const { return m_devouring; }
+
+    // A note as the server keeps it: trimmed. Its length is counted in code points, as the server and MySQL count
+    // characters; Qt's own size() counts an emoji twice.
+    static QString cleanNote(const QString &text) { return text.trimmed(); }
+    Q_INVOKABLE int noteLength(const QString &text) const { return int(cleanNote(text).toUcs4().size()); }
+    // This device's calendar day, "YYYY-MM-DD": the day a person means by "today", whatever the server's zone.
+    Q_INVOKABLE QString today() const;
 
     // A title as the server takes it: trimmed, 1 to 60 characters counted as the server counts them (an emoji is
     // one); empty when the server would refuse it.
@@ -84,6 +102,16 @@ public:
     // A tile's {craving, devouredCount, stars}: what its answer said, with this session's changes over it.
     Q_INVOKABLE QVariantMap flagsOf(const QVariantMap &tile) const;
     Q_INVOKABLE QString listTitle(int listId) const;
+    // One more time made, on `day` ("YYYY-MM-DD", today or before). The mark carries a new id of the app's own, so
+    // the server stores it once however often it is sent.
+    Q_INVOKABLE void devour(int recipeId, const QString &day);
+    Q_INVOKABLE void undevour(int markId);
+    // 1 to 5; 0 clears them.
+    Q_INVOKABLE void setStars(int recipeId, int stars);
+    // Empty text deletes the note.
+    Q_INVOKABLE void setNote(int recipeId, const QString &text);
+    // The Devoured tab, "recent" or "stars": asked for unless already shown and unchanged since.
+    Q_INVOKABLE void openDevoured(const QString &sort);
 
     // The recipe page opened another recipe, or its detail arrived (recipeId 0: none open).
     void showMine(int recipeId, const QVariantMap &mine);
@@ -96,6 +124,8 @@ signals:
     void flagsChanged();
     void mineChanged();
     void busyChanged();
+    void devouredSortChanged();
+    void devouringChanged();
     void listCreated(int listId);
     // A change asked for has been made (what as in failed()), so a popup that asked for it can close.
     void done(const QString &what);
@@ -119,6 +149,7 @@ private:
     void sendNextMove();
     void beginEdit();
     void endEdit();
+    void setDevouring(bool devouring);
 
     Api &m_api;
     QVariantList m_lists;
@@ -135,6 +166,11 @@ private:
     QVariantMap m_mine;
     QList<Move> m_moves;
     bool m_moving = false;
+    RecipeQuery m_history;
+    QString m_sort = QStringLiteral("recent");
+    // A mark or a star changed since the history was shown, so the next openDevoured asks again.
+    bool m_historyStale = false;
+    bool m_devouring = false;
     int m_pending = 0;
     // Bumped by clear(), so an answer meant for the last person is dropped.
     int m_generation = 0;

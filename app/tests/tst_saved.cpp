@@ -1,6 +1,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDate>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTest>
 #include <QUrlQuery>
@@ -359,6 +361,152 @@ private slots:
         QCOMPARE(open()->count(), 0);
         QCOMPARE(saved->mineId(), 0);
         QVERIFY(!saved->flagsOf(QVariantMap{{"id", 7}}).value("craving").toBool());
+        QCOMPARE(qobject_cast<RecipeQuery *>(saved->devouredHistory())->count(), 0);
+        QCOMPARE(saved->devouredSort(), QStringLiteral("recent"));
+    }
+
+    void devouredSendsTheChosenLocalDay()
+    {
+        loadLists();
+        server->responses[path("/devoured/add")] =
+            R"({"status":"ok","data":{"id":41,"recipeId":7,"on":"2026-10-27","count":2,"already":false}})";
+        saved->showMine(7, QVariantMap{{"craving", false}, {"lists", QVariantList()},
+                                       {"devoured", QVariantList{QVariantMap{{"id", 40}, {"on", "2026-09-01"}}}}});
+        QSignalSpy kept(saved.get(), &Saved::keptChanged);
+        // Today is the device's own calendar day, never the UTC one.
+        QCOMPARE(saved->today(), QDate::currentDate().toString(Qt::ISODate));
+        saved->devour(7, QStringLiteral("2026-10-27"));
+        QVERIFY(saved->devouring());
+        QTRY_VERIFY(!saved->devouring());
+        const QJsonObject sent = bodiesTo("/devoured/add").last();
+        QCOMPARE(sent.value("recipeId").toInt(), 7);
+        QCOMPARE(sent.value("on").toString(), QStringLiteral("2026-10-27"));
+        QVERIFY(QRegularExpression("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+                    .match(sent.value("clientId").toString()).hasMatch());
+        const QVariantList marks = saved->mine().value("devoured").toList();
+        QCOMPARE(marks.size(), 2);
+        QCOMPARE(marks.first().toMap().value("id").toInt(), 41);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("devouredCount").toInt(), 2);
+        QCOMPARE(kept.count(), 1);
+    }
+
+    void eachMarkHasItsOwnClientIdAndADoubleTapSendsOne()
+    {
+        server->responses[path("/devoured/add")] =
+            R"({"status":"ok","data":{"id":41,"recipeId":7,"on":"2026-10-27","count":1,"already":false}})";
+        saved->devour(7, QStringLiteral("2026-10-27"));
+        saved->devour(7, QStringLiteral("2026-10-27"));     // still on its way: ignored
+        QTRY_VERIFY(!saved->devouring());
+        saved->devour(7, QStringLiteral("2026-10-27"));
+        QTRY_COMPARE(requestsTo("/devoured/add").size(), 2);
+        const QList<QJsonObject> sent = bodiesTo("/devoured/add");
+        QVERIFY(sent[0].value("clientId").toString() != sent[1].value("clientId").toString());
+    }
+
+    void aDayThatHasNotComeIsNeverSent()
+    {
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->devour(7, QDate::currentDate().addDays(1).toString(Qt::ISODate));
+        saved->devour(7, QStringLiteral("2026-02-30"));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(failed.first().at(0).toString(), QStringLiteral("devoured"));
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("Pick a day that has already come"));
+        QTest::qWait(100);
+        QVERIFY(requestsTo("/devoured/add").isEmpty());
+    }
+
+    void aMarkIsTakenBackOff()
+    {
+        saved->showMine(7, QVariantMap{{"devoured", QVariantList{QVariantMap{{"id", 41}, {"on", "2026-10-27"}},
+                                                                 QVariantMap{{"id", 40}, {"on", "2026-09-01"}}}}});
+        server->responses[path("/devoured/remove")] = R"({"status":"ok","data":{"id":41,"recipeId":7,"count":1}})";
+        saved->undevour(41);
+        QTRY_COMPARE(saved->mine().value("devoured").toList().size(), 1);
+        QCOMPARE(saved->mine().value("devoured").toList().first().toMap().value("id").toInt(), 40);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("devouredCount").toInt(), 1);
+    }
+
+    void starsAreSetAndClearedWithNull()
+    {
+        saved->showMine(7, QVariantMap{{"stars", QVariant()}});
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":7,"stars":4}})";
+        saved->setStars(7, 4);
+        QTRY_COMPARE(saved->mine().value("stars").toInt(), 4);
+        QCOMPARE(bodiesTo("/rating").last().value("stars").toInt(), 4);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("stars").toInt(), 4);
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":7,"stars":null}})";
+        saved->setStars(7, 0);
+        QTRY_VERIFY(saved->mine().value("stars").isNull() || saved->mine().value("stars").toInt() == 0);
+        QVERIFY(bodiesTo("/rating").last().value("stars").isNull());
+        saved->setStars(7, 9);          // past five: nothing is sent
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/rating").size(), 2);
+    }
+
+    void aNoteIsCappedInCodePointsNotUtf16Units()
+    {
+        // Two thousand cakes are 2,000 characters to the server and 4,000 UTF-16 units to Qt.
+        const QString full = QString::fromUcs4(std::u32string(2000, U'\U0001F370').c_str());
+        QCOMPARE(saved->noteLength(full), 2000);
+        QCOMPARE(Saved::cleanNote(QStringLiteral("  less salt \n")), QStringLiteral("less salt"));
+        server->responses[path("/note")] = QJsonDocument(QJsonObject{{"status", "ok"},
+            {"data", QJsonObject{{"recipeId", 7}, {"note", full}}}}).toJson();
+        saved->showMine(7, QVariantMap{{"note", QVariant()}});
+        QSignalSpy done(saved.get(), &Saved::done);
+        saved->setNote(7, full);
+        QTRY_COMPARE(done.count(), 1);
+        QCOMPARE(done.first().at(0).toString(), QStringLiteral("note"));
+        QCOMPARE(bodiesTo("/note").last().value("text").toString(), full);
+        QCOMPARE(saved->mine().value("note").toString(), full);
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->setNote(7, full + QString::fromUcs4(U"\U0001F370"));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("A note is at most 2000 characters"));
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/note").size(), 1);
+    }
+
+    void anEmptyNoteDeletesIt()
+    {
+        saved->showMine(7, QVariantMap{{"note", "less salt"}});
+        server->responses[path("/note")] = R"({"status":"ok","data":{"recipeId":7,"note":null}})";
+        saved->setNote(7, QStringLiteral("   "));
+        QTRY_VERIFY(saved->mine().value("note").toString().isEmpty());
+        QCOMPARE(bodiesTo("/note").last().value("text").toString(), QString());
+    }
+
+    void aRefusedNoteSaysWhy()
+    {
+        server->responses[path("/note")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/note")] = 404;
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->setNote(7, QStringLiteral("x"));
+        QTRY_COMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(), QStringLiteral("note"));
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("no such recipe"));
+    }
+
+    void theHistoryIsAskedBySortAndAgainAfterAMark()
+    {
+        auto *history = qobject_cast<RecipeQuery *>(saved->devouredHistory());
+        server->responses[path("/devoured")] = R"({"status":"ok","data":{"total":1,"page":1,"pageSize":24,
+          "recipes":[{"id":7,"title":"Stub","devouredId":41,"on":"2026-10-27"}]}})";
+        saved->openDevoured(QStringLiteral("recent"));
+        QTRY_COMPARE(history->count(), 1);
+        QVERIFY(!QUrlQuery(requestsTo("/devoured").last()).hasQueryItem("sort"));
+        saved->openDevoured(QStringLiteral("stars"));
+        QTRY_COMPARE(requestsTo("/devoured").size(), 2);
+        QCOMPARE(QUrlQuery(requestsTo("/devoured").last()).queryItemValue("sort"), QStringLiteral("stars"));
+        QCOMPARE(saved->devouredSort(), QStringLiteral("stars"));
+        saved->openDevoured(QStringLiteral("stars"));       // unchanged: nothing is asked
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/devoured").size(), 2);
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":7,"stars":5}})";
+        saved->setStars(7, 5);
+        // Once its answer is in (a loaded machine is slow), the history is out of date.
+        QTRY_COMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("stars").toInt(), 5);
+        saved->openDevoured(QStringLiteral("stars"));       // a star changed the order: asked again
+        QTRY_COMPARE(requestsTo("/devoured").size(), 3);
     }
 };
 

@@ -1,8 +1,12 @@
 #include "services/Saved.h"
 
+#include <QDate>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QUrlQuery>
+#include <QUuid>
+
+#include <algorithm>
 
 
 namespace {
@@ -19,7 +23,165 @@ QVariantList withoutId(const QVariantList &ids, int id)
 } // namespace
 
 
-Saved::Saved(Api &api, QObject *parent) : QObject(parent), m_api(api), m_listRecipes(api, QString()) {}
+Saved::Saved(Api &api, QObject *parent)
+    : QObject(parent), m_api(api), m_listRecipes(api, QString()), m_history(api, QStringLiteral("/devoured"))
+{
+}
+
+QString Saved::today() const
+{
+    return QDate::currentDate().toString(Qt::ISODate);
+}
+
+void Saved::setDevouring(bool devouring)
+{
+    if (devouring == m_devouring)
+        return;
+    m_devouring = devouring;
+    emit devouringChanged();
+}
+
+void Saved::devour(int recipeId, const QString &day)
+{
+    if (recipeId <= 0 || m_devouring)
+        return;
+    // The picker only offers days that have come; a day after today on this device is a mistake, not a plan.
+    const QDate date = QDate::fromString(day, Qt::ISODate);
+    if (!date.isValid() || date > QDate::currentDate()) {
+        emit failed(QStringLiteral("devoured"), QStringLiteral("Pick a day that has already come"));
+        return;
+    }
+    const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const int generation = m_generation;
+    setDevouring(true);
+    m_api.post(QStringLiteral("/devoured/add"),
+               QJsonObject{{"recipeId", recipeId}, {"on", date.toString(Qt::ISODate)}, {"clientId", clientId}},
+               [this, generation, recipeId](const Api::Result &result) {
+        if (generation != m_generation)
+            return;
+        setDevouring(false);
+        if (!result.ok) {
+            emit failed(QStringLiteral("devoured"), reasonOf(result));
+            return;
+        }
+        const QJsonObject data = result.object.value("data").toObject();
+        noteFlag(recipeId, QStringLiteral("devouredCount"), data.value("count").toInt());
+        if (recipeId == m_mineId && !data.value("already").toBool()) {
+            QVariantList marks = m_mine.value("devoured").toList();
+            marks.append(QVariantMap{{"id", data.value("id").toInt()}, {"on", data.value("on").toString()}});
+            // Newest first, as the server sends them: by day, then by mark.
+            std::sort(marks.begin(), marks.end(), [](const QVariant &a, const QVariant &b) {
+                const QVariantMap x = a.toMap(), y = b.toMap();
+                const QString dx = x.value("on").toString(), dy = y.value("on").toString();
+                return dx != dy ? dx > dy : x.value("id").toInt() > y.value("id").toInt();
+            });
+            m_mine.insert("devoured", marks);
+            emit mineChanged();
+        }
+        m_historyStale = true;
+        emit done(QStringLiteral("devoured"));
+        emit keptChanged();
+    });
+}
+
+void Saved::undevour(int markId)
+{
+    if (markId <= 0)
+        return;
+    const int generation = m_generation;
+    m_api.post(QStringLiteral("/devoured/remove"), QJsonObject{{"id", markId}},
+               [this, generation, markId](const Api::Result &result) {
+        if (generation != m_generation)
+            return;
+        if (!result.ok) {
+            emit failed(QStringLiteral("devoured"), reasonOf(result));
+            return;
+        }
+        const QJsonObject data = result.object.value("data").toObject();
+        const int recipeId = data.value("recipeId").toInt();
+        noteFlag(recipeId, QStringLiteral("devouredCount"), data.value("count").toInt());
+        if (recipeId == m_mineId) {
+            QVariantList marks;
+            for (const QVariant &mark : m_mine.value("devoured").toList())
+                if (mark.toMap().value("id").toInt() != markId)
+                    marks << mark;
+            m_mine.insert("devoured", marks);
+            emit mineChanged();
+        }
+        m_historyStale = true;
+        emit done(QStringLiteral("devoured"));
+        emit keptChanged();
+    });
+}
+
+void Saved::setStars(int recipeId, int stars)
+{
+    if (recipeId <= 0 || stars < 0 || stars > 5)
+        return;
+    const int generation = m_generation;
+    QJsonObject body{{"recipeId", recipeId}};
+    body.insert("stars", stars == 0 ? QJsonValue() : QJsonValue(stars));
+    m_api.post(QStringLiteral("/rating"), body, [this, generation, recipeId](const Api::Result &result) {
+        if (generation != m_generation)
+            return;
+        if (!result.ok) {
+            emit failed(QStringLiteral("stars"), reasonOf(result));
+            return;
+        }
+        const int stars = result.object.value("data").toObject().value("stars").toInt();
+        noteFlag(recipeId, QStringLiteral("stars"), stars);
+        if (recipeId == m_mineId) {
+            m_mine.insert("stars", stars > 0 ? QVariant(stars) : QVariant());
+            emit mineChanged();
+        }
+        m_historyStale = true;
+        emit done(QStringLiteral("stars"));
+    });
+}
+
+void Saved::setNote(int recipeId, const QString &text)
+{
+    if (recipeId <= 0)
+        return;
+    const QString clean = cleanNote(text);
+    if (clean.toUcs4().size() > NoteLimit) {
+        emit failed(QStringLiteral("note"), QStringLiteral("A note is at most 2000 characters"));
+        return;
+    }
+    const int generation = m_generation;
+    m_api.post(QStringLiteral("/note"), QJsonObject{{"recipeId", recipeId}, {"text", clean}},
+               [this, generation, recipeId](const Api::Result &result) {
+        if (generation != m_generation)
+            return;
+        if (!result.ok) {
+            emit failed(QStringLiteral("note"), reasonOf(result));
+            return;
+        }
+        if (recipeId == m_mineId) {
+            const QJsonValue note = result.object.value("data").toObject().value("note");
+            m_mine.insert("note", note.isString() ? QVariant(note.toString()) : QVariant());
+            emit mineChanged();
+        }
+        emit done(QStringLiteral("note"));
+    });
+}
+
+void Saved::openDevoured(const QString &sort)
+{
+    const QString chosen = sort == QLatin1String("stars") ? QStringLiteral("stars") : QStringLiteral("recent");
+    QUrlQuery query;
+    if (chosen == QLatin1String("stars"))
+        query.addQueryItem(QStringLiteral("sort"), chosen);
+    const bool changed = chosen != m_sort;
+    m_sort = chosen;
+    if (m_historyStale && !changed && m_history.answered())
+        m_history.reload();
+    else
+        m_history.run(query);
+    m_historyStale = false;
+    if (changed)
+        emit devouredSortChanged();
+}
 
 QString Saved::cleanTitle(const QString &title)
 {
@@ -361,6 +523,11 @@ void Saved::clear()
     m_mine.clear();
     m_moves.clear();
     m_moving = false;
+    m_history.clear();
+    m_historyStale = false;
+    const bool sortChanged = m_sort != QLatin1String("recent");
+    m_sort = QStringLiteral("recent");
+    setDevouring(false);
     const bool wasBusy = m_pending > 0;
     m_pending = 0;
     emit listsChanged();
@@ -369,4 +536,6 @@ void Saved::clear()
     emit mineChanged();
     if (wasBusy)
         emit busyChanged();
+    if (sortChanged)
+        emit devouredSortChanged();
 }
