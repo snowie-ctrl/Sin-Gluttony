@@ -471,3 +471,10 @@ def recipeDetail(row, ingredients, steps, tags, contains, diets, versions):
         "versions": [{"id": v["RecipeID"], "title": v["Title"], "source": v["Source"], "hasImage": bool(v["ImagePath"])}
                      for v in versions],
     }
+
+
+def isoDate(value):
+    """A DATE (or DATETIME) as MySQL hands it back, as "YYYY-MM-DD"; the app never sees a time with a day."""
+    if value is None:
+        return None
+    return value.date().isoformat() if hasattr(value, "date") else value.isoformat()

@@ -1,14 +1,15 @@
 """
 Gluttony's read API, at /api/gluttony: what the app browses, filters and opens. Every route needs a session
 (gluttonySession.py) except ping; the same blueprint answers on the LAN and, once nginx passes the prefix,
-through gluttony.forculus.net. Accounts and the diet profile live in gluttonyUserRoutes.py on the same prefix.
+through gluttony.forculus.net. Accounts, the diet profile and what a person keeps live in gluttonyUserRoutes.py
+on the same prefix; every tile here carries the person's flags (gluttonyKept.py).
 """
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
 
-from . import gluttonyRules as rules, gluttonySession as session
+from . import gluttonyKept as kept, gluttonyRules as rules, gluttonySession as session
 
 gluttonyBP = Blueprint("gluttony", __name__)
 session.install(gluttonyBP)
@@ -58,8 +59,8 @@ def recipes():
         order, orderParams = rules.recipeOrder(f, date.today().isoformat())
         cur.execute(f"SELECT {rules.TILE_COLUMNS} {FROM_RECIPES} WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
                     [*params, *orderParams, f["pageSize"], (f["page"] - 1) * f["pageSize"]])
-        rows = cur.fetchall()
-    return ok({"total": total, "page": f["page"], "pageSize": f["pageSize"], "recipes": [rules.tile(r) for r in rows]})
+        tiles = kept.attachTileFlags(cur, session.requestUID(), [rules.tile(r) for r in cur.fetchall()])
+    return ok({"total": total, "page": f["page"], "pageSize": f["pageSize"], "recipes": tiles})
 
 
 @gluttonyBP.route("/random", methods=["GET"])
@@ -73,7 +74,8 @@ def randomRecipe():
         where, params = rules.recipeWhere(f, includeSets, excludeIds)
         cur.execute(f"SELECT {rules.TILE_COLUMNS} {FROM_RECIPES} WHERE {where} ORDER BY RAND() LIMIT 1", params)
         row = cur.fetchone()
-    return ok({"recipe": rules.tile(row) if row else None})
+        picked = kept.attachTileFlags(cur, session.requestUID(), [rules.tile(row)])[0] if row else None
+    return ok({"recipe": picked})
 
 
 @gluttonyBP.route("/home", methods=["GET"])
@@ -99,11 +101,12 @@ def home():
 
 @gluttonyBP.route("/recipes/<int:recipeId>", methods=["GET"])
 def recipe(recipeId):
+    uid = session.requestUID()
     with database() as (conn, cur):
-        cur.execute(f"SELECT r.*, fa.Complete {FROM_RECIPES} WHERE r.RecipeID = %s AND r.RemovedAt IS NULL",
-                    (recipeId,))
+        cur.execute(f"SELECT r.*, fa.Complete {FROM_RECIPES} WHERE r.RecipeID = %s", (recipeId,))
         row = cur.fetchone()
-        if not row:
+        # A recipe part 1 removed answers only to someone who keeps it; anyone else hears it does not exist.
+        if not row or (row.get("RemovedAt") is not None and not kept.keptBy(cur, uid, recipeId)):
             return fail("no such recipe", 404)
         cur.execute("SELECT ri.Position, ri.Line, ri.Quantity, ri.QuantityMax, ri.Unit, ri.IngredientID, i.Name, "
                     "ri.Note, ri.Optional, ri.GroupHeading FROM RecipeIngredients ri "
@@ -122,7 +125,11 @@ def recipe(recipeId):
         cur.execute("SELECT RecipeID, Title, Source, ImagePath FROM Recipes WHERE DishKey = %s AND RecipeID <> %s "
                     "AND RemovedAt IS NULL ORDER BY Title LIMIT 20", (row["DishKey"], recipeId))
         versions = cur.fetchall()
-    return ok(rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions))
+        detail = rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions)
+        detail["removed"] = row.get("RemovedAt") is not None
+        detail["mine"] = kept.mineOf(cur, uid, recipeId)
+        kept.attachTileFlags(cur, uid, detail["versions"])
+    return ok(detail)
 
 
 @gluttonyBP.route("/filters", methods=["GET"])
@@ -161,8 +168,7 @@ def ingredients():
 
 def _picture(recipeId, folder):
     with database() as (conn, cur):
-        cur.execute("SELECT ImagePath FROM Recipes WHERE RecipeID = %s AND RemovedAt IS NULL", (recipeId,))
-        row = cur.fetchone()
+        row = kept.visibleRecipe(cur, session.requestUID(), recipeId)
     name = (row or {}).get("ImagePath")
     if not name or not rules.IMAGE_NAME.fullmatch(name):
         return fail("no picture", 404)

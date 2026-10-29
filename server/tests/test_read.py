@@ -19,11 +19,13 @@ def test_recipesAreFilteredCountedAndPaged(readClient, useDb):
     assert answer["data"]["total"] == 31 and answer["data"]["page"] == 2
     assert answer["data"]["recipes"] == [{"id": 7, "kind": "food", "title": "Cheese Toast", "course": "main",
                                           "cuisine": None, "totalMinutes": 10, "timeFrom": "rule", "difficulty": 1,
-                                          "hasImage": True, "source": "mealdb"}]
-    _, count, rows = conn.cur.executed
+                                          "hasImage": True, "source": "mealdb", "craving": False,
+                                          "devouredCount": 0, "stars": None}]
+    _, count, rows, flags = conn.cur.executed
     assert count[0].startswith("SELECT COUNT(*) AS n FROM Recipes r LEFT JOIN RecipeFacts fa")
     assert "ORDER BY SHA1(CONCAT(r.RecipeID, ':', %s))" in rows[0]
     assert rows[1][-2:] == [12, 12]                         # LIMIT 12 OFFSET 12
+    assert flags[0].startswith("SELECT r.RecipeID, EXISTS")
 
 
 def test_includeFindsChildIngredientsToo(readClient, useDb):
@@ -60,7 +62,8 @@ def test_aRecipeComesWithEverythingAboutIt(readClient, useDb):
     assert data["ingredients"][0]["name"] == "bread" and data["ingredients"][0]["optional"] is False
     assert data["tags"]["flavour"] == ["savoury"] and data["facts"] == {"complete": True, "contains": ["gluten"],
                                                                       "diets": ["vegetarian"]}
-    assert data["versions"] == [{"id": 8, "title": "Cheese on Toast", "source": "wikibooks", "hasImage": False}]
+    assert data["versions"] == [{"id": 8, "title": "Cheese on Toast", "source": "wikibooks", "hasImage": False,
+                                 "craving": False, "devouredCount": 0, "stars": None}]
 
 
 def test_aMissingOrRemovedRecipeIs404(readClient, useDb):

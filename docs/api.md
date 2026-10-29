@@ -50,11 +50,12 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 - **The profile:** unless `profile=off`, the account's saved diets and avoids are added to `diet` and `avoid`.
   Only `Complete` recipes can meet a diet or avoid an allergen, whether asked for or saved.
 - `data: {total, page, pageSize, recipes: [tile]}`; a tile is
-  `{id, kind, title, course, cuisine, totalMinutes, timeFrom, difficulty, hasImage, source}`.
+  `{id, kind, title, course, cuisine, totalMinutes, timeFrom, difficulty, hasImage, source, craving, devouredCount,
+  stars}`. The last three are the signed-in person's flags (see "What you keep").
 
 | Route | Answer |
 |---|---|
-| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage}]`, credit fields). `404` when missing or removed. |
+| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage, craving, devouredCount, stars}]`, credit fields), plus `removed` and `mine` (see "What you keep"). `404` when missing, or removed and not kept by this person. |
 | `GET /filters` | `data: {kinds, courses, cuisines, difficulties, flavours, occasions, diets: [{value, count}], avoid: [...]}`, whole-catalog counts |
 | `GET /ingredients?q=` | `data: [{id, name}]`, up to 20; `q` 1–60 characters |
 | `GET /random` | the `/recipes` filters (`sort`, `page` ignored); `data: {recipe: tile or null}` |
@@ -68,3 +69,19 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 - The candidates are food, course `main` or `breakfast`, with a picture, fitting the profile.
 - They are ordered by a hash of recipe, account and date, so a person sees the same pick all day. `pick` is the
   first; `picks` are the next eight.
+
+## What you keep (milestone 2)
+
+Everything here belongs to the signed-in person. Every list, item, mark, rating and note is looked up together with
+the person's id, so someone else's id, like an unknown one, is `404`, never `403`.
+
+- **Tile flags:** every tile list (`/recipes`, `/random`, `versions`, `/home`, `/lists/<id>/recipes`, `/devoured`)
+  adds `craving` (true when the recipe is in the person's Cravings), `devouredCount` (how many times they marked it
+  Devoured) and `stars` (1–5, or null). They are read in one query per answer, whatever the page size.
+- **The `mine` block:** `/recipes/<id>` adds `mine: {craving, lists: [listId], devoured: [{id, on}], stars, note}`.
+  `lists` holds the person's own lists (not Cravings, which is `craving`); `devoured` is newest first; `on` is
+  `YYYY-MM-DD`; `note` is the text or null.
+- **Removed recipes:** a recipe part 1 has removed never appears in `/recipes`, `/random`, Home's picks or `versions`.
+  Its detail and pictures answer only to a person who has it in a list (Cravings included), has devoured it, or has
+  a note on it; the detail then has `removed: true` (`false` otherwise). Everyone else gets `404`. Tiles from the
+  person's own lists and history carry `removed` too.

@@ -80,6 +80,11 @@ def readRoutes():
     return loadModule("gluttonyRoutes")
 
 
+@pytest.fixture
+def kept():
+    return loadModule("gluttonyKept")
+
+
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
     """Each test gets its own token file and media root, and no database."""

@@ -64,7 +64,7 @@ def test_goOnThenIsOneRandomRecipeThatFits(readClient, useDb):
     data = readClient.get(f"{A}/random?kind=food").get_json()["data"]
     assert data == {"recipe": {"id": 7, "kind": "food", "title": "Cheese Toast", "course": "main", "cuisine": None,
                                "totalMinutes": 10, "timeFrom": "rule", "difficulty": 1, "hasImage": True,
-                               "source": "mealdb"}}
+                               "source": "mealdb", "craving": False, "devouredCount": 0, "stars": None}}
     assert conn.cur.executed[1][0].endswith("ORDER BY RAND() LIMIT 1")
 
 
