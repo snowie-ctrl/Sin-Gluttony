@@ -41,5 +41,6 @@ pictures) even when a snapshot is present, so the examples that name an id open 
   sign-in and a sign-out).
 - `qml/`: Main, NavShell, `pages/` (Login, Home, Results, Recipe, Saved, Settings), `component/`, and
   `logic/*.mjs` (words, moods, tiles, filters, scale, units, credit, days). Every word the app shows is in
-  `logic/words.mjs`; every date is handled by `logic/days.mjs`, never by `new Date(text)`.
+  `logic/words.mjs`. Date arithmetic and day labels are in `logic/days.mjs`, never `new Date(text)`; today, and the
+  day of an instant the server sends, are the device's own calendar day (`Saved.today()`, `Saved.localDay()`).
 - `assets/`: Preferences (the Gula look's tokens), Playfair Display (SIL OFL), icons.

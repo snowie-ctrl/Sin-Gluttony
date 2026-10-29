@@ -1,6 +1,7 @@
 #include "services/Saved.h"
 
 #include <QDate>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QUrlQuery>
@@ -31,6 +32,12 @@ Saved::Saved(Api &api, QObject *parent)
 QString Saved::today() const
 {
     return QDate::currentDate().toString(Qt::ISODate);
+}
+
+QString Saved::localDay(const QString &timestamp) const
+{
+    const QDateTime instant = QDateTime::fromString(timestamp, Qt::ISODateWithMs);
+    return instant.isValid() ? instant.toLocalTime().date().toString(Qt::ISODate) : QString();
 }
 
 void Saved::setDevouring(bool devouring)

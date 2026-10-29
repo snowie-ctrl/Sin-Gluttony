@@ -2,6 +2,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDate>
+#include <QDateTime>
+#include <QTimeZone>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTest>
@@ -459,6 +461,20 @@ private slots:
         QCOMPARE(marks.first().toMap().value("id").toInt(), 41);
         QCOMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("devouredCount").toInt(), 2);
         QCOMPARE(kept.count(), 1);
+    }
+
+    void aSignInInstantIsLabelledByThisDevicesDay()
+    {
+        // 23:30 in UTC is already the next day east of it and still the same day west of it.
+        const QString expected = QDateTime(QDate(2026, 10, 28), QTime(23, 30), QTimeZone::UTC)
+                                     .toLocalTime().date().toString(Qt::ISODate);
+        QCOMPARE(saved->localDay(QStringLiteral("2026-10-28T23:30:00Z")), expected);
+        QCOMPARE(saved->localDay(QStringLiteral("2026-10-28T23:30:00.250Z")), expected);
+        // 03:30 in UTC is still the day before anywhere west of Greenwich by more than three and a half hours.
+        QCOMPARE(saved->localDay(QStringLiteral("2026-10-29T03:30:00Z")),
+                 QDateTime(QDate(2026, 10, 29), QTime(3, 30), QTimeZone::UTC).toLocalTime().date().toString(Qt::ISODate));
+        QCOMPARE(saved->localDay(QStringLiteral("junk")), QString());
+        QCOMPARE(saved->localDay(QString()), QString());
     }
 
     void eachMarkHasItsOwnClientIdAndADoubleTapSendsOne()

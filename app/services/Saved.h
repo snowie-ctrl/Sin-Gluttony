@@ -90,6 +90,9 @@ public:
     Q_INVOKABLE int noteLength(const QString &text) const { return int(cleanNote(text).toUcs4().size()); }
     // This device's calendar day, "YYYY-MM-DD": the day a person means by "today", whatever the server's zone.
     Q_INVOKABLE QString today() const;
+    // The device's calendar day, "YYYY-MM-DD", of an instant the server sends ("2026-10-28T23:30:00Z"), so it can be
+    // labelled against today(); "" when it is not one. The first ten characters would be the UTC day.
+    Q_INVOKABLE QString localDay(const QString &timestamp) const;
 
     // A title as the server takes it: trimmed, 1 to 60 characters counted as the server counts them (an emoji is
     // one); empty when the server would refuse it.

@@ -138,9 +138,9 @@ Flickable {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 360
                         text: modelData.label + " · " + (modelData.current ? Words.thisDevice
-                              : (modelData.lastSignIn ? Words.lastSignedIn(Days.label(String(modelData.lastSignIn).slice(0, 10),
-                                                                                       Saved.today()))
-                                                      : Words.notSignedInLately))
+                              : (Saved.localDay(modelData.lastSignIn || "")
+                                 ? Words.lastSignedIn(Days.label(Saved.localDay(modelData.lastSignIn), Saved.today()))
+                                 : Words.notSignedInLately))
                         color: Preferences.textPrimary
                         font.family: Preferences.appFont
                         font.pixelSize: Preferences.fontSizeBody
