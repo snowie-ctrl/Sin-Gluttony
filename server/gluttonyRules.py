@@ -558,3 +558,8 @@ def noteText(value):
     if len(text) > NOTE_MAX:
         return None, f"a note is at most {NOTE_MAX} characters"
     return text, None
+
+# Home's own rows (Cravings, Again?) show this many tiles; the Saved page has the rest.
+HOME_ROW = 12
+# Today's temptation and today's picks leave out what the person made this recently.
+RECENT_DAYS = 30

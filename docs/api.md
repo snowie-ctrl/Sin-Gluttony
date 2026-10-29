@@ -63,12 +63,17 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 
 ## Home
 
-`GET /home?tz=<IANA zone>&profile=on|off` → `data: {date, pick: tile or null, picks: [tile]}`.
+`GET /home?tz=<IANA zone>&profile=on|off` → `data: {date, pick: tile or null, picks: [tile], cravings: [tile],
+again: [tile]}`. Every tile carries the flags.
 
 - `date` is today in `tz`; an unknown or empty zone means UTC.
-- The candidates are food, course `main` or `breakfast`, with a picture, fitting the profile.
+- The candidates for `pick` and `picks` are food, course `main` or `breakfast`, with a picture, fitting the profile,
+  and not devoured by this person in the 30 days before `date`.
 - They are ordered by a hash of recipe, account and date, so a person sees the same pick all day. `pick` is the
   first; `picks` are the next eight.
+- `cravings` is the first 12 of the person's Cravings, in their order; `again` the 12 recipes they devoured most
+  recently. Both are the person's own: the profile does not filter them, and a removed recipe stays, with
+  `removed: true`.
 
 ## What you keep (milestone 2)
 

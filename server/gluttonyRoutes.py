@@ -4,7 +4,7 @@ Gluttony's read API, at /api/gluttony: what the app browses, filters and opens. 
 through gluttony.forculus.net. Accounts, the diet profile and what a person keeps live in gluttonyUserRoutes.py
 on the same prefix; every tile here carries the person's flags (gluttonyKept.py).
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -80,13 +80,15 @@ def randomRecipe():
 
 @gluttonyBP.route("/home", methods=["GET"])
 def home():
-    """Today's temptation and today's picks: food to cook, with a picture, fitting the profile, in an order that
-    holds for this person all day in their own zone."""
+    """Today's temptation and today's picks: food to cook, with a picture, fitting the profile, not made in the last
+    30 days, in an order that holds for this person all day in their own zone. Then the person's own rows: Cravings
+    in their order, and Again? (what they made, most recent first). Those are theirs, so the profile leaves them be."""
     profile = request.args.get("profile") or "on"
     if profile not in ("on", "off"):
         return fail("profile must be on or off", 400)
     uid = session.requestUID()
     day = rules.localDate((request.args.get("tz") or "")[:64], datetime.now(timezone.utc))
+    cutoff = (date.fromisoformat(day) - timedelta(days=rules.RECENT_DAYS)).isoformat()
     with database() as (conn, cur):
         f = {"kind": "food", "course": list(rules.HOME_COURSES)}
         if profile == "on":
@@ -94,9 +96,22 @@ def home():
         where, params = rules.recipeWhere(f)
         order, orderParams = rules.homeOrder(uid, day)
         cur.execute(f"SELECT {rules.TILE_COLUMNS} {FROM_RECIPES} WHERE {where} AND r.ImagePath IS NOT NULL "
-                    f"ORDER BY {order} LIMIT %s", [*params, *orderParams, rules.HOME_PICKS + 1])
+                    "AND NOT EXISTS (SELECT 1 FROM Devoured d WHERE d.UserID = %s AND d.RecipeID = r.RecipeID "
+                    "AND d.MadeOn > %s) "
+                    f"ORDER BY {order} LIMIT %s", [*params, uid, cutoff, *orderParams, rules.HOME_PICKS + 1])
         tiles = [rules.tile(r) for r in cur.fetchall()]
-    return ok({"date": day, "pick": tiles[0] if tiles else None, "picks": tiles[1:]})
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt FROM ListItems li "
+                    "JOIN Lists l ON l.ListID = li.ListID JOIN Recipes r ON r.RecipeID = li.RecipeID "
+                    "WHERE l.UserID = %s AND l.Kind = 'cravings' ORDER BY li.OrderIndex, li.AddedAt DESC LIMIT %s",
+                    (uid, rules.HOME_ROW))
+        cravings = [kept.savedTile(r) for r in cur.fetchall()]
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt, MAX(d.MadeOn) AS LastMade FROM Devoured d "
+                    "JOIN Recipes r ON r.RecipeID = d.RecipeID WHERE d.UserID = %s GROUP BY r.RecipeID "
+                    "ORDER BY LastMade DESC, MAX(d.DevouredID) DESC LIMIT %s", (uid, rules.HOME_ROW))
+        again = [kept.savedTile(r) for r in cur.fetchall()]
+        kept.attachTileFlags(cur, uid, tiles + cravings + again)
+    return ok({"date": day, "pick": tiles[0] if tiles else None, "picks": tiles[1:], "cravings": cravings,
+               "again": again})
 
 
 @gluttonyBP.route("/recipes/<int:recipeId>", methods=["GET"])
