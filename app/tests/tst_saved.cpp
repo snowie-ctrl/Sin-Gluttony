@@ -366,6 +366,46 @@ private slots:
         QCOMPARE(sent[1].value("after").toInt(), 3);
     }
 
+    void aListReopenedDuringAMoveIsAskedAgainOnceTheMoveLands()
+    {
+        loadLists();
+        openWeeknights({1, 2, 3});
+        server->responses[path("/lists/items/reorder")] = R"({"status":"ok"})";
+        server->holdNext[path("/lists/items/reorder")] = 1;
+        saved->moveItem(0, 2);          // 2 3 1: 1 after 3
+        QTRY_COMPARE(requestsTo("/lists/items/reorder").size(), 1);
+        saved->openList(12);
+        saved->openList(11);
+        // The list's answer is served before the move: it holds the order from before the drag.
+        QTRY_COMPARE(requestsTo("/lists/11/recipes").size(), 2);
+        QTRY_COMPARE(open()->count(), 3);
+        QCOMPARE(open()->rowAt(0).value("id").toInt(), 1);
+        server->responses[path("/lists/11/recipes")] = listPage({2, 3, 1});
+        server->releaseHeld();
+        QTRY_COMPARE(requestsTo("/lists/11/recipes").size(), 3);
+        QTRY_COMPARE(open()->rowAt(0).value("id").toInt(), 2);
+        QCOMPARE(open()->rowAt(2).value("id").toInt(), 1);
+    }
+
+    void theListsAskedForDuringAListMoveAreAskedAgainOnceTheMoveLands()
+    {
+        loadLists();
+        server->responses[path("/lists/reorder")] = R"({"status":"ok"})";
+        server->holdNext[path("/lists/reorder")] = 1;
+        saved->moveList(12, -1);        // 3 12 11
+        QTRY_COMPARE(requestsTo("/lists/reorder").size(), 1);
+        // The answer is served before the move, in the order from before it.
+        saved->load();
+        QTRY_COMPARE(requestsTo("/lists").size(), 2);
+        QTRY_COMPARE(saved->lists().at(1).toMap().value("id").toInt(), 11);
+        server->responses[path("/lists")] = R"({"status":"ok","data":[
+  {"id":3,"title":"Cravings","kind":"cravings","count":2},{"id":12,"title":"Parties","kind":"custom","count":1},
+  {"id":11,"title":"Weeknights","kind":"custom","count":0}]})";
+        server->releaseHeld();
+        QTRY_COMPARE(requestsTo("/lists").size(), 3);
+        QTRY_COMPARE(saved->lists().at(1).toMap().value("id").toInt(), 12);
+    }
+
     void aRefusedMoveReloadsTheList()
     {
         loadLists();

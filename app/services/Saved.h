@@ -158,6 +158,8 @@ private:
     };
     void queueMove(const Move &move);
     void sendNextMove();
+    // A move of this kind is waiting or on its way.
+    bool movePending(bool ofList) const;
     void beginEdit();
     void endEdit();
     void setDevouring(bool devouring);
@@ -179,6 +181,11 @@ private:
     QVariantMap m_mine;
     QList<Move> m_moves;
     bool m_moving = false;
+    bool m_movingOfList = false;
+    // The open list's recipes, or the lists, were asked for while a move of theirs was on its way. The server may
+    // answer that before it applies the move, so they are asked again once every move has landed.
+    bool m_reloadItemsOnDrain = false;
+    bool m_reloadListsOnDrain = false;
     RecipeQuery m_history;
     QString m_sort = QStringLiteral("recent");
     // A mark or a star changed since the history was shown, so the next openDevoured asks again.

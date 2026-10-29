@@ -277,10 +277,15 @@ QVariantMap Saved::flagsOf(const QVariantMap &tile) const
 
 void Saved::load()
 {
+    // Asked for, or answered, while a list move is on its way: the answer may hold the order from before it.
+    if (movePending(true))
+        m_reloadListsOnDrain = true;
     const int generation = m_generation;
     m_api.get(QStringLiteral("/lists"), QUrlQuery(), [this, generation](const Api::Result &result) {
         if (generation != m_generation)
             return;
+        if (movePending(true))
+            m_reloadListsOnDrain = true;
         if (result.ok) {
             m_lists = result.object.value("data").toArray().toVariantList();
             m_cravingsId = 0;
@@ -417,6 +422,9 @@ void Saved::openList(int listId)
     else
         m_listRecipes.run(QUrlQuery());
     m_openStale = false;
+    // The answer may be served before a move still on its way, in the order from before it.
+    if (m_listRecipes.loading() && movePending(false))
+        m_reloadItemsOnDrain = true;
     if (other)
         emit openListChanged();
 }
@@ -495,10 +503,24 @@ void Saved::sendNextMove()
 {
     // One at a time, lists and recipes alike: two requests at once may reach the server in either order, and each
     // move names what the one moved follows as the grid stood after the move before it.
-    if (m_moving || m_moves.isEmpty())
+    if (m_moving)
         return;
+    if (m_moves.isEmpty()) {
+        // Every move has landed, so what was asked for while they were on their way is asked for again.
+        if (m_reloadItemsOnDrain) {
+            m_reloadItemsOnDrain = false;
+            if (m_openListId > 0)
+                m_listRecipes.reload();
+        }
+        if (m_reloadListsOnDrain) {
+            m_reloadListsOnDrain = false;
+            load();
+        }
+        return;
+    }
     m_moving = true;
     const Move move = m_moves.takeFirst();
+    m_movingOfList = move.ofList;
     const int generation = m_generation;
     m_api.post(move.route, move.body, [this, generation, ofList = move.ofList](const Api::Result &result) {
         if (generation != m_generation)
@@ -521,6 +543,13 @@ void Saved::sendNextMove()
         }
         sendNextMove();
     });
+}
+
+bool Saved::movePending(bool ofList) const
+{
+    if (m_moving && m_movingOfList == ofList)
+        return true;
+    return std::any_of(m_moves.cbegin(), m_moves.cend(), [ofList](const Move &move) { return move.ofList == ofList; });
 }
 
 void Saved::showMine(int recipeId, const QVariantMap &mine)
@@ -557,6 +586,9 @@ void Saved::clear()
     m_mine.clear();
     m_moves.clear();
     m_moving = false;
+    m_movingOfList = false;
+    m_reloadItemsOnDrain = false;
+    m_reloadListsOnDrain = false;
     m_history.clear();
     m_historyStale = false;
     const bool sortChanged = m_sort != QLatin1String("recent");
