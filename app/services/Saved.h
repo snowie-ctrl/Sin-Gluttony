@@ -195,6 +195,8 @@ private:
     // One entry per request on its way, so two for the same recipe are both counted.
     QList<int> m_starsSaving;
     QList<int> m_noteSaving;
+    // The marks whose removal is on its way.
+    QList<int> m_undevouring;
     int m_pending = 0;
     // Bumped by clear(), so an answer meant for the last person is dropped.
     int m_generation = 0;

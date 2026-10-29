@@ -107,13 +107,16 @@ void Saved::devour(int recipeId, const QString &day)
 
 void Saved::undevour(int markId)
 {
-    if (markId <= 0)
+    // A second tap while the first is on its way would be refused (the mark is gone) and show that as an error.
+    if (markId <= 0 || m_undevouring.contains(markId))
         return;
+    m_undevouring.append(markId);
     const int generation = m_generation;
     m_api.post(QStringLiteral("/devoured/remove"), QJsonObject{{"id", markId}},
                [this, generation, markId](const Api::Result &result) {
         if (generation != m_generation)
             return;
+        m_undevouring.removeOne(markId);
         if (!result.ok) {
             emit failed(QStringLiteral("devoured"), reasonOf(result));
             return;
@@ -597,6 +600,7 @@ void Saved::clear()
     const bool wasSaving = !m_starsSaving.isEmpty() || !m_noteSaving.isEmpty();
     m_starsSaving.clear();
     m_noteSaving.clear();
+    m_undevouring.clear();
     const bool wasBusy = m_pending > 0;
     m_pending = 0;
     emit listsChanged();

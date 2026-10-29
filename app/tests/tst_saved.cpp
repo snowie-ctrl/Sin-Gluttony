@@ -497,6 +497,22 @@ private slots:
         QCOMPARE(saved->flagsOf(QVariantMap{{"id", 7}}).value("devouredCount").toInt(), 1);
     }
 
+    void aDoubleTapOnRemoveSendsOneRequest()
+    {
+        saved->showMine(7, QVariantMap{{"devoured", QVariantList{QVariantMap{{"id", 41}, {"on", "2026-10-27"}}}}});
+        server->responses[path("/devoured/remove")] = R"({"status":"ok","data":{"id":41,"recipeId":7,"count":0}})";
+        server->holdNext[path("/devoured/remove")] = 1;
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->undevour(41);
+        saved->undevour(41);            // still on its way: ignored
+        QTRY_COMPARE(requestsTo("/devoured/remove").size(), 1);
+        QTest::qWait(150);
+        QCOMPARE(requestsTo("/devoured/remove").size(), 1);
+        server->releaseHeld();
+        QTRY_VERIFY(saved->mine().value("devoured").toList().isEmpty());
+        QCOMPARE(failed.count(), 0);
+    }
+
     void starsAreSetAndClearedWithNull()
     {
         saved->showMine(7, QVariantMap{{"stars", QVariant()}});
