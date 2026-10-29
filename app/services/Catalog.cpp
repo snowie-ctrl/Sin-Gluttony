@@ -44,9 +44,8 @@ int ingredientId(const QVariant &value)
 Catalog::Catalog(Api &api, Diet &diet, QObject *parent)
     : QObject(parent), m_api(api), m_diet(diet), m_filters(defaultFilters()), m_results(api)
 {
-    // Switching the diet off, or saving a new one, changes what fits: what is shown is asked for again.
-    connect(&m_diet, &Diet::enabledChanged, this, &Catalog::askAgain);
-    connect(&m_diet, &Diet::saved, this, &Catalog::askAgain);
+    // Switching the diet off, or saving a new one, changes what fits: what is shown is asked for again, once.
+    connect(&m_diet, &Diet::profileApplied, this, &Catalog::askAgain);
 }
 
 int Catalog::cuisineLimit()

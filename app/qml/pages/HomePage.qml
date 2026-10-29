@@ -18,9 +18,10 @@ Flickable {
 
     property string rollMessage: ""
 
-    // Signing in already asks Home; this is for a page that opens with nothing asked. It waits a turn, because the
-    // shell is created in the same signal that starts that ask, and a second request would only supersede the first.
-    Component.onCompleted: Qt.callLater(function() { if (!Home.answered && !Home.loading) Home.load() })
+    // Signing in already asks Home; this is for a page that opens with nothing asked, or with rows a ♥ or a Devoured
+    // mark has changed since. It waits a turn, because the shell is created in the same signal that starts the
+    // sign-in's ask, and a second request would only supersede the first.
+    Component.onCompleted: Qt.callLater(function() { if ((!Home.answered || Home.stale) && !Home.loading) Home.load() })
 
     Connections {
         target: Home
@@ -306,6 +307,22 @@ Flickable {
                 font.pixelSize: Preferences.fontSizeBody
             }
             ActionButton { id: retry; text: Words.tryAgain; onClicked: Home.load() }
+        }
+
+        TileRow {
+            objectName: "cravingsRow"
+            width: parent.width
+            title: Words.cravings
+            hint: Words.cravingsHint
+            recipes: Home.cravings
+        }
+
+        TileRow {
+            objectName: "againRow"
+            width: parent.width
+            title: Words.again
+            hint: Words.againHint
+            recipes: Home.again
         }
 
         TileRow {

@@ -41,6 +41,10 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
         saved.showMine(recipes.recipeId(), recipe.value("mine").toMap());
     });
 
+    // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
+    // on its next visit.
+    QObject::connect(&saved, &Saved::keptChanged, &home, &Home::markStale);
+
     // The catalog and Home are cleared before the diet, whose clearing switches it back on: by then nothing is
     // left to ask again.
     QObject::connect(&session, &Session::signedOut, &diet, [&diet, &catalog, &home, &recipes, &saved]() {

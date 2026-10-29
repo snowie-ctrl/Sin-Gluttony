@@ -48,8 +48,11 @@ public:
 signals:
     void changed();
     void enabledChanged();
-    // The server holds a new profile, so what was found with the old one is asked for again.
+    // The server holds a new profile (the editor closes on this).
     void saved();
+    // What applies to searches has changed: switched off or on, or a new profile saved. Emitted once per change,
+    // so Results and Home ask again once; never by clear(), which only follows a sign-out.
+    void profileApplied();
 
 private:
     void apply(const QJsonObject &data);

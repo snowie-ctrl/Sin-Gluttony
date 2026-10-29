@@ -25,6 +25,7 @@ void Diet::setEnabled(bool enabled)
         return;
     m_enabled = enabled;
     emit enabledChanged();
+    emit profileApplied();
 }
 
 void Diet::apply(const QJsonObject &data)
@@ -76,6 +77,7 @@ void Diet::save(const QStringList &diets, const QStringList &avoid)
         if (wasOff)
             emit enabledChanged();
         emit saved();
+        emit profileApplied();
     });
 }
 

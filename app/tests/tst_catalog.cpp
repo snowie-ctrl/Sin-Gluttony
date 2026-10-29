@@ -247,6 +247,22 @@ private slots:
         QVERIFY(catalog->title().isEmpty());
         QCOMPARE(results()->count(), 0);
     }
+
+    void savingADietWhileItIsSwitchedOffAsksOnce()
+    {
+        server->responses[dietPath] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":[]}})";
+        diet->load();
+        QTRY_VERIFY(diet->loaded());
+        catalog->openWith({}, "Browse");
+        QTRY_COMPARE(to(recipesPath).size(), 1);
+        diet->setEnabled(false);
+        QTRY_COMPARE(to(recipesPath).size(), 2);
+        server->responses[dietPath] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":[]}})";
+        diet->save({"vegan"}, {});
+        QTRY_COMPARE(to(recipesPath).size(), 3);
+        QTest::qWait(200);
+        QCOMPARE(to(recipesPath).size(), 3);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCatalog)

@@ -821,6 +821,41 @@ private slots:
         }
         QVERIFY(found);
     }
+
+    void homeShowsTheCravingsAndAgainRows()
+    {
+        server->responses[path("/home")] = R"({"status":"ok","data":{"date":"2026-10-27","pick":null,"picks":[],
+          "cravings":[{"id":4,"kind":"food","title":"Stub Spinach Eggs","hasImage":false,"craving":true}],
+          "again":[{"id":1,"kind":"food","title":"Stub Coq au Vin","hasImage":false,"devouredCount":1}]}})";
+        start();
+        QTRY_VERIFY(findVisible("cravingsRow"));
+        QVERIFY(findVisible("againRow"));
+        // Cravings above Again?, both above Today's picks (spec §4 Home); the column lays them out a frame later.
+        QTRY_VERIFY(findVisible("cravingsRow")->y() < findVisible("againRow")->y());
+    }
+
+    void emptyRowsAreNotShown()
+    {
+        start();
+        QTRY_VERIFY(findVisible("nothingFits"));
+        QVERIFY(!findVisible("cravingsRow") && !findVisible("againRow"));
+    }
+
+    void aCravingMadeElsewhereShowsWhenHomeIsVisitedAgain()
+    {
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":4,"count":1}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_COMPARE(requestsTo("/home").size(), 1);
+        QTRY_VERIFY(saved->listsLoaded());
+        nav->navigateTo("results-page");
+        saved->setCraving(4, true);
+        QTRY_VERIFY(home->stale());
+        nav->navigateTo("home-page");
+        QTRY_COMPARE(requestsTo("/home").size(), 2);
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/home").size(), 2);
+    }
 };
 
 QTEST_MAIN(TestPages)

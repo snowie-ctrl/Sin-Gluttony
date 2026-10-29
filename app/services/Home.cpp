@@ -10,15 +10,14 @@ Home::Home(Api &api, Diet &diet, QObject *parent)
 {
     // A new profile, or the profile switched off, changes what fits: what was found before is dropped at once, so
     // nothing chosen under the old profile stays on screen if the new ask fails. A plain Retry keeps what is shown.
-    const auto again = [this]() {
+    const auto askAgain = [this]() {
         if (!m_answered && !m_loading)
             return;
         m_pick.clear();
         m_picks.clear();
         load();
     };
-    connect(&m_diet, &Diet::enabledChanged, this, again);
-    connect(&m_diet, &Diet::saved, this, again);
+    connect(&m_diet, &Diet::profileApplied, this, askAgain);
 }
 
 QUrlQuery Home::profileQuery() const
@@ -35,6 +34,7 @@ void Home::load()
     query.addQueryItem("tz", m_tz);
     const int generation = ++m_loadGeneration;
     m_loading = true;
+    m_stale = false;
     emit changed();
     m_api.get(QStringLiteral("/home"), query, [this, generation](const Api::Result &result) {
         if (generation != m_loadGeneration)
@@ -47,6 +47,8 @@ void Home::load()
             // A null pick (nothing fits) reads as an empty map.
             m_pick = data.value("pick").toObject().toVariantMap();
             m_picks = data.value("picks").toArray().toVariantList();
+            m_cravings = data.value("cravings").toArray().toVariantList();
+            m_again = data.value("again").toArray().toVariantList();
             m_error.clear();
         } else {
             m_error = reasonOf(result);
@@ -85,6 +87,9 @@ void Home::clear()
     ++m_rollGeneration;
     m_pick.clear();
     m_picks.clear();
+    m_cravings.clear();
+    m_again.clear();
+    m_stale = false;
     m_date.clear();
     m_loading = false;
     m_answered = false;

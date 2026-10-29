@@ -18,27 +18,25 @@ class TestDiet : public QObject
 {
     Q_OBJECT
 
-    FakeServer server;
+    std::unique_ptr<FakeServer> server;
     std::unique_ptr<Api> api;
     std::unique_ptr<Diet> diet;
 
 private slots:
     void init()
     {
-        server.responses.clear();
-        server.statuses.clear();
-        server.requests.clear();
-        server.bodies.clear();
-        server.holdNext.clear();
         diet.reset();
+        api.reset();
+        // A new server for every case, listening before the last one goes, so a late request never reaches it.
+        server = std::make_unique<FakeServer>();
         api = std::make_unique<Api>();
-        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server.serverPort()));
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         diet = std::make_unique<Diet>(*api);
     }
 
     void loadingReadsTheProfile()
     {
-        server.responses[dietPath] = vegetarian;
+        server->responses[dietPath] = vegetarian;
         diet->load();
         QTRY_VERIFY(diet->loaded());
         QCOMPARE(diet->diets(), QStringList{"vegetarian"});
@@ -50,7 +48,7 @@ private slots:
 
     void switchedOffWithAProfileAsksForProfileOff()
     {
-        server.responses[dietPath] = vegetarian;
+        server->responses[dietPath] = vegetarian;
         diet->load();
         QTRY_VERIFY(diet->loaded());
         QSignalSpy enabled(diet.get(), &Diet::enabledChanged);
@@ -62,7 +60,7 @@ private slots:
 
     void withoutAProfileNothingIsSentEvenWhenOff()
     {
-        server.responses[dietPath] = R"({"status":"ok","data":{"diets":[],"avoid":[]}})";
+        server->responses[dietPath] = R"({"status":"ok","data":{"diets":[],"avoid":[]}})";
         diet->load();
         QTRY_VERIFY(diet->loaded());
         diet->setEnabled(false);
@@ -72,13 +70,13 @@ private slots:
 
     void savingSendsTheListsAndSwitchesItBackOn()
     {
-        server.responses[dietPath] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["peanut"]}})";
+        server->responses[dietPath] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":["peanut"]}})";
         diet->setEnabled(false);
         QSignalSpy saved(diet.get(), &Diet::saved);
         diet->save({"vegan"}, {"peanut"});
         QVERIFY(diet->saving());
         QTRY_COMPARE(saved.count(), 1);
-        const QJsonObject sent = QJsonDocument::fromJson(server.bodies.last()).object();
+        const QJsonObject sent = QJsonDocument::fromJson(server->bodies.last()).object();
         QCOMPARE(sent.value("diets").toArray().first().toString(), QStringLiteral("vegan"));
         QCOMPARE(sent.value("avoid").toArray().first().toString(), QStringLiteral("peanut"));
         QVERIFY(!diet->saving());
@@ -88,11 +86,11 @@ private slots:
 
     void aRefusedSaveKeepsTheOldProfileAndSaysWhy()
     {
-        server.responses[dietPath] = vegetarian;
+        server->responses[dietPath] = vegetarian;
         diet->load();
         QTRY_VERIFY(diet->loaded());
-        server.responses[dietPath] = R"({"status":"error","message":"unknown diet: keto"})";
-        server.statuses[dietPath] = 400;
+        server->responses[dietPath] = R"({"status":"error","message":"unknown diet: keto"})";
+        server->statuses[dietPath] = 400;
         diet->save({"keto"}, {});
         QTRY_VERIFY(!diet->saving());
         QCOMPARE(diet->error(), QStringLiteral("unknown diet: keto"));
@@ -101,17 +99,33 @@ private slots:
 
     void clearingDropsALateAnswerAndSwitchesItOn()
     {
-        server.responses[dietPath] = vegetarian;
-        server.holdNext[dietPath] = 1;
+        server->responses[dietPath] = vegetarian;
+        server->holdNext[dietPath] = 1;
         diet->load();
-        QTRY_COMPARE(server.requests.size(), 1);
+        QTRY_COMPARE(server->requests.size(), 1);
         diet->setEnabled(false);
         diet->clear();
-        server.releaseHeld();
+        server->releaseHeld();
         QTest::qWait(200);
         QVERIFY(!diet->loaded());
         QVERIFY(!diet->hasProfile());
         QVERIFY(diet->enabled());
+    }
+
+    void savingWhileSwitchedOffSaysOnceThatTheProfileApplies()
+    {
+        server->responses[dietPath] = vegetarian;
+        diet->load();
+        QTRY_VERIFY(diet->loaded());
+        QSignalSpy applied(diet.get(), &Diet::profileApplied);
+        diet->setEnabled(false);
+        QCOMPARE(applied.count(), 1);
+        QSignalSpy saved(diet.get(), &Diet::saved);
+        diet->save({"vegan"}, {});
+        QTRY_COMPARE(saved.count(), 1);
+        QCOMPARE(applied.count(), 2);
+        diet->clear();
+        QCOMPARE(applied.count(), 2);
     }
 };
 
