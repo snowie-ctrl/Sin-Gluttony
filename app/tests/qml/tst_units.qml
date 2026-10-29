@@ -114,6 +114,11 @@ TestCase {
                 "2 cups, plus more for dusting")
         compare(Units.lineText(line("200 g (7 oz); butter, softened", 200, "g"), 0.5, "metric", "food"),
                 "100 g; butter, softened")
+        // A unit followed straight by a comma or a semicolon keeps it against the amount.
+        compare(Units.lineText(line("1 cup, plus more for dusting", 1, "cup"), 2, "us", "food"),
+                "2 cups, plus more for dusting")
+        compare(Units.lineText(line("2 tbsp; softened butter", 2, "tbsp"), 2, "us", "food"),
+                "4 tbsp; softened butter")
     }
 
     // Most optional lines already say so; the marker is added only to one that does not.

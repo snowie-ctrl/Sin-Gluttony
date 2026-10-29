@@ -1,3 +1,4 @@
+#include <QDate>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
 #include "FakeServer.h"
 #include "api/Api.h"
@@ -186,6 +188,31 @@ class TestPages : public QObject
           "versions":[{"id":2,"title":"Coq au Vin (slow cooker)","source":"wikibooks","hasImage":false}]}})json";
         recipes->open(1);
         nav->navigateTo("recipe-page");
+    }
+
+    // Recipe 1 with what the person keeps on it, and whether its source removed it.
+    void openKeptRecipe(const QJsonObject &mine, bool removed = false)
+    {
+        const QJsonObject recipe{{"id", 1}, {"kind", "food"}, {"title", "Stub Coq au Vin"}, {"course", "main"},
+                                 {"cuisine", "French"}, {"servings", 4}, {"servingsFrom", "source"},
+                                 {"totalMinutes", 105}, {"timeFrom", "rule"}, {"difficulty", 2},
+                                 {"difficultyFrom", "rule"}, {"hasImage", false}, {"source", "mealdb"},
+                                 {"sourceUrl", QJsonValue()}, {"licence", "TheMealDB"}, {"credit", "Stub"},
+                                 {"imageCredit", QJsonValue()}, {"videoUrl", QJsonValue()},
+                                 {"ingredients", QJsonArray()}, {"steps", QJsonArray()},
+                                 {"tags", QJsonObject{{"flavour", QJsonArray()}}},
+                                 {"facts", QJsonObject{{"complete", true}, {"contains", QJsonArray()},
+                                                       {"diets", QJsonArray()}}},
+                                 {"versions", QJsonArray()}, {"removed", removed}, {"mine", mine}};
+        server->responses[path("/recipes/1")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", recipe}}).toJson();
+        recipes->open(1);
+        nav->navigateTo("recipe-page");
+    }
+
+    static QJsonObject noMine()
+    {
+        return QJsonObject{{"craving", false}, {"lists", QJsonArray()}, {"devoured", QJsonArray()},
+                           {"stars", QJsonValue()}, {"note", QJsonValue()}};
     }
 
 private slots:
@@ -918,6 +945,191 @@ private slots:
         QQuickItem *meta = findIn(tile, "tileMeta");
         QVERIFY(meta);
         QCOMPARE(meta->property("text").toString(), QStringLiteral("gone from its source"));
+    }
+
+    void theActionsShowWhatThePersonKeeps()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QJsonObject mine = noMine();
+        mine["craving"] = true;
+        mine["stars"] = 4;
+        mine["note"] = "Less salt, more wine.";
+        mine["devoured"] = QJsonArray{QJsonObject{{"id", 41}, {"on", "2026-10-03"}}};
+        openKeptRecipe(mine);
+        QTRY_VERIFY(findVisible("recipeActions"));
+        QVERIFY(findVisible("actionCraving")->property("selected").toBool());
+        QCOMPARE(findVisible("actionStars")->property("value").toInt(), 4);
+        QCOMPARE(findVisible("recipeNote")->property("text").toString(), QStringLiteral("Less salt, more wine."));
+        QVERIFY(findVisible("devouredMark-41"));
+        QVERIFY(!findVisible("removedNote"));
+    }
+
+    void theHeartAddsItToCravings()
+    {
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        start();
+        QTRY_VERIFY(saved->listsLoaded());
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionCraving"));
+        QVERIFY(!findVisible("actionCraving")->property("selected").toBool());
+        click(findVisible("actionCraving"));
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 3);
+        QCOMPARE(lastBodyTo("/lists/items/add").value("recipeId").toInt(), 1);
+        QTRY_VERIFY(findVisible("actionCraving")->property("selected").toBool());
+    }
+
+    void devouredSendsTodayOrAnEarlierDay()
+    {
+        server->responses[path("/devoured/add")] = R"({"status":"ok","data":{"id":42,"recipeId":1,"on":"2026-10-27","count":1,"already":false}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionDevoured"));
+        QCOMPARE(findVisible("devouredDay")->property("text").toString(), QStringLiteral("today"));
+        // Tomorrow is not offered.
+        QVERIFY(!findVisible("devouredLater")->isEnabled());
+        click(findVisible("devouredEarlier"));
+        QTRY_COMPARE(findVisible("devouredDay")->property("text").toString(), QStringLiteral("yesterday"));
+        click(findVisible("actionDevoured"));
+        QTRY_COMPARE(requestsTo("/devoured/add").size(), 1);
+        QCOMPARE(lastBodyTo("/devoured/add").value("on").toString(),
+                 QDate::currentDate().addDays(-1).toString(Qt::ISODate));
+        QTRY_VERIFY(findVisible("devouredMark-42"));
+    }
+
+    void aStarClickedSetsThemAndTheSameStarClears()
+    {
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":1,"stars":3}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("star-3"));
+        click(findVisible("star-3"));
+        QTRY_COMPARE(requestsTo("/rating").size(), 1);
+        QCOMPARE(lastBodyTo("/rating").value("stars").toInt(), 3);
+        QTRY_COMPARE(findVisible("actionStars")->property("value").toInt(), 3);
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":1,"stars":null}})";
+        click(findVisible("star-3"));
+        QTRY_COMPARE(requestsTo("/rating").size(), 2);
+        QVERIFY(lastBodyTo("/rating").value("stars").isNull());
+    }
+
+    void theNoteEditorSavesAndCountsAsTheServerCounts()
+    {
+        server->responses[path("/note")] = R"({"status":"ok","data":{"recipeId":1,"note":"less salt"}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionNote"));
+        click(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("notePopup"));
+        findVisible("noteField")->setProperty("text", QStringLiteral("less salt"));
+        QTRY_COMPARE(findVisible("noteCount")->property("text").toString(), QStringLiteral("9 / 2000"));
+        click(findVisible("noteSave"));
+        QTRY_COMPARE(requestsTo("/note").size(), 1);
+        QCOMPARE(lastBodyTo("/note").value("text").toString(), QStringLiteral("less salt"));
+        QTRY_VERIFY(!findVisible("notePopup"));
+        QTRY_COMPARE(find("recipeNote")->property("text").toString(), QStringLiteral("less salt"));
+    }
+
+    void aNoteOverTheLimitCannotBeSaved()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionNote"));
+        click(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("notePopup"));
+        const QString cakes = QString::fromUcs4(std::u32string(2001, U'\U0001F370').c_str());
+        findVisible("noteField")->setProperty("text", cakes);
+        QTRY_COMPARE(findVisible("noteCount")->property("text").toString(), QStringLiteral("2001 / 2000"));
+        QVERIFY(!findVisible("noteSave")->isEnabled());
+        findVisible("noteField")->setProperty("text", cakes.left(cakes.size() - 2));
+        QTRY_VERIFY(findVisible("noteSave")->isEnabled());
+    }
+
+    void plusListPutsItOnAListOrANewOne()
+    {
+        server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0},
+          {"id":11,"title":"Weeknights","kind":"custom","count":0}]})";
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":11,"recipeId":1,"count":1}})";
+        server->responses[path("/lists/create")] = R"({"status":"ok","data":{"id":12,"title":"Fridays","kind":"custom","count":0}})";
+        start();
+        QTRY_VERIFY(saved->listsLoaded());
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("actionList"));
+        click(findVisible("actionList"));
+        QTRY_VERIFY(findVisible("listRow-11"));
+        click(findVisible("listRow-11"));
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 11);
+        click(findVisible("newListField"));
+        type("Fridays");
+        click(findVisible("newListCreate"));
+        QTRY_COMPARE(requestsTo("/lists/create").size(), 1);
+        QCOMPARE(lastBodyTo("/lists/create").value("title").toString(), QStringLiteral("Fridays"));
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 2);
+        QCOMPARE(lastBodyTo("/lists/items/add").value("listId").toInt(), 12);
+    }
+
+    void theStarsAndTheNotesSaveRestWhileTheirRequestIsOnItsWay()
+    {
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":1,"stars":3}})";
+        server->responses[path("/note")] = R"({"status":"ok","data":{"recipeId":1,"note":"less salt"}})";
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("star-3"));
+        QVERIFY(findVisible("actionStars")->isEnabled());
+        server->holdNext[path("/rating")] = 1;
+        click(findVisible("star-3"));
+        QTRY_COMPARE(requestsTo("/rating").size(), 1);
+        QTRY_VERIFY(!findVisible("actionStars")->isEnabled());
+        // A second tap while it waits sends nothing.
+        click(findVisible("star-4"));
+        QTest::qWait(100);
+        QCOMPARE(requestsTo("/rating").size(), 1);
+        server->releaseHeld();
+        QTRY_VERIFY(findVisible("actionStars")->isEnabled());
+        QCOMPARE(findVisible("actionStars")->property("value").toInt(), 3);
+
+        click(findVisible("actionNote"));
+        QTRY_VERIFY(findVisible("notePopup"));
+        findVisible("noteField")->setProperty("text", QStringLiteral("less salt"));
+        QTRY_VERIFY(findVisible("noteSave")->isEnabled());
+        server->holdNext[path("/note")] = 1;
+        click(findVisible("noteSave"));
+        QTRY_COMPARE(requestsTo("/note").size(), 1);
+        QTRY_VERIFY(!findVisible("noteSave")->isEnabled());
+        server->releaseHeld();
+        QTRY_VERIFY(!findVisible("notePopup"));
+    }
+
+    void aRefusedActionSaysWhyInPlainWords()
+    {
+        server->responses[path("/rating")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/rating")] = 404;
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openKeptRecipe(noMine());
+        QTRY_VERIFY(findVisible("star-2"));
+        click(findVisible("star-2"));
+        QTRY_VERIFY(findVisible("actionError"));
+        QCOMPARE(findVisible("actionError")->property("text").toString(), QStringLiteral("no such recipe"));
+    }
+
+    void aRemovedRecipeSaysItIsGoneAndStillOpens()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QJsonObject mine = noMine();
+        mine["lists"] = QJsonArray{11};
+        openKeptRecipe(mine, true);
+        QTRY_VERIFY(findVisible("removedNote"));
+        QVERIFY(findVisible("recipeTitle") && findVisible("recipeActions"));
+        QVERIFY(!findVisible("recipeGone"));
     }
 };
 

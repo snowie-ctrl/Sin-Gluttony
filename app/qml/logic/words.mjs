@@ -75,6 +75,22 @@ export const today = "today"
 export const yesterday = "yesterday"
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 export const goneFromSource = "gone from its source"
+export const goneNote = "Gone from its source. It stays yours to open."
+export const craving = "Craving"
+export const addToList = "List"
+export const devoured = "Devoured"
+export const note = "Note"
+export const editNote = "Edit note"
+export const noteTitle = "Your note"
+export const noteHint = "Only you see this."
+export const save = "Save"
+export const cancel = "Cancel"
+export const newList = "New list"
+export const create = "Create"
+export const yourLists = "Your lists"
+export const noListsYet = "No lists of your own yet."
+export const earlier = "‹"
+export const later = "›"
 
 // The diet and avoid words match the server's lists (server/gluttonyRules.py DIETS and CONTAINS_ITEMS).
 export const DIETS = [
@@ -158,4 +174,9 @@ export function devouredBadge(count) {
 
 export function starsBadge(stars) {
     return stars > 0 ? "★" + stars : ""
+}
+
+// The note editor's count, in characters as the server counts them.
+export function noteCount(n, limit) {
+    return n + " / " + limit
 }

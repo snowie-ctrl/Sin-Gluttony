@@ -41,6 +41,27 @@ void Saved::setDevouring(bool devouring)
     emit devouringChanged();
 }
 
+static QVariantList distinctIds(const QList<int> &ids)
+{
+    QVariantList out;
+    for (const int id : ids)
+        if (!out.contains(id))
+            out << id;
+    return out;
+}
+
+QVariantList Saved::starsSaving() const { return distinctIds(m_starsSaving); }
+QVariantList Saved::noteSaving() const { return distinctIds(m_noteSaving); }
+
+void Saved::markSaving(QList<int> &list, int recipeId, bool on)
+{
+    if (on)
+        list.append(recipeId);
+    else if (!list.removeOne(recipeId))
+        return;
+    emit savingChanged();
+}
+
 void Saved::devour(int recipeId, const QString &day)
 {
     if (recipeId <= 0 || m_devouring)
@@ -121,9 +142,11 @@ void Saved::setStars(int recipeId, int stars)
     const int generation = m_generation;
     QJsonObject body{{"recipeId", recipeId}};
     body.insert("stars", stars == 0 ? QJsonValue() : QJsonValue(stars));
+    markSaving(m_starsSaving, recipeId, true);
     m_api.post(QStringLiteral("/rating"), body, [this, generation, recipeId](const Api::Result &result) {
         if (generation != m_generation)
             return;
+        markSaving(m_starsSaving, recipeId, false);
         if (!result.ok) {
             emit failed(QStringLiteral("stars"), reasonOf(result));
             return;
@@ -149,10 +172,12 @@ void Saved::setNote(int recipeId, const QString &text)
         return;
     }
     const int generation = m_generation;
+    markSaving(m_noteSaving, recipeId, true);
     m_api.post(QStringLiteral("/note"), QJsonObject{{"recipeId", recipeId}, {"text", clean}},
                [this, generation, recipeId](const Api::Result &result) {
         if (generation != m_generation)
             return;
+        markSaving(m_noteSaving, recipeId, false);
         if (!result.ok) {
             emit failed(QStringLiteral("note"), reasonOf(result));
             return;
@@ -528,12 +553,17 @@ void Saved::clear()
     const bool sortChanged = m_sort != QLatin1String("recent");
     m_sort = QStringLiteral("recent");
     setDevouring(false);
+    const bool wasSaving = !m_starsSaving.isEmpty() || !m_noteSaving.isEmpty();
+    m_starsSaving.clear();
+    m_noteSaving.clear();
     const bool wasBusy = m_pending > 0;
     m_pending = 0;
     emit listsChanged();
     emit openListChanged();
     emit flagsChanged();
     emit mineChanged();
+    if (wasSaving)
+        emit savingChanged();
     if (wasBusy)
         emit busyChanged();
     if (sortChanged)

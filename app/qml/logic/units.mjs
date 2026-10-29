@@ -182,8 +182,9 @@ export function lineText(ingredient, by, system, kind) {
     const dropped = alternate && !isPackage
     const kept = dropped ? rest.slice(alternate[0].length) : rest
     if (kept) {
-        // With the bracket gone, what followed it may start with a comma ("1 cup (240 ml), plus more").
-        const text = amount + " " + kept
+        // What follows the unit may start with a comma ("1 cup, plus more"), or may once the bracket has gone
+        // ("1 cup (240 ml), plus more"): either way it sits against the amount.
+        const text = amount + (/^[,;]/.test(kept) ? "" : " ") + kept
         return dropped ? text.replace(/\s+([,;])/g, "$1") : text
     }
     return ingredient.name ? amount + " " + ingredient.name : amount

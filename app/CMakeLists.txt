@@ -71,6 +71,9 @@ qt_add_qml_module(gluttony_ui
         qml/component/DietPopup.qml
         qml/component/FilterPanel.qml
         qml/component/SearchBar.qml
+        qml/component/Stars.qml
+        qml/component/ListPopup.qml
+        qml/component/NotePopup.qml
         qml/logic/scale.mjs
         qml/logic/units.mjs
         qml/logic/words.mjs

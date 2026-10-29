@@ -5,10 +5,13 @@ import "../logic/tiles.mjs" as Tiles
 import "../logic/scale.mjs" as Scale
 import "../logic/units.mjs" as Units
 import "../logic/credit.mjs" as Credit
+import "../logic/days.mjs" as Days
 
-// The recipe page (layout A): a wide picture with the title over it, a strip of chips, then the ingredients in a
-// column that stays put while the steps scroll, Seconds? and the credit the sources require. Quantities follow
-// the servings (or multiplier) chosen and the units preference; clicking a changed line shows it as written.
+// The recipe page (layout A): a wide picture with the title over it, a strip of chips, the actions (♥ Craving,
+// + List, ✓ Devoured on a day that can be changed, the stars, ✎ Note, with the note under them), then the
+// ingredients in a column that stays put while the steps scroll, Seconds? and the credit the sources require.
+// Quantities follow the servings (or multiplier) chosen and the units preference; clicking a changed line shows it
+// as written. A recipe its source removed says so, and works as before for the person who kept it.
 Item {
     id: root
     objectName: "recipePage"
@@ -24,14 +27,35 @@ Item {
 
     // The first line of a different recipe starts at the top, but a reload of the same one keeps the place.
     property int shownId: 0
+    // What the person keeps on this recipe; empty until its detail is in.
+    readonly property var mine: Saved.mineId === (root.r.id || 0) && Saved.mineId > 0 ? Saved.mine : ({})
+    // The day ✓ Devoured marks: today, unless moved back.
+    property string devourDay: Saved.today()
+    property string actionError: ""
+    // The stars rest while a star request for this recipe is on its way, so two quick taps cannot cross.
+    readonly property bool starsBusy: Saved.starsSaving.indexOf(root.r.id || 0) >= 0
 
     onRChanged: {
         root.shownOriginal = ({})
         if ((root.r.id || 0) !== root.shownId) {
             root.shownId = root.r.id || 0
             flick.contentY = 0
+            root.devourDay = Saved.today()
+            root.actionError = ""
         }
     }
+
+    Connections {
+        target: Saved
+        function onFailed(what, message) {
+            if (what === "item" || what === "devoured" || what === "stars")
+                root.actionError = message
+        }
+        function onDone(what) { root.actionError = "" }
+    }
+
+    ListPopup { id: listPopup; recipeId: root.r.id || 0 }
+    NotePopup { id: notePopup; recipeId: root.r.id || 0 }
 
     // A source link comes from the catalog's data, so only web addresses are handed to the browser.
     function openLink(link) {
@@ -194,11 +218,122 @@ Item {
                     outlined: true
                     text: "⚠ " + Words.unknownIngredients
                 }
+                Chip {
+                    objectName: "removedNote"
+                    visible: !!root.r.removed
+                    outlined: true
+                    text: Words.goneNote
+                }
+            }
+
+            Column {
+                id: kept
+                anchors { top: chips.bottom; topMargin: Preferences.spacingMedium }
+                width: parent.width
+                spacing: Preferences.spacingSmall
+
+                Flow {
+                    objectName: "recipeActions"
+                    width: parent.width
+                    spacing: Preferences.spacingSmall
+
+                    Chip {
+                        objectName: "actionCraving"
+                        text: (root.mine.craving ? "♥ " : "♡ ") + Words.craving
+                        selected: !!root.mine.craving
+                        onClicked: Saved.setCraving(root.r.id, !root.mine.craving)
+                    }
+                    Chip {
+                        objectName: "actionList"
+                        text: "+ " + Words.addToList
+                        onClicked: listPopup.open()
+                    }
+                    Row {
+                        spacing: 4
+                        Chip {
+                            objectName: "actionDevoured"
+                            text: "✓ " + Words.devoured
+                            enabled: !Saved.devouring
+                            opacity: enabled ? 1 : 0.6
+                            onClicked: Saved.devour(root.r.id, root.devourDay)
+                        }
+                        Chip {
+                            objectName: "devouredEarlier"
+                            text: Words.earlier
+                            onClicked: root.devourDay = Days.addDays(root.devourDay, -1)
+                        }
+                        Chip {
+                            objectName: "devouredDay"
+                            text: Days.label(root.devourDay, Saved.today())
+                            onClicked: root.devourDay = Saved.today()
+                        }
+                        Chip {
+                            objectName: "devouredLater"
+                            text: Words.later
+                            enabled: root.devourDay < Saved.today()
+                            opacity: enabled ? 1 : 0.4
+                            onClicked: root.devourDay = Days.addDays(root.devourDay, 1)
+                        }
+                    }
+                    Stars {
+                        objectName: "actionStars"
+                        height: 30
+                        enabled: !root.starsBusy
+                        opacity: enabled ? 1 : 0.6
+                        value: root.mine.stars || 0
+                        onChosen: stars => Saved.setStars(root.r.id, stars === value ? 0 : stars)
+                    }
+                    Chip {
+                        objectName: "actionNote"
+                        text: "✎ " + (root.mine.note ? Words.editNote : Words.note)
+                        onClicked: notePopup.open()
+                    }
+                }
+
+                // Each time it was devoured, newest first; × takes a mark back off.
+                Flow {
+                    width: parent.width
+                    spacing: 6
+                    visible: !!root.mine.devoured && root.mine.devoured.length > 0
+                    Repeater {
+                        model: root.mine.devoured || []
+                        delegate: Chip {
+                            required property var modelData
+                            objectName: "devouredMark-" + modelData.id
+                            text: "✓ " + Days.label(modelData.on, Saved.today())
+                            removable: true
+                            onRemoveClicked: Saved.undevour(modelData.id)
+                        }
+                    }
+                }
+
+                Text {
+                    objectName: "recipeNote"
+                    visible: !!root.mine.note
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    text: root.mine.note || ""
+                    color: Preferences.textSecondary
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeBody
+                    font.italic: true
+                }
+
+                Text {
+                    objectName: "actionError"
+                    visible: root.actionError.length > 0
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    text: root.actionError
+                    color: Preferences.dangerColor
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeLabel
+                }
             }
 
             Item {
                 id: body
-                anchors { top: chips.bottom; topMargin: Preferences.spacingLarge }
+                anchors { top: kept.bottom; topMargin: Preferences.spacingLarge }
                 width: parent.width
                 height: Math.max(ingredients.implicitHeight, method.implicitHeight)
 

@@ -443,6 +443,85 @@ private slots:
         QCOMPARE(requestsTo("/rating").size(), 2);
     }
 
+    void aStarRequestMarksItsRecipeBusyUntilItIsAnswered()
+    {
+        saved->showMine(7, QVariantMap{{"stars", QVariant()}});
+        QSignalSpy changed(saved.get(), &Saved::savingChanged);
+        QVERIFY(saved->starsSaving().isEmpty());
+        server->responses[path("/rating")] = R"({"status":"ok","data":{"recipeId":7,"stars":4}})";
+        server->holdNext[path("/rating")] = 1;
+        saved->setStars(7, 4);
+        // Only that recipe, and only its stars: the note and other recipes are free.
+        QVERIFY(saved->starsSaving().contains(7));
+        QVERIFY(!saved->starsSaving().contains(8));
+        QVERIFY(saved->noteSaving().isEmpty());
+        QCOMPARE(changed.count(), 1);
+        QTRY_COMPARE(requestsTo("/rating").size(), 1);
+        server->releaseHeld();
+        QTRY_VERIFY(saved->starsSaving().isEmpty());
+        QCOMPARE(saved->mine().value("stars").toInt(), 4);
+
+        // A refusal frees it too, so the person can try again.
+        server->responses[path("/rating")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/rating")] = 404;
+        server->holdNext[path("/rating")] = 1;
+        saved->setStars(7, 2);
+        QVERIFY(saved->starsSaving().contains(7));
+        QTRY_COMPARE(requestsTo("/rating").size(), 2);
+        server->releaseHeld();
+        QTRY_VERIFY(saved->starsSaving().isEmpty());
+
+        // Signing out forgets it, and the answer that comes late changes nothing.
+        server->holdNext[path("/rating")] = 1;
+        saved->setStars(7, 1);
+        QVERIFY(saved->starsSaving().contains(7));
+        QTRY_COMPARE(requestsTo("/rating").size(), 3);
+        saved->clear();
+        QVERIFY(saved->starsSaving().isEmpty());
+        server->releaseHeld();
+        QTest::qWait(100);
+        QVERIFY(saved->starsSaving().isEmpty());
+    }
+
+    void aNoteRequestMarksItsRecipeBusyUntilItIsAnswered()
+    {
+        saved->showMine(7, QVariantMap{{"note", QVariant()}});
+        QVERIFY(saved->noteSaving().isEmpty());
+        server->responses[path("/note")] = R"({"status":"ok","data":{"recipeId":7,"note":"less salt"}})";
+        server->holdNext[path("/note")] = 1;
+        saved->setNote(7, QStringLiteral("less salt"));
+        QVERIFY(saved->noteSaving().contains(7));
+        QVERIFY(!saved->noteSaving().contains(8));
+        QVERIFY(saved->starsSaving().isEmpty());
+        QTRY_COMPARE(requestsTo("/note").size(), 1);
+        server->releaseHeld();
+        QTRY_VERIFY(saved->noteSaving().isEmpty());
+        QCOMPARE(saved->mine().value("note").toString(), QStringLiteral("less salt"));
+
+        server->responses[path("/note")] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses[path("/note")] = 404;
+        server->holdNext[path("/note")] = 1;
+        saved->setNote(7, QStringLiteral("more"));
+        QVERIFY(saved->noteSaving().contains(7));
+        QTRY_COMPARE(requestsTo("/note").size(), 2);
+        server->releaseHeld();
+        QTRY_VERIFY(saved->noteSaving().isEmpty());
+
+        server->holdNext[path("/note")] = 1;
+        saved->setNote(7, QStringLiteral("again"));
+        QVERIFY(saved->noteSaving().contains(7));
+        QTRY_COMPARE(requestsTo("/note").size(), 3);
+        saved->clear();
+        QVERIFY(saved->noteSaving().isEmpty());
+        server->releaseHeld();
+        QTest::qWait(100);
+        QVERIFY(saved->noteSaving().isEmpty());
+
+        // A note too long to send is never marked: nothing is on its way.
+        saved->setNote(7, QString::fromUcs4(std::u32string(2001, U'x').c_str()));
+        QVERIFY(saved->noteSaving().isEmpty());
+    }
+
     void aNoteIsCappedInCodePointsNotUtf16Units()
     {
         // Two thousand cakes are 2,000 characters to the server and 4,000 UTF-16 units to Qt.

@@ -48,6 +48,11 @@ class Saved : public QObject
     Q_PROPERTY(int noteLimit READ noteLimit CONSTANT)
     // A Devoured mark is on its way: a second tap waits for it rather than counting twice.
     Q_PROPERTY(bool devouring READ devouring NOTIFY devouringChanged)
+    // The ids of the recipes whose stars, or whose note, are on their way to the server. Requests are not serialised,
+    // so two quick ones could be answered in either order and leave what is shown unlike what the server holds: the
+    // recipe page rests the stars, and the note's Save, while their recipe is in the list.
+    Q_PROPERTY(QVariantList starsSaving READ starsSaving NOTIFY savingChanged)
+    Q_PROPERTY(QVariantList noteSaving READ noteSaving NOTIFY savingChanged)
 
 public:
     static constexpr int ListLimit = 50;
@@ -73,6 +78,8 @@ public:
     QString devouredSort() const { return m_sort; }
     static int noteLimit() { return NoteLimit; }
     bool devouring() const { return m_devouring; }
+    QVariantList starsSaving() const;
+    QVariantList noteSaving() const;
 
     // A note as the server keeps it: trimmed. Its length is counted in code points, as the server and MySQL count
     // characters; Qt's own size() counts an emoji twice.
@@ -126,6 +133,7 @@ signals:
     void busyChanged();
     void devouredSortChanged();
     void devouringChanged();
+    void savingChanged();
     void listCreated(int listId);
     // A change asked for has been made (what as in failed()), so a popup that asked for it can close.
     void done(const QString &what);
@@ -150,6 +158,8 @@ private:
     void beginEdit();
     void endEdit();
     void setDevouring(bool devouring);
+    // A star or note request for this recipe went out (on) or came back, in any way.
+    void markSaving(QList<int> &list, int recipeId, bool on);
 
     Api &m_api;
     QVariantList m_lists;
@@ -171,6 +181,9 @@ private:
     // A mark or a star changed since the history was shown, so the next openDevoured asks again.
     bool m_historyStale = false;
     bool m_devouring = false;
+    // One entry per request on its way, so two for the same recipe are both counted.
+    QList<int> m_starsSaving;
+    QList<int> m_noteSaving;
     int m_pending = 0;
     // Bumped by clear(), so an answer meant for the last person is dropped.
     int m_generation = 0;
