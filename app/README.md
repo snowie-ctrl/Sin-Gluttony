@@ -29,7 +29,8 @@ stub stops; `STUB_KEPT=1` starts with some kept, and `STUB_REMOVED=<ids>` marks 
 `powershell -File tests\stub\grab.ps1 -Out <png> [...]` starts the stub, runs the app in its own settings and data
 folders, opens a page, recipe or search, and saves the window. The examples at the top of `grab.ps1` cover each
 page and state. `grab.ps1` finds the server's venv beside the app; in a git worktree, which has none, set
-`GLUTTONY_PYTHON` to the main checkout's `python.exe`.
+`GLUTTONY_PYTHON` to the main checkout's `python.exe`. `-Fixture` serves the four fixture recipes (ids 1-4, no
+pictures) even when a snapshot is present, so the examples that name an id open as written.
 
 ## Where things are
 
