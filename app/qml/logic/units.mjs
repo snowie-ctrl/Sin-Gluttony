@@ -45,6 +45,9 @@ function inUnit(amount, by, unit) {
 
 // An amount in the chosen system. Spoons, counts and units with no conversion keep their unit.
 export function convert(amount, unit, system, kind) {
+    // Cocktail sources write fluid ounces as a bare "oz", so a drink's ounce is a volume; a food's stays a weight.
+    if (kind === "drink" && unit === "oz")
+        unit = "fl oz"
     const same = inUnit(amount, 1, unit || null)
     if (amount.quantity === null || amount.quantity === undefined || !unit || SPOONS.includes(unit))
         return same

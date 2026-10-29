@@ -45,6 +45,14 @@ TestCase {
         compare(Units.amountText(line("", 1, "cup"), 1, "us", "food"), "1 cup")
     }
 
+    // Cocktail sources write fluid ounces as a bare "oz"; a food's bare "oz" stays a weight.
+    function test_aDrinksBareOunceIsFluid() {
+        compare(Units.amountText(line("", 2, "oz"), 1, "metric", "drink"), "59 ml")
+        compare(Units.amountText(line("", 2, "oz"), 1, "us", "drink"), "2 fl oz")
+        compare(Units.amountText(line("", 2, "oz"), 1, "metric", "food"), "57 g")
+        compare(Units.lineText(line("2 oz Blended whiskey", 2, "oz"), 1, "metric", "drink"), "59 ml Blended whiskey")
+    }
+
     function test_spoonsAndCountsKeepTheirUnits() {
         compare(Units.amountText(line("", 2, "tsp"), 1, "metric", "food"), "2 tsp")
         compare(Units.amountText(line("", 2, "tbsp"), 1, "us", "food"), "2 tbsp")
