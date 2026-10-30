@@ -31,3 +31,17 @@ def test_a_cut_short_runs_line_is_skipped(monkeypatch):
     c = client(monkeypatch, lines=['{"outcome": "ok", "recipes": 3, "endedAt": 1792312200}', '{"outcome": "o'])
     days = c.get("/surrogate/v1/daily?days=30").get_json()["days"]
     assert sum(d["items"] for d in days) in (0, 3)
+
+
+def test_the_bash_wrapper_left_at_read_is_not_a_live_scraper(monkeypatch):
+    import subprocess
+    seen = []
+
+    def run(cmd, **kwargs):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(controlApi.sys, "platform", "linux")
+    monkeypatch.setattr(controlApi.subprocess, "run", run)
+    assert controlApi._scraperAlive() is False
+    assert seen[0][-1].endswith("$")

@@ -21,7 +21,7 @@ def iso(seconds, tz=None):
 
 
 def _failed(last):
-    return bool(last) and last.get("outcome") == "failed"
+    return isinstance(last, dict) and last.get("outcome") == "failed"
 
 
 def _when(text):
@@ -34,7 +34,7 @@ def _when(text):
 def statusDoc(status, alive, now):
     """alive: whether the scraper's loop is up, or None when that can't be told."""
     current = status.get("current") or {}
-    last = status.get("lastRun") or {}
+    last = status.get("lastRun") if isinstance(status.get("lastRun"), dict) else {}
     schedule = status.get("schedule") or {}
     runner = {"key": "scraper", "name": "Recipe scraper", "controls": []}
     if status.get("running"):
@@ -76,6 +76,8 @@ def dailyDoc(runs, days, today, tz=None):
     start = today - timedelta(days=days - 1)
     byDay = {(start + timedelta(days=d)).isoformat(): [0, 0] for d in range(days)}
     for run in runs:
+        if not isinstance(run, dict):
+            continue
         ended = iso(run.get("endedAt"), tz)
         if not ended or ended[:10] not in byDay:
             continue

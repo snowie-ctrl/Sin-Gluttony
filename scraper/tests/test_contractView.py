@@ -50,3 +50,10 @@ def test_daily_counts_recipes_per_pass_day():
     doc = view.dailyDoc(runs, 2, date(2026, 10, 18), tz=CDT)
     assert contract.checkDaily(doc) == []
     assert doc["days"][-1] == {"date": "2026-10-18", "items": 4310, "failed": 1, "bytes": None}
+
+
+def test_a_last_run_of_the_wrong_shape_reads_as_no_run():
+    doc = view.statusDoc(dict(WAITING, lastRun=["garbled"]), True, 0)
+    assert doc["light"] == "green" and contract.checkStatus(doc) == []
+    assert view.needsYouDoc(["garbled"]) == {"items": []}
+    assert view.dailyDoc([["garbled"], 7], 2, date(2026, 10, 18))["days"][-1]["items"] == 0

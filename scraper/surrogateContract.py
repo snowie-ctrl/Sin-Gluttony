@@ -124,6 +124,8 @@ def checkStatus(doc):
         problems.append("afterHours needs from and to as HH:MM")
     if not _isCount(doc.get("needsYou")):
         problems.append("needsYou must be a count")
+    if doc.get("queued") is not None and not _isCount(doc["queued"]):
+        problems.append("queued must be a count")
     return problems
 
 

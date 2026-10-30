@@ -101,7 +101,9 @@ def _scraperAlive():
         return None
     here = Path(__file__).resolve().parent
     try:
-        pids = subprocess.run(["pgrep", "-f", r"[m]ain\.py"], capture_output=True, text=True, timeout=5).stdout.split()
+        # Anchored at the end: run.sh's tmux pane is a bash -c whose command line
+        # also holds main.py, and it waits at `read` after the scraper dies.
+        pids = subprocess.run(["pgrep", "-f", r"[m]ain\.py$"], capture_output=True, text=True, timeout=5).stdout.split()
         return any(Path(f"/proc/{pid}/cwd").resolve() == here for pid in pids)
     except (OSError, subprocess.SubprocessError):
         return None
