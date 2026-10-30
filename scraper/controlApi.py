@@ -5,11 +5,16 @@ request (controlRequests) or a stop flag that the scraper's loop acts on, so
 only the scraper ever writes data/ and run/state.json.
 """
 import hmac
-from datetime import datetime, timezone
+import json
+import subprocess
+import sys
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 
 import config
+import contractView
 import controlRequests
 import progress
 import report
@@ -78,6 +83,66 @@ def lastReport():
     if data is None:
         return error("no pass has finished yet", 404)
     return jsonify({"status": "ok", "report": data})
+
+
+# ========== SURROGATE CONTRACT ==========
+# /surrogate/v1/: the routes every scraper serves the same way, for
+# Surrogate's Overview and its standard app page. contractView.py has the
+# rules. Read-only for now: Run now, Re-tag and Stop move here with the
+# standard app page.
+
+def _statusJson():
+    return status().get_json()
+
+
+def _scraperAlive():
+    """Whether the scraper's loop (main.py in this folder) is up; None where that can't be told."""
+    if sys.platform == "win32":
+        return None
+    here = Path(__file__).resolve().parent
+    try:
+        pids = subprocess.run(["pgrep", "-f", r"[m]ain\.py"], capture_output=True, text=True, timeout=5).stdout.split()
+        return any(Path(f"/proc/{pid}/cwd").resolve() == here for pid in pids)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _runLines():
+    try:
+        return config.RUNS_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _runs():
+    out = []
+    for line in _runLines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+@app.get("/surrogate/v1/status")
+def contractStatus():
+    return jsonify(contractView.statusDoc(_statusJson(), _scraperAlive(), datetime.now(timezone.utc)))
+
+
+@app.get("/surrogate/v1/needs-you")
+def contractNeedsYou():
+    return jsonify(contractView.needsYouDoc(_statusJson().get("lastRun")))
+
+
+@app.get("/surrogate/v1/daily")
+def contractDaily():
+    try:
+        days = max(1, min(90, int(request.args.get("days", 30))))
+    except ValueError:
+        days = 30
+    return jsonify(contractView.dailyDoc(_runs(), days, date.today()))
 
 
 if __name__ == "__main__":
