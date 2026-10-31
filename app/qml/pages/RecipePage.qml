@@ -234,6 +234,12 @@ Item {
                     outlined: true
                     text: Words.goneNote
                 }
+                Chip {
+                    objectName: "fromCopyNote"
+                    visible: Recipes.fromCopy
+                    outlined: true
+                    text: Words.savedCopy
+                }
             }
 
             Column {
@@ -318,7 +324,7 @@ Item {
                         delegate: Chip {
                             required property var modelData
                             objectName: "devouredMark-" + modelData.id
-                            text: "✓ " + Days.label(modelData.on, Saved.today())
+                            text: "✓ " + Days.label(modelData.on, Saved.today()) + (modelData.pending ? " · " + Words.pendingMark : "")
                             selected: root.pickedMark === modelData.id
                             onClicked: root.pickedMark = root.pickedMark === modelData.id ? 0 : modelData.id
                         }

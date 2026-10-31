@@ -297,6 +297,47 @@ class TestPages : public QObject
         QTRY_VERIFY(findVisible("cookPage"));
     }
 
+    // Recipes 5 (on Cravings) and 6 (devoured, on Weeknights) kept on the device by the sign-in's refresh.
+    void keepTwoCopies()
+    {
+        server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
+          {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[5]},
+          {"id":11,"title":"Weeknights","kind":"custom","recipeIds":[6]}],
+          "recipes":[{"id":5,"updatedAt":"2026-10-20T08:30:15","removed":false},
+                     {"id":6,"updatedAt":"2026-10-20T08:30:15","removed":false}]}})";
+        server->responses[path("/recipes/5")] = R"({"status":"ok","data":{"id":5,"kind":"food","title":"Kept Coq au Vin",
+          "servings":4,"hasImage":false,"ingredients":[],"steps":[{"text":"Cook it.","group":null}],"versions":[],
+          "mine":{"craving":true,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        server->responses[path("/recipes/6")] = R"({"status":"ok","data":{"id":6,"kind":"food","title":"Kept Spinach Eggs",
+          "servings":2,"hasImage":false,"ingredients":[],"steps":[{"text":"Cook it.","group":null}],"versions":[],
+          "mine":{"craving":false,"lists":[11],"devoured":[{"id":41,"on":"2026-10-20"}],"stars":4,"note":null}}})";
+    }
+
+    void goOffline()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+    }
+
+    void comeBack()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
+        api->checkNow();
+        QTRY_VERIFY(api->online());
+    }
+
+    // Signed in with the two copies kept, then the server goes.
+    void startOfflineWithCopies()
+    {
+        keepTwoCopies();
+        start();
+        QTRY_VERIFY(copies->has(5) && copies->has(6));
+        QTRY_VERIFY(!copies->refreshing());
+        goOffline();
+    }
+
 private slots:
     void initTestCase()
     {
@@ -1919,6 +1960,98 @@ private slots:
         QTest::keyClick(window(), Qt::Key_Down);
         QTRY_COMPARE(cook->step(), 1);
         QVERIFY(copies->has(7));
+    }
+
+    void offlineHomeShowsTheSavedRowsOnly()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("offlineHome"));
+        QVERIFY(!findVisible("homePick"));
+        QTRY_COMPARE(find("cravingsRow")->property("recipes").toList().size(), 1);
+        QCOMPARE(find("againRow")->property("recipes").toList().size(), 1);
+        QCOMPARE(find("againRow")->property("recipes").toList().first().toMap().value("title").toString(),
+                 QStringLiteral("Kept Spinach Eggs"));
+        click(findVisible("offlineSavedButton"));
+        QTRY_VERIFY(findVisible("savedPage"));
+    }
+
+    void homeAsksAgainWhenTheServerIsBack()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("offlineHome"));
+        const int before = requestsTo("/home").size();
+        comeBack();
+        QTRY_COMPARE(requestsTo("/home").size(), before + 1);
+        QTRY_VERIFY(!findVisible("offlineHome"));
+    }
+
+    void offlineBrowseSaysSoAndOffersTheSavedRecipes()
+    {
+        startOfflineWithCopies();
+        nav->navigateTo("results-page");
+        QTRY_VERIFY(findVisible("resultsOffline"));
+        QVERIFY(!findVisible("resultsEmpty"));
+        click(findVisible("resultsSavedRecipes"));
+        QTRY_VERIFY(findVisible("savedPage"));
+    }
+
+    void offlineSearchFindsTheSavedRecipes()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("searchField"));
+        click(findVisible("searchField"));
+        type("spinach");
+        QTRY_VERIFY(find("searchOffline") && find("searchOffline")->isVisible());
+        QTRY_VERIFY(findVisible("quickRecipe-0"));
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QCOMPARE(findVisible("recipeTitle")->property("text").toString(), QStringLiteral("Kept Spinach Eggs"));
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QVERIFY(requestsTo("/ingredients").isEmpty());
+    }
+
+    void offlineSearchSaysWhenNothingSavedMatches()
+    {
+        startOfflineWithCopies();
+        click(findVisible("searchField"));
+        type("lasagne");
+        QTRY_VERIFY(find("searchNoSaved") && find("searchNoSaved")->isVisible());
+    }
+
+    void offlineSavedShowsTheCopiesListsAndSaysListsNeedTheConnection()
+    {
+        startOfflineWithCopies();
+        click(findVisible("railSaved"));
+        QTRY_VERIFY(findVisible("savedPage"));
+        QTRY_VERIFY(findVisible("tab-3"));
+        QVERIFY(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedOffline"));
+        QVERIFY(!findVisible("newListTab"));
+        click(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedCell-0"));
+        QVERIFY(!findVisible("removeFromList"));
+        QVERIFY(!findVisible("dragHandle"));
+        QVERIFY(!findVisible("renameList"));
+    }
+
+    void offlineAMarkWaitsAndSaysSo()
+    {
+        startOfflineWithCopies();
+        recipes->open(6);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QTRY_VERIFY(findVisible("actionDevoured"));
+        click(findVisible("actionDevoured"));
+        QTRY_COMPARE(queue->count(), 1);
+        const int pendingId = saved->mine().value("devoured").toList().first().toMap().value("id").toInt();
+        QVERIFY(pendingId < 0);
+        const QString mark = QStringLiteral("devouredMark-%1").arg(pendingId);
+        QTRY_VERIFY(findVisible(mark));
+        QVERIFY(findVisible(mark)->property("text").toString().contains("waiting to sync"));
+        // A ♥ needs the connection, and says so.
+        click(findVisible("actionCraving"));
+        QTRY_COMPARE(find("actionError")->property("text").toString(), QStringLiteral("Lists change only with a connection."));
     }
 };
 

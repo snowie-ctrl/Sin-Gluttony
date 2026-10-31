@@ -6,7 +6,8 @@ import "../logic/tiles.mjs" as Tiles
 
 // Home (layout B): today's temptation beside the mood tiles and Go on, then, with today's picks under them. All
 // of it follows the diet profile on the server. When nothing fits, the temptation's place says so and offers to
-// switch the diet off for now; the moods stay, since a mood with the diet off may still fit.
+// switch the diet off for now; the moods stay, since a mood with the diet off may still fit. With no server, only the
+// saved rows show (spec §6): the copies on Cravings and those devoured, from the device, with a way to the Saved page.
 Flickable {
     id: root
     objectName: "homePage"
@@ -18,10 +19,14 @@ Flickable {
 
     property string rollMessage: ""
 
+    readonly property bool offline: !Session.online || Session.offline
+    // Back from an outage Home is asked again: what it showed may be from before it (another day's pick, even).
+    onOfflineChanged: if (!root.offline && !Home.loading) Home.load()
+
     // Signing in already asks Home; this is for a page that opens with nothing asked, or with rows a ♥ or a Devoured
     // mark has changed since. It waits a turn, because the shell is created in the same signal that starts the
     // sign-in's ask, and a second request would only supersede the first.
-    Component.onCompleted: Qt.callLater(function() { if ((!Home.answered || Home.stale) && !Home.loading) Home.load() })
+    Component.onCompleted: Qt.callLater(function() { if (!root.offline && (!Home.answered || Home.stale) && !Home.loading) Home.load() })
 
     Connections {
         target: Home
@@ -47,8 +52,30 @@ Flickable {
 
         DietChip {}
 
+        Column {
+            objectName: "offlineHome"
+            visible: root.offline
+            width: parent.width
+            spacing: Preferences.spacingSmall
+            Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                text: Words.offlineHome
+                color: Preferences.textPrimary
+                font.family: Preferences.headingFont
+                font.weight: Font.Black
+                font.pixelSize: Preferences.fontSizeHeading
+            }
+            ActionButton {
+                objectName: "offlineSavedButton"
+                text: Words.savedRecipes
+                onClicked: Nav.navigateTo("saved-page")
+            }
+        }
+
         Row {
             id: topRow
+            visible: !root.offline
             width: parent.width
             height: 380
             spacing: Preferences.spacingMedium
@@ -295,7 +322,7 @@ Flickable {
         Row {
             objectName: "homeError"
             width: parent.width
-            visible: Home.error.length > 0 && Home.hasPick && !Home.loading
+            visible: Home.error.length > 0 && Home.hasPick && !Home.loading && !root.offline
             spacing: Preferences.spacingMedium
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -314,7 +341,7 @@ Flickable {
             width: parent.width
             title: Words.cravings
             hint: Words.cravingsHint
-            recipes: Home.cravings
+            recipes: root.offline ? RecipeStore.cravings : Home.cravings
         }
 
         TileRow {
@@ -322,13 +349,13 @@ Flickable {
             width: parent.width
             title: Words.again
             hint: Words.againHint
-            recipes: Home.again
+            recipes: root.offline ? RecipeStore.again : Home.again
         }
 
         TileRow {
             width: parent.width
             title: Words.todaysPicks
-            recipes: Home.picks
+            recipes: root.offline ? [] : Home.picks
         }
     }
 }
