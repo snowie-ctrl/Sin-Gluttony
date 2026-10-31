@@ -3,10 +3,11 @@
 # the Cravings list; the diet profile, lists, Devoured, rating and note routes are new.
 """
 Accounts and what a person keeps (the diet profile at /me/diet; lists, Cravings among them; Devoured marks, stars
-and notes), at /api/gluttony beside the read API (gluttonyRoutes.py), which applies the saved profile to every
-search. docs/api.md is the contract. Users sign up with a login key the owner inserts by hand, and a device that
-signed in once signs in by itself (/device/identify) until it signs out. Everything a person keeps is looked up
-together with their id, so someone else's id is answered 404, like an unknown one.
+and notes, and what the app did offline (/sync/batch)), at /api/gluttony beside the read API (gluttonyRoutes.py),
+which applies the saved profile to every search. docs/api.md is the contract. Users sign up with a login key the
+owner inserts by hand, and a device that signed in once signs in by itself (/device/identify) until it signs out.
+Everything a person keeps is looked up together with their id, so someone else's id is answered 404, like an unknown
+one.
 """
 import hashlib
 import secrets
@@ -521,6 +522,44 @@ def devouredCount(cur, uid, recipeId):
     return int((cur.fetchone() or {}).get("n") or 0)
 
 
+class Refusal(Exception):
+    """A change the person may not make, with the words and status its route answers."""
+
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+def storeMark(cur, uid, recipeId, day, clientId):
+    """(row, already): the mark named by clientId, stored now or found from before ({DevouredID, RecipeID, MadeOn}).
+    The same mark sent again, by a retry or the offline queue, is found and never counted twice. Raises Refusal for
+    a recipe the person may not see, or a clientId another account holds."""
+    if not kept.visibleRecipe(cur, uid, recipeId):
+        raise Refusal("no such recipe", 404)
+    cur.execute("SELECT DevouredID, RecipeID, MadeOn FROM Devoured WHERE ClientID = %s AND UserID = %s",
+                (clientId, uid))
+    found = cur.fetchone()
+    if found:
+        return found, True
+    try:
+        cur.execute("INSERT INTO Devoured (UserID, RecipeID, MadeOn, ClientID) VALUES (%s, %s, %s, %s)",
+                    (uid, recipeId, day, clientId))
+        return {"DevouredID": cur.lastrowid, "RecipeID": recipeId, "MadeOn": day}, False
+    except Exception as error:
+        if getattr(error, "errno", None) != DUPLICATE_ENTRY:
+            raise
+    # The unique key on ClientID is global, so the row that holds this id is either this person's own (a resend
+    # that raced its twin: answer it as stored) or someone else's (never theirs to see, and never overwritten:
+    # refuse). A locking read, because the transaction's snapshot predates the twin.
+    cur.execute("SELECT DevouredID, RecipeID, MadeOn, UserID FROM Devoured WHERE ClientID = %s LOCK IN SHARE MODE",
+                (clientId,))
+    found = cur.fetchone()
+    if not found or found["UserID"] != uid:
+        raise Refusal("that clientId is in use", 409)
+    return found, True
+
+
 @gluttonyUserBP.route("/devoured/add", methods=["POST"])
 def devour():
     """One more time the person made the recipe. The app names the mark (clientId), so the same mark sent again,
@@ -538,29 +577,10 @@ def devour():
         return fail(problem, 400)
     uid = session.requestUID()
     with database() as (conn, cur):
-        if not kept.visibleRecipe(cur, uid, recipeId):
-            return fail("no such recipe", 404)
-        cur.execute("SELECT DevouredID, RecipeID, MadeOn FROM Devoured WHERE ClientID = %s AND UserID = %s",
-                    (clientId, uid))
-        found = cur.fetchone()
-        already = found is not None
-        if not found:
-            try:
-                cur.execute("INSERT INTO Devoured (UserID, RecipeID, MadeOn, ClientID) VALUES (%s, %s, %s, %s)",
-                            (uid, recipeId, day, clientId))
-                found = {"DevouredID": cur.lastrowid, "RecipeID": recipeId, "MadeOn": day}
-            except Exception as error:
-                if getattr(error, "errno", None) != DUPLICATE_ENTRY:
-                    raise
-                # The unique key on ClientID is global, so the row that holds this id is either this person's own
-                # (a resend that raced its twin: answer it as stored) or someone else's (never theirs to see, and
-                # never overwritten: refuse). A locking read, because the transaction's snapshot predates the twin.
-                cur.execute("SELECT DevouredID, RecipeID, MadeOn, UserID FROM Devoured WHERE ClientID = %s "
-                            "LOCK IN SHARE MODE", (clientId,))
-                found = cur.fetchone()
-                if not found or found["UserID"] != uid:
-                    return fail("that clientId is in use", 409)
-                already = True
+        try:
+            found, already = storeMark(cur, uid, recipeId, day, clientId)
+        except Refusal as refusal:
+            return fail(refusal.message, refusal.code)
         count = devouredCount(cur, uid, found["RecipeID"])
         conn.commit()
     return ok({"id": found["DevouredID"], "recipeId": found["RecipeID"], "on": rules.isoDate(found["MadeOn"]),
@@ -653,3 +673,89 @@ def note():
                     (uid, recipeId, text))
         conn.commit()
     return ok({"recipeId": recipeId, "note": text or None})
+
+
+# ---- what the app did offline ----
+
+def storeNewer(cur, table, column, uid, recipeId, value, at):
+    """(applied, held): writes a rating's stars or a note's text as of `at`, unless the row already holds a change
+    made at that moment or after it (a newer change, or this same one sent again). `held` is what the row holds
+    afterwards. The row is read locked, so two batches can't both decide they are newer."""
+    cur.execute(f"SELECT {column}, UpdatedAt FROM {table} WHERE UserID = %s AND RecipeID = %s FOR UPDATE",
+                (uid, recipeId))
+    row = cur.fetchone()
+    if row and row["UpdatedAt"] >= at:
+        return False, row[column]
+    cur.execute(f"INSERT INTO {table} (UserID, RecipeID, {column}, UpdatedAt) VALUES (%s, %s, %s, %s) "
+                f"ON DUPLICATE KEY UPDATE {column} = VALUES({column}), UpdatedAt = VALUES(UpdatedAt)",
+                (uid, recipeId, value, at))
+    return True, value
+
+
+def refused(message):
+    return {"result": "refused", "message": message}
+
+
+def applyChange(cur, uid, change, now):
+    """One queued change, made as its own route would make it, and the answer the app reads for it."""
+    kind = change.get("op")
+    if kind not in rules.SYNC_OPS:
+        return refused("op must be devoured, stars or note")
+    recipeId = rules.positiveId(change.get("recipeId"))
+    if not recipeId:
+        return refused("recipeId must be a recipe id")
+    at, problem = rules.syncAt(change.get("at"), now)
+    if problem:
+        return refused(problem)
+    if kind == "devoured":
+        day, problem = rules.madeOn(change.get("on"), now.date())
+        problem = problem or rules.clientIdProblem(change.get("clientId"))
+        if problem:
+            return refused(problem)
+        try:
+            found, already = storeMark(cur, uid, recipeId, day, change["clientId"])
+        except Refusal as refusal:
+            return refused(refusal.message)
+        return {"result": "already" if already else "applied", "id": found["DevouredID"],
+                "recipeId": found["RecipeID"], "on": rules.isoDate(found["MadeOn"]),
+                "count": devouredCount(cur, uid, found["RecipeID"])}
+    if kind == "stars":
+        stars, problem = rules.starsValue(change.get("stars"))
+        if problem or "stars" not in change:
+            return refused(problem or "stars must be a whole number from 1 to 5, or null")
+        if not kept.visibleRecipe(cur, uid, recipeId):
+            return refused("no such recipe")
+        applied, held = storeNewer(cur, "Ratings", "Stars", uid, recipeId, stars, at)
+        return {"result": "applied" if applied else "already", "recipeId": recipeId, "stars": held}
+    text, problem = rules.noteText(change.get("text"))
+    if problem:
+        return refused(problem)
+    if not kept.visibleRecipe(cur, uid, recipeId):
+        return refused("no such recipe")
+    applied, held = storeNewer(cur, "Notes", "Text", uid, recipeId, text, at)
+    return {"result": "applied" if applied else "already", "recipeId": recipeId, "note": held or None}
+
+
+@gluttonyUserBP.route("/sync/batch", methods=["POST"])
+def syncBatch():
+    """What the app did while it couldn't reach the server (Devoured marks, stars, notes), up to 500 changes,
+    applied oldest first and answered one by one in the order sent. A mark is stored once per clientId; stars and
+    notes keep whichever change is newest, so a queue that arrives late never undoes something done since. A change
+    that can't be made is refused with its reason, and never stops the others."""
+    ops, problem = rules.syncOps(body().get("ops"))
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    now = datetime.now(timezone.utc)
+
+    def oldestFirst(index):
+        # A change whose moment is unreadable is refused whatever its place, so it may go first.
+        at, _ = rules.syncAt(ops[index].get("at"), now)
+        return at or datetime.min
+
+    results = [None] * len(ops)
+    with database() as (conn, cur):
+        for index in sorted(range(len(ops)), key=oldestFirst):
+            results[index] = applyChange(cur, uid, ops[index], now)
+        conn.commit()
+    return ok({"results": results})

@@ -167,3 +167,29 @@ def test_dietProblemKeepsKnownWordsInTheCatalogsOrder(rules):
     assert rules.dietProblem({"diets": ["keto"]})[2] == "unknown diet: keto"
     assert rules.dietProblem({"avoid": ["spinach"]})[2] == "unknown avoid: spinach"
     assert rules.dietProblem({"diets": "vegan"})[2] == "diets must be a list of words"
+
+
+from datetime import datetime as _datetime, timezone as _timezone
+
+
+def test_syncAtReadsTheAppsUtcTime(rules):
+    now = _datetime(2026, 10, 29, 12, 0, tzinfo=_timezone.utc)
+    assert rules.syncAt("2026-10-29T10:15:30.123Z", now) == (_datetime(2026, 10, 29, 10, 15, 30, 123000), None)
+    assert rules.syncAt("2026-10-29T10:15:30Z", now) == (_datetime(2026, 10, 29, 10, 15, 30), None)
+    problem = "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)"
+    for bad in (None, 5, "", "2026-10-29 10:15:30Z", "2026-10-29T10:15:30.123+02:00", "2026-10-29T10:15:30.1Z",
+                "2026-02-30T10:15:30.000Z", "2026-10-29T10:15:30.123"):
+        assert rules.syncAt(bad, now) == (None, problem), bad
+
+
+def test_aClockAheadOfTheServerCountsAsNow(rules):
+    # Otherwise a device whose clock runs fast would hold its rating against every change made after it.
+    now = _datetime(2026, 10, 29, 12, 0, tzinfo=_timezone.utc)
+    assert rules.syncAt("2099-01-01T00:00:00.000Z", now) == (_datetime(2026, 10, 29, 12, 0), None)
+
+
+def test_aBatchIsOneToFiveHundredChanges(rules):
+    assert rules.syncOps([{}])[1] is None
+    assert rules.syncOps([{}] * 500)[1] is None
+    for bad in (None, {}, [], [{}] * 501, [1], ["x"]):
+        assert rules.syncOps(bad) == (None, "ops must be a list of 1 to 500 changes"), bad

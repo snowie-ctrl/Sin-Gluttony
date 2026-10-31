@@ -4,7 +4,7 @@ SQL they become, and the JSON shapes. Nothing here touches the database or the
 disk, so every rule is tested directly and the routes stay thin.
 """
 import re
-from datetime import date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 INT_LIMIT = 2 ** 31 - 1
@@ -558,6 +558,36 @@ def noteText(value):
     if len(text) > NOTE_MAX:
         return None, f"a note is at most {NOTE_MAX} characters"
     return text, None
+
+
+# ---- what the app did offline (/sync/batch) ----
+
+SYNC_MAX = 500
+SYNC_OPS = ("devoured", "stars", "note")
+# The app writes its moments with QDateTime's ISODateWithMs in UTC: milliseconds, or none, and a Z.
+_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
+
+
+def syncAt(value, nowUtc):
+    """(moment, problem) for when a queued change was made, as a naive UTC datetime. A moment after the server's own
+    now counts as now: a device whose clock runs fast would otherwise hold its change against every later one."""
+    problem = "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)"
+    if not isinstance(value, str) or not _AT.fullmatch(value):
+        return None, problem
+    try:
+        moment = datetime.fromisoformat(value[:-1])
+    except ValueError:
+        return None, problem
+    return min(moment, nowUtc.replace(tzinfo=None)), None
+
+
+def syncOps(value):
+    """(ops, problem): a batch's changes, 1 to 500 objects. Each is checked on its own (applyChange), so one bad
+    change never stops the others."""
+    if not isinstance(value, list) or not 1 <= len(value) <= SYNC_MAX or not all(isinstance(op, dict) for op in value):
+        return None, f"ops must be a list of 1 to {SYNC_MAX} changes"
+    return value, None
+
 
 # Home's own rows (Cravings, Again?) show this many tiles; the Saved page has the rest.
 HOME_ROW = 12

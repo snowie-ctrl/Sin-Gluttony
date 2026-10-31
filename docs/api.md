@@ -2,7 +2,7 @@
 
 The contract between the Gluttony app (`app/`) and the routes on plutus (`server/gluttonyRoutes.py`,
 `server/gluttonyUserRoutes.py`), both at `/api/gluttony`. The app's stub (`app/tests/stub/stub_server.py`)
-imitates it. Milestone 1's routes are below; milestones 2 and 3 add theirs here.
+imitates it. Milestones 1 and 2's routes are below, and milestone 3's at the end.
 
 ## Conventions
 
@@ -121,3 +121,33 @@ An unknown or someone else's list is `404 "no such list"`. Ids in bodies are who
 | `POST /note` | `{recipeId, text}` | `data: {recipeId, note}`; the text is trimmed, empty text deletes the note (`note: null`); `400 "a note is at most 2000 characters"`, counted in characters (an emoji is one) |
 
 A recipe the person may not see is `404 "no such recipe"`.
+
+Stars and notes remember when they last changed (UTC, to the millisecond). Clearing stars or deleting a note keeps
+that moment, so a change queued offline before it is never applied over it (`/sync/batch`).
+
+## Offline (milestone 3)
+
+### `POST /sync/batch`
+
+What the app did while it couldn't reach the server. Body: `{ops: [change]}`, 1 to 500 changes
+(`400 "ops must be a list of 1 to 500 changes"`). A change is one of:
+
+- `{op: "devoured", recipeId, on, clientId, at}`
+- `{op: "stars", recipeId, stars, at}` (`stars` 1–5, or `null` to clear)
+- `{op: "note", recipeId, text, at}` (empty text deletes the note)
+
+`at` is when the change was made, in UTC: `YYYY-MM-DDTHH:MM:SS.sssZ`. A moment after the server's own clock counts
+as now. Other keys are ignored.
+
+The changes are applied oldest first, each as its own route would make it, and answered in the order sent:
+`data: {results: [result]}`. A result is `{result: "applied" | "already" | "refused"}` plus:
+
+- devoured: `{id, recipeId, on, count}`. A `clientId` already stored for this person is `already` (the same mark
+  sent again); one another account holds is `refused` "that clientId is in use".
+- stars: `{recipeId, stars}`, the stars the server now holds. A change made at or before the stored one's moment
+  is `already`, and changes nothing.
+- note: `{recipeId, note}`, the note the server now holds (or `null`), by the same rule.
+- refused: `{message}`, in the words the change's own route uses ("no such recipe", "clientId must be a UUID", …),
+  or "op must be devoured, stars or note", "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)".
+
+A refused change never stops the others; the batch is one transaction.
