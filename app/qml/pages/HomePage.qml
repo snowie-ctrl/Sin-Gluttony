@@ -20,8 +20,10 @@ Flickable {
     property string rollMessage: ""
 
     readonly property bool offline: !Session.online || Session.offline
-    // Back from an outage Home is asked again: what it showed may be from before it (another day's pick, even).
-    onOfflineChanged: if (!root.offline && !Home.loading) Home.load()
+    // Back from an outage Home is asked again: what it showed may be from before it (another day's pick, even). It waits
+    // a turn and looks again: an offline start that resumes clears Session.offline first and then asks Home itself, and
+    // that ask (already loading by then) is the one that should stand, not a second request beside it.
+    onOfflineChanged: if (!root.offline) Qt.callLater(function() { if (!root.offline && !Home.loading) Home.load() })
 
     // Signing in already asks Home; this is for a page that opens with nothing asked, or with rows a ♥ or a Devoured
     // mark has changed since. It waits a turn, because the shell is created in the same signal that starts the

@@ -1983,6 +1983,33 @@ private slots:
         comeBack();
         QTRY_COMPARE(requestsTo("/home").size(), before + 1);
         QTRY_VERIFY(!findVisible("offlineHome"));
+        // Exactly one more, not one now and another a moment later.
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/home").size(), before + 1);
+    }
+
+    // An offline start that resumes: Session clears `offline` and then signs in again, which asks Home itself, so the
+    // page's own return-from-outage ask must not send a second request beside it.
+    void anOfflineStartThatResumesAsksHomeOnce()
+    {
+        keepTwoCopies();
+        accounts->open(7, QStringLiteral("stub"));
+        QVERIFY(AccountStore::writeJson(accounts->recipeFile(5), QJsonObject{
+            {"recipe", QJsonObject{{"id", 5}, {"kind", "food"}, {"title", "Kept Coq au Vin"}}},
+            {"updatedAt", QString()}, {"cookedAt", 0}}));
+        accounts->close();
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        start();
+        QTRY_VERIFY_WITH_TIMEOUT(session->offline(), 10000);
+        QTRY_VERIFY(findVisible("offlineHome"));
+        QCOMPARE(requestsTo("/home").size(), 0);
+        comeBack();
+        QTRY_VERIFY(!session->offline());
+        QTRY_COMPARE(requestsTo("/home").size(), 1);
+        QTRY_VERIFY(!findVisible("offlineHome"));
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/home").size(), 1);
     }
 
     void offlineBrowseSaysSoAndOffersTheSavedRecipes()
