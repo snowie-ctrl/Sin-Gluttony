@@ -151,3 +151,17 @@ The changes are applied oldest first, each as its own route would make it, and a
   or "op must be devoured, stars or note", "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)".
 
 A refused change never stops the others; the batch is one transaction.
+
+### `GET /saved/manifest`
+
+What the app keeps for use without a server. `?extra=<id,...>` names up to 200 recipes it opened in cook mode
+(`400 "extra must be up to 200 recipe ids, comma separated"`).
+
+`data: {lists: [{id, title, kind, recipeIds}], recipes: [{id, updatedAt, removed}]}`:
+
+- `lists` in `/lists`' order (Cravings first), each with its recipes in the list's own order.
+- `recipes`, by id: every recipe on a list, and every `extra` one the person may still see. A removed recipe stays
+  while the person keeps it (`removed: true`); an `extra` recipe its source removed, which they don't keep, is left
+  out, and the app deletes its copy.
+- `updatedAt` is when part 1 last changed the recipe (`YYYY-MM-DDTHH:MM:SS`). The app fetches the detail and picture
+  again when it differs from the one stored with its copy.

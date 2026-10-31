@@ -759,3 +759,43 @@ def syncBatch():
             results[index] = applyChange(cur, uid, ops[index], now)
         conn.commit()
     return ok({"results": results})
+
+
+def stamp(moment):
+    """A recipe's UpdatedAt as the manifest gives it. The app only compares it with the one it stored with its copy,
+    so it is the column as it stands, to the second."""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S") if moment else None
+
+
+@gluttonyUserBP.route("/saved/manifest", methods=["GET"])
+def savedManifest():
+    """What the app keeps for use without a server: every list (Cravings first, then the person's order) with its
+    recipes in their order, and every recipe on them with when part 1 last changed it, so the app fetches only what
+    has moved on. `extra` names recipes the app opened in cook mode, which it keeps beside them; one the person may
+    no longer see (its source removed it, and they don't keep it) is left out, and the app lets its copy go."""
+    extra, problem = rules.extraIds(request.args.get("extra"))
+    if problem:
+        return fail(problem, 400)
+    uid = session.requestUID()
+    with database() as (conn, cur):
+        cur.execute("SELECT ListID, Title, Kind FROM Lists WHERE UserID = %s "
+                    "ORDER BY Kind = 'custom', OrderIndex, ListID", (uid,))
+        lists = [{"id": row["ListID"], "title": row["Title"], "kind": row["Kind"], "recipeIds": []}
+                 for row in cur.fetchall()]
+        byId = {entry["id"]: entry for entry in lists}
+        cur.execute("SELECT li.ListID, li.RecipeID FROM ListItems li JOIN Lists l ON l.ListID = li.ListID "
+                    "WHERE l.UserID = %s ORDER BY li.ListID, li.OrderIndex, li.AddedAt DESC, li.RecipeID", (uid,))
+        for row in cur.fetchall():
+            byId[row["ListID"]]["recipeIds"].append(row["RecipeID"])
+        listed = {rid for entry in lists for rid in entry["recipeIds"]}
+        ids = sorted(listed | set(extra))
+        recipes = []
+        if ids:
+            cur.execute(f"SELECT RecipeID, UpdatedAt, RemovedAt FROM Recipes "
+                        f"WHERE RecipeID IN ({', '.join(['%s'] * len(ids))}) ORDER BY RecipeID", tuple(ids))
+            for row in cur.fetchall():
+                removed = row["RemovedAt"] is not None
+                if removed and row["RecipeID"] not in listed and not kept.keptBy(cur, uid, row["RecipeID"]):
+                    continue
+                recipes.append({"id": row["RecipeID"], "updatedAt": stamp(row["UpdatedAt"]), "removed": removed})
+    return ok({"lists": lists, "recipes": recipes})

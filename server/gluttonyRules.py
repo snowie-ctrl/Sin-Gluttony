@@ -589,6 +589,24 @@ def syncOps(value):
     return value, None
 
 
+# Recipes opened in cook mode the app keeps beside the lists; it sends the ones it cooked in the last 30 days.
+MANIFEST_EXTRA = 200
+
+
+def extraIds(value):
+    """(ids, problem): the cook-mode recipes named in ?extra=, "1,2,3", at most 200, sorted and without repeats."""
+    if value is None or value == "":
+        return [], None
+    problem = f"extra must be up to {MANIFEST_EXTRA} recipe ids, comma separated"
+    parts = value.split(",")
+    if len(parts) > MANIFEST_EXTRA or not all(_WHOLE.fullmatch(part) for part in parts):
+        return None, problem
+    ids = sorted({int(part) for part in parts})
+    if not all(0 < rid <= INT_LIMIT for rid in ids):
+        return None, problem
+    return ids, None
+
+
 # Home's own rows (Cravings, Again?) show this many tiles; the Saved page has the rest.
 HOME_ROW = 12
 # Today's temptation and today's picks leave out what the person made this recently.

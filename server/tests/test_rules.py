@@ -193,3 +193,13 @@ def test_aBatchIsOneToFiveHundredChanges(rules):
     assert rules.syncOps([{}] * 500)[1] is None
     for bad in (None, {}, [], [{}] * 501, [1], ["x"]):
         assert rules.syncOps(bad) == (None, "ops must be a list of 1 to 500 changes"), bad
+
+
+def test_extraIdsAreUpTo200RecipeIds(rules):
+    assert rules.extraIds(None) == ([], None)
+    assert rules.extraIds("") == ([], None)
+    assert rules.extraIds("9,3,9") == ([3, 9], None)
+    assert rules.extraIds(",".join(str(i) for i in range(1, 201)))[1] is None
+    problem = "extra must be up to 200 recipe ids, comma separated"
+    for bad in ("a", "1,,2", "0", "-1", "1.5", ",".join(str(i) for i in range(1, 202)), "9999999999"):
+        assert rules.extraIds(bad) == (None, problem), bad
