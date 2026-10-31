@@ -1,6 +1,7 @@
 #include <QBuffer>
 #include <QDate>
 #include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QColor>
 #include <QImage>
@@ -336,6 +337,20 @@ class TestPages : public QObject
         QTRY_VERIFY(copies->has(5) && copies->has(6));
         QTRY_VERIFY(!copies->refreshing());
         goOffline();
+    }
+
+    // A change the server refused five times: one stuck change in Settings.
+    void makeAStuckChange()
+    {
+        server->responses[path("/sync/batch")] = R"({"status":"ok","data":{"results":[
+          {"result":"refused","message":"no such recipe"}]}})";
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 99}, {"stars", 4}, {"title", "Stub Gone"}});
+        for (int i = 0; i < 10 && queue->stuck().isEmpty(); ++i) {
+            QTRY_VERIFY(!queue->sending());
+            if (queue->stuck().isEmpty())
+                queue->flush();
+        }
+        QTRY_COMPARE(queue->stuck().size(), 1);
     }
 
 private slots:
@@ -2129,6 +2144,55 @@ private slots:
         QTRY_VERIFY(!find(QStringLiteral("timer-%1").arg(finishing)));
         QVERIFY(findVisible(runningName));
         QVERIFY(findVisible(runningName) == before);
+    }
+
+    void waitingToSyncListsAStuckChangeWithTryAgainAndDiscard()
+    {
+        openSettings();
+        QVERIFY(!findVisible("waitingToSync"));
+        makeAStuckChange();
+        const QString id = queue->stuck().first().toMap().value("id").toString();
+        QTRY_VERIFY(findVisible("waitingToSync"));
+        QTRY_VERIFY(findVisible("syncChange-" + id));
+        const QString shown = findVisible("syncChange-" + id)->property("text").toString();
+        QVERIFY(shown.contains("★ 4 stars") && shown.contains("Stub Gone"));
+        server->responses[path("/sync/batch")] = R"({"status":"ok","data":{"results":[
+          {"result":"applied","recipeId":99,"stars":4}]}})";
+        click(findVisible("syncRetry-" + id));
+        QTRY_COMPARE(queue->count(), 0);
+        QTRY_VERIFY(!findVisible("waitingToSync"));
+
+        makeAStuckChange();
+        const QString again = queue->stuck().first().toMap().value("id").toString();
+        QTRY_VERIFY(findVisible("syncDiscard-" + again));
+        click(findVisible("syncDiscard-" + again));
+        QTRY_COMPARE(queue->count(), 0);
+    }
+
+    void signingOutWithQueuedChangesWarnsFirst()
+    {
+        openSettings();
+        goOffline();
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 1}, {"stars", 4}, {"title", "Stub"}});
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(find("signOutWarning") && find("signOutWarning")->isVisible());
+        QVERIFY(session->authenticated());
+        click(findVisible("signOutCancel"));
+        // A closed popup's content leaves the window's items, so it may be gone rather than hidden.
+        QTRY_VERIFY(!find("signOutWarning") || !find("signOutWarning")->isVisible());
+        QVERIFY(session->authenticated());
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(findVisible("signOutAnyway"));
+        click(findVisible("signOutAnyway"));
+        QTRY_VERIFY(!session->authenticated());
+        QVERIFY(!QFile::exists(dir.path() + "/data/accounts/7/sync-queue.json"));
+    }
+
+    void signingOutWithNothingQueuedAsksNothing()
+    {
+        openSettings();
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(!session->authenticated());
     }
 };
 
