@@ -119,5 +119,7 @@ gluttony_test(tst_pages
             ../services/RecipeStore.h ../services/RecipeStore.cpp ../api/AuthNetworkFactory.h
             ../services/Saved.h ../services/Saved.cpp
             ../services/SyncQueue.h ../services/SyncQueue.cpp
+            ../services/KeepAwake.h ../services/KeepAwake.cpp
+            ../services/Cook.h ../services/Cook.cpp
             ../services/Wiring.h ../services/Wiring.cpp
     LIBS Qt6::Network Qt6::Quick Qt6::QuickControls2 gluttony_uiplugin)

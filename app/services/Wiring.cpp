@@ -2,17 +2,28 @@
 
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
+#include "services/Cook.h"
 #include "services/Diet.h"
 #include "services/Home.h"
+#include "services/RecipeStore.h"
 #include "services/Recipes.h"
 #include "services/Saved.h"
 #include "services/Session.h"
+#include "services/SyncQueue.h"
 
 
 void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &catalog, Home &home, Recipes &recipes,
-                  Saved &saved)
+                  Saved &saved, RecipeStore &copies, SyncQueue &queue, Cook &cook)
 {
     session.setStore(&store);
+    // Each follows the account's folder (AccountStore::changed). Session opens the folder before it sets the token,
+    // so the copies and the queue have moved to the new account before anything is sent as it.
+    copies.setStore(&store);
+    queue.setStore(&store);
+    cook.setStore(&store);
+    recipes.setStore(&copies);
+    saved.setStore(&copies);
+    saved.setQueue(&queue);
 
     const auto signedIn = [&diet, &catalog, &home, &saved]() {
         diet.load();
@@ -22,6 +33,8 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     };
     QObject::connect(&session, &Session::loginSucceeded, &diet, signedIn);
     QObject::connect(&session, &Session::reconnected, &diet, signedIn);
+    // Opened offline: the lists are the copies' until the server answers (reconnected then loads them as a sign-in does).
+    QObject::connect(&session, &Session::startedOffline, &saved, [&saved]() { saved.load(); });
 
     // The recipe page's actions read what the person keeps on the open recipe; an empty recipe (loading, gone,
     // signed out) keeps nothing. Recipes also says "changed" when a reload starts, while the old detail is still
@@ -38,7 +51,19 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
         // A reload that failed leaves the old detail held: what was changed since is newer than its `mine`.
         if (!recipes.error().isEmpty())
             return;
-        saved.showMine(recipes.recipeId(), recipe.value("mine").toMap());
+        saved.showMine(recipes.recipeId(), recipe.value("mine").toMap(), recipe.value("title").toString());
+    });
+
+    // What the person keeps on the open recipe, changed here or by the queue's answer, reaches its copy, so the
+    // recipe shows it with no server too.
+    QObject::connect(&saved, &Saved::mineChanged, &copies, [&saved, &copies]() {
+        if (saved.mineId() > 0 && !saved.mine().isEmpty())
+            copies.patchMine(saved.mineId(), saved.mine());
+    });
+
+    // Spec §5: opening cook mode stores the recipe on the device.
+    QObject::connect(&cook, &Cook::opened, &copies, [&copies](const QVariantMap &recipe) {
+        copies.keepForCooking(recipe);
     });
 
     // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
@@ -47,7 +72,8 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
 
     // The catalog and Home are cleared before the diet, whose clearing switches it back on: by then nothing is
     // left to ask again.
-    QObject::connect(&session, &Session::signedOut, &diet, [&diet, &catalog, &home, &recipes, &saved]() {
+    QObject::connect(&session, &Session::signedOut, &diet, [&diet, &catalog, &home, &recipes, &saved, &cook]() {
+        cook.clear();
         catalog.clear();
         home.clear();
         recipes.clear();

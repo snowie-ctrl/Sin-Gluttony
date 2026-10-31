@@ -7,7 +7,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network Multimedia)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -52,6 +52,8 @@ qt_add_executable(appGluttony
     services/RecipeStore.cpp
     services/SyncQueue.h
     services/SyncQueue.cpp
+    services/Chime.h
+    services/Chime.cpp
     services/Wiring.h
     services/Wiring.cpp
 )
@@ -103,7 +105,7 @@ set_target_properties(appGluttony PROPERTIES WIN32_EXECUTABLE TRUE MACOSX_BUNDLE
 # The sources include each other from the project root ("api/Api.h").
 target_include_directories(appGluttony PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(appGluttony PRIVATE gluttony_uiplugin Qt6::Quick Qt6::QuickControls2 Qt6::Network)
+target_link_libraries(appGluttony PRIVATE gluttony_uiplugin Qt6::Quick Qt6::QuickControls2 Qt6::Network Qt6::Multimedia)
 
 # A dev build finds config/secrets.json in the source tree; a Release build never falls back to it.
 target_compile_definitions(appGluttony PRIVATE

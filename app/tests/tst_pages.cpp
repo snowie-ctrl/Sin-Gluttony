@@ -1,6 +1,8 @@
+#include <QBuffer>
 #include <QDate>
 #include <QJsonArray>
 #include <QColor>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
@@ -25,12 +27,15 @@
 #include "assets/Preferences.h"
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
+#include "services/Cook.h"
 #include "services/Diet.h"
 #include "services/Home.h"
 #include "services/Nav.h"
+#include "services/RecipeStore.h"
 #include "services/Recipes.h"
 #include "services/Saved.h"
 #include "services/Session.h"
+#include "services/SyncQueue.h"
 #include "services/Wiring.h"
 
 Q_IMPORT_QML_PLUGIN(GluttonyPlugin)
@@ -67,6 +72,9 @@ class TestPages : public QObject
     std::unique_ptr<Home> home;
     std::unique_ptr<Recipes> recipes;
     std::unique_ptr<Saved> saved;
+    std::unique_ptr<RecipeStore> copies;
+    std::unique_ptr<SyncQueue> queue;
+    std::unique_ptr<Cook> cook;
     // Declared last, so it is destroyed first: pages go before the services they call.
     std::unique_ptr<QQmlApplicationEngine> engine;
 
@@ -165,6 +173,9 @@ class TestPages : public QObject
         context->setContextProperty("Home", home.get());
         context->setContextProperty("Recipes", recipes.get());
         context->setContextProperty("Saved", saved.get());
+        context->setContextProperty("RecipeStore", copies.get());
+        context->setContextProperty("SyncQueue", queue.get());
+        context->setContextProperty("Cook", cook.get());
         engine->loadFromModule("Gluttony", "Main");
         QVERIFY(window());
         // Tall enough that the whole filter panel and the recipe page's first screen are on it, so clicks land.
@@ -267,6 +278,9 @@ private slots:
     void init()
     {
         engine.reset();
+        cook.reset();
+        queue.reset();
+        copies.reset();
         saved.reset();
         recipes.reset();
         home.reset();
@@ -296,8 +310,13 @@ private slots:
         home = std::make_unique<Home>(*api, *diet);
         recipes = std::make_unique<Recipes>(*api);
         saved = std::make_unique<Saved>(*api);
-        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes, *saved);
+        copies = std::make_unique<RecipeStore>(*api);
+        queue = std::make_unique<SyncQueue>(*api);
+        cook = std::make_unique<Cook>();
+        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes, *saved, *copies, *queue, *cook);
         server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0}]})";
+        server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
+          {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[]}],"recipes":[]}})";
 
         // Any warning from Gluttony's own QML (a binding error, an unknown property) fails the test.
         QTest::failOnWarning(QRegularExpression(QStringLiteral("qrc:/qt/qml/Gluttony/")));
@@ -317,6 +336,82 @@ private slots:
         QTRY_COMPARE(requestsTo("/filters").size(), 1);
         QTRY_COMPARE(requestsTo("/home").size(), 1);
         QTRY_COMPARE(requestsTo("/lists").size(), 1);
+    }
+
+    void signingInBringsTheCopiesUpToDate()
+    {
+        start();
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_COMPARE(copies->lists().size(), 1);
+    }
+
+    void cookingARecipeKeepsItOnTheDevice()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        QVERIFY(copies->has(1));
+        QCOMPARE(copies->recipe(1).value("title").toString(), QStringLiteral("Stub Coq au Vin"));
+        cook->close();
+    }
+
+    void aKeptRecipesPictureIsReadFromTheDevice()
+    {
+        // A picture the image decoder can read, or the page's Image warns and the case fails.
+        QImage pixel(2, 2, QImage::Format_RGB32);
+        pixel.fill(Qt::red);
+        QByteArray picture;
+        QBuffer buffer(&picture);
+        buffer.open(QIODevice::WriteOnly);
+        pixel.save(&buffer, "PNG");
+        server->responses[path("/images/1")] = picture;
+        start();
+        QTRY_VERIFY(find("navShell"));
+        // The sign-in's refresh first, so its (empty) manifest is never read as leaving the copy out.
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        copies->keepForCooking(QVariantMap{{"id", 1}, {"kind", "food"}, {"title", "Stub Coq au Vin"}, {"hasImage", true},
+                                           {"steps", QVariantList()}, {"ingredients", QVariantList()}});
+        QTRY_VERIFY(copies->pictureUrl(1, true).startsWith("file:"));
+        server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub Coq au Vin",
+          "hasImage":true,"ingredients":[],"steps":[],"versions":[]}})";
+        recipes->open(1);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QQuickItem *frame = find("picture");
+        QVERIFY(frame);
+        QTRY_VERIFY(frame->property("source").toUrl().isLocalFile());
+    }
+
+    void theRecipesTitleNamesAChangeThatMustWait()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        // With the detail in, Saved knows what to call a change made on it.
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+        saved->setStars(1, 4);
+        QCOMPARE(queue->count(), 1);
+        QCOMPARE(queue->changes().first().value("title").toString(), QStringLiteral("Stub Coq au Vin"));
+    }
+
+    void signingOutClosesCookModeAndStopsTheTimers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        cook->startTimer(60, "a");
+        session->logout();
+        QVERIFY(!cook->active());
+        QVERIFY(cook->timers().isEmpty());
     }
 
     void aReloadOfTheOpenRecipeKeepsWhatWasChangedMeanwhile()

@@ -18,12 +18,16 @@
 #include "assets/Preferences.h"
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
+#include "services/Chime.h"
+#include "services/Cook.h"
 #include "services/Diet.h"
 #include "services/Home.h"
 #include "services/Nav.h"
+#include "services/RecipeStore.h"
 #include "services/Recipes.h"
 #include "services/Saved.h"
 #include "services/Session.h"
+#include "services/SyncQueue.h"
 #include "services/Wiring.h"
 
 // The QML module is a static library (gluttony_ui), so its plugin is pulled in by hand.
@@ -54,10 +58,16 @@ int main(int argc, char *argv[])
     Home home(api, diet);
     Recipes recipes(api);
     Saved saved(api);
+    RecipeStore copies(api);
+    SyncQueue queue(api);
+    Cook cook;
+    Chime chime;
     // Pictures load as plain Images through managers this makes, so they carry the session token.
     AuthNetworkFactory networkFactory;
 
-    wireServices(session, accountStore, diet, catalog, home, recipes, saved);
+    wireServices(session, accountStore, diet, catalog, home, recipes, saved, copies, queue, cook);
+    // Each timer that reaches zero chimes (spec §5).
+    QObject::connect(&cook, &Cook::timerDone, &chime, [&chime]() { chime.play(); });
 
     // Declared after everything QML is given, so it is destroyed first.
     QQmlApplicationEngine engine;
@@ -71,6 +81,9 @@ int main(int argc, char *argv[])
     context->setContextProperty("Home", &home);
     context->setContextProperty("Recipes", &recipes);
     context->setContextProperty("Saved", &saved);
+    context->setContextProperty("RecipeStore", &copies);
+    context->setContextProperty("SyncQueue", &queue);
+    context->setContextProperty("Cook", &cook);
 
     engine.loadFromModule("Gluttony", "Main");
     if (engine.rootObjects().isEmpty())
