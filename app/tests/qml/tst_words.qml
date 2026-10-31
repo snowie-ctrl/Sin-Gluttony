@@ -41,4 +41,16 @@ TestCase {
         compare(Words.MONTHS.length, 12)
         compare(Words.goneFromSource, "gone from its source")
     }
+
+    function test_cookAndOfflineWords() {
+        compare(Words.stepOf(2, 7), "Step 2 of 7")
+        compare(Words.timerLabel("Stub Coq au Vin", 3), "Stub Coq au Vin · step 3")
+        compare(Words.queuedWarning(1), "1 change made offline hasn't reached the server yet. Signing out deletes it.")
+        compare(Words.queuedWarning(3), "3 changes made offline haven't reached the server yet. Signing out deletes them.")
+        compare(Words.syncWhat({ op: "devoured", on: "2026-10-28" }, "yesterday"), "✓ Devoured yesterday")
+        compare(Words.syncWhat({ op: "stars", stars: 4 }, ""), "★ 4 stars")
+        compare(Words.syncWhat({ op: "stars", stars: null }, ""), "Stars cleared")
+        compare(Words.syncWhat({ op: "note", text: "less salt" }, ""), "✎ Note")
+        compare(Words.syncWhat({ op: "note", text: "" }, ""), "Note deleted")
+    }
 }
