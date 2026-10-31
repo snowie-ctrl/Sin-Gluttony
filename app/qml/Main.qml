@@ -28,6 +28,34 @@ ApplicationWindow {
         replaceExit: Transition {}
     }
 
+    // Cook mode (spec §5) covers the whole window, rail and all, and the window fills the screen while it is open.
+    // The offscreen platform the page tests run on has no screen to fill, so there the window is left as it is.
+    property int visibilityBeforeCook: Window.Windowed
+    readonly property bool canFillScreen: Qt.platform.pluginName !== "offscreen"
+
+    Loader {
+        objectName: "cookLoader"
+        anchors.fill: parent
+        z: 10
+        active: Cook.active
+        sourceComponent: CookPage {}
+    }
+
+    Connections {
+        target: Cook
+        function onActiveChanged() {
+            if (!window.canFillScreen)
+                return
+            if (Cook.active) {
+                window.visibilityBeforeCook = window.visibility
+                window.visibility = Window.FullScreen
+            } else if (window.visibility === Window.FullScreen) {
+                window.visibility = window.visibilityBeforeCook === Window.FullScreen ? Window.Windowed
+                                                                                     : window.visibilityBeforeCook
+            }
+        }
+    }
+
     Connections {
         target: Nav
         function onChangePage(page) {

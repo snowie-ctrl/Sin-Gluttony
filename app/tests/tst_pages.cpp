@@ -1,5 +1,6 @@
 #include <QBuffer>
 #include <QDate>
+#include <QDir>
 #include <QJsonArray>
 #include <QColor>
 #include <QImage>
@@ -268,6 +269,34 @@ class TestPages : public QObject
         QTRY_VERIFY(findVisible("settingsPage"));
     }
 
+    // A recipe to cook: three steps (the second with a range), three lines, four servings.
+    void openCookRecipe()
+    {
+        server->responses[path("/recipes/7")] = R"json({"status":"ok","data":{"id":7,"kind":"food",
+          "title":"Stub Braise","servings":4,"servingsFrom":"source","hasImage":false,"source":"mealdb",
+          "licence":"TheMealDB","credit":"Stub","ingredients":[
+            {"line":"1.5 kg chicken thighs","quantity":1.5,"quantityMax":null,"unit":"kg","ingredientId":101,"name":"chicken thigh","note":null,"optional":false,"group":null},
+            {"line":"750 ml red wine","quantity":750,"quantityMax":null,"unit":"ml","ingredientId":102,"name":"red wine","note":null,"optional":false,"group":null},
+            {"line":"Salt to taste","quantity":null,"quantityMax":null,"unit":null,"ingredientId":105,"name":"salt","note":null,"optional":false,"group":null}],
+          "steps":[{"text":"Brown the chicken thighs.","group":null},
+                   {"text":"Pour in the wine and simmer for 20–25 minutes.","group":null},
+                   {"text":"Season with salt.","group":null}],
+          "tags":{"flavour":[],"occasion":[],"source":[]},"facts":{"complete":true,"contains":[],"diets":[]},
+          "versions":[]}})json";
+        recipes->open(7);
+        nav->navigateTo("recipe-page");
+    }
+
+    void openCookMode()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookPage"));
+    }
+
 private slots:
     void initTestCase()
     {
@@ -303,6 +332,9 @@ private slots:
         api = std::make_unique<Api>();
         api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         nav = std::make_unique<Nav>();
+        // The device's copies, the queue and cook mode's place live in the account folder; each case starts with none, so
+        // a step kept by the last case is never resumed by this one.
+        QDir(dir.path() + "/data").removeRecursively();
         accounts = std::make_unique<AccountStore>(dir.path() + "/data");
         session = std::make_unique<Session>(*api);
         diet = std::make_unique<Diet>(*api);
@@ -1759,6 +1791,134 @@ private slots:
         type("the-old-one");
         QTest::keyClick(window(), Qt::Key_Return);
         QTRY_COMPARE(requestsTo("/user/password").size(), 1);
+    }
+
+    void cookModeOpensFromTheRecipePageAndLeavesWithEsc()
+    {
+        openCookMode();
+        QVERIFY(cook->active());
+        QCOMPARE(cook->recipeId(), 7);
+        QTRY_COMPARE(findVisible("cookTitle")->property("text").toString(), QStringLiteral("Stub Braise"));
+        QCOMPARE(findVisible("cookStepOf")->property("text").toString(), QStringLiteral("Step 1 of 3"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(!find("cookPage"));
+        QVERIFY(findVisible("recipeTitle"));
+    }
+
+    void theKeysAndAClickMoveTheLitStep()
+    {
+        openCookMode();
+        QTRY_VERIFY(find("cookStep-0") && find("cookStep-0")->property("current").toBool());
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTRY_VERIFY(find("cookStep-1")->property("current").toBool());
+        QVERIFY(!find("cookStep-0")->property("current").toBool());
+        QTest::keyClick(window(), Qt::Key_Space);
+        QTRY_COMPARE(cook->step(), 2);
+        QTest::keyClick(window(), Qt::Key_Up);
+        QTRY_COMPARE(cook->step(), 1);
+        QTRY_VERIFY(findVisible("cookStep-0"));
+        click(findVisible("cookStepText-0"));
+        QTRY_COMPARE(cook->step(), 0);
+        QCOMPARE(findVisible("cookStepOf")->property("text").toString(), QStringLiteral("Step 1 of 3"));
+    }
+
+    void theLinesTheStepNamesAreLitAndAClickTicksOne()
+    {
+        openCookMode();
+        QTRY_VERIFY(find("cookLine-0"));
+        QVERIFY(find("cookLine-0")->property("isLit").toBool());     // "Brown the chicken thighs."
+        QVERIFY(!find("cookLine-1")->property("isLit").toBool());
+        cook->goTo(1);
+        QTRY_VERIFY(find("cookLine-1")->property("isLit").toBool()); // "the wine"
+        QVERIFY(!find("cookLine-0")->property("isLit").toBool());
+        click(findVisible("cookLine-2"));
+        QTRY_COMPARE(cook->ticks(), (QVariantList{2}));
+        QTRY_VERIFY(find("cookLine-2")->property("ticked").toBool());
+    }
+
+    void cookModeUsesTheServingsAndUnitsChosenOnTheRecipePage()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("actionCook"));
+        recipes->setServings(8);
+        preferences->setProperty("units", "us");
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookLineText-0"));
+        QTRY_VERIFY(findVisible("cookLineText-0")->property("text").toString().startsWith("6⅔ lb"));
+    }
+
+    void aTimerChipStartsATimerThatStaysAfterCookModeCloses()
+    {
+        openCookMode();
+        cook->goTo(1);
+        QTRY_VERIFY(findVisible("cookTimer-1-0"));
+        QCOMPARE(findVisible("cookTimer-1-0")->property("text").toString(), QStringLiteral("⏱ 20–25 minutes"));
+        click(findVisible("cookTimer-1-0"));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        const QVariantMap timer = cook->timers().first().toMap();
+        QCOMPARE(timer.value("seconds").toInt(), 1200);
+        QCOMPARE(timer.value("label").toString(), QStringLiteral("Stub Braise · step 2"));
+        QTRY_VERIFY(findVisible("cookTimers"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("railTimers"));
+        QTRY_VERIFY(findVisible(QStringLiteral("timer-%1").arg(timer.value("id").toInt())));
+    }
+
+    void aFinishedTimerSaysSoUntilItIsDismissed()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        const int id = cook->startTimer(1, "Stub Braise · step 2");
+        QTRY_VERIFY(cook->timers().first().toMap().value("done").toBool());
+        QTRY_VERIFY(findVisible(QStringLiteral("timerDismiss-%1").arg(id)));
+        click(findVisible(QStringLiteral("timerDismiss-%1").arg(id)));
+        QTRY_VERIFY(cook->timers().isEmpty());
+        QTRY_VERIFY(!findVisible("railTimers"));
+    }
+
+    void theRecipePagesStepsOfferTimersToo()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("stepTimer-1-0"));
+        QVERIFY(!find("stepTimer-0-0"));
+        click(findVisible("stepTimer-1-0"));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        QVERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("railTimers"));
+    }
+
+    void comingBackWithinTwelveHoursResumesTheStep()
+    {
+        openCookMode();
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(cook->active());
+        QCOMPARE(cook->step(), 1);
+        QTRY_VERIFY(find("cookStep-1") && find("cookStep-1")->property("current").toBool());
+    }
+
+    void cookModeKeepsWorkingWhenTheServerGoes()
+    {
+        openCookMode();
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+        QVERIFY(findVisible("cookPage"));
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QVERIFY(copies->has(7));
     }
 };
 
