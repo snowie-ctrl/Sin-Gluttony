@@ -749,14 +749,17 @@ def listsRecipes(listId):
                "recipes": [savedTile(r, reader) for r in paged(rows, page, pageSize)]})
 
 
-def madeOn(value):
+def madeOn(value, now=None):
+    """The day, if it is a date up to tomorrow; a batch passes its one `now` (nowStamp's text) so every change in
+    it is judged against the same moment."""
     if not isinstance(value, str) or not DAY.fullmatch(value):
         return None
     try:
         day = date.fromisoformat(value)
     except ValueError:
         return None
-    tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+    today = date.fromisoformat(now[:10]) if now else datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
     return value if date(1900, 1, 1) <= day <= tomorrow else None
 
 
@@ -880,8 +883,9 @@ AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9
 AT_PROBLEM = "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)"
 
 
-def syncAt(value):
-    """The change's moment as the app's text with milliseconds (so it compares with nowStamp), clamped to now."""
+def syncAt(value, now):
+    """The change's moment as the app's text with milliseconds (so it compares with nowStamp), clamped to the
+    batch's one now, as the server does."""
     if not isinstance(value, str) or not AT.fullmatch(value):
         return None
     try:
@@ -889,10 +893,10 @@ def syncAt(value):
     except ValueError:
         return None
     full = value if "." in value else value[:-1] + ".000Z"
-    return min(full, nowStamp())
+    return min(full, now)
 
 
-def applyChange(reader, change):
+def applyChange(reader, change, now):
     refused = lambda message: {"result": "refused", "message": message}
     kind = change.get("op")
     if kind not in ("devoured", "stars", "note"):
@@ -900,11 +904,11 @@ def applyChange(reader, change):
     rid = positiveId(change.get("recipeId"))
     if not rid:
         return refused("recipeId must be a recipe id")
-    at = syncAt(change.get("at"))
+    at = syncAt(change.get("at"), now)
     if not at:
         return refused(AT_PROBLEM)
     if kind == "devoured":
-        on = madeOn(change.get("on"))
+        on = madeOn(change.get("on"), now)
         if not on:
             return refused(ON_PROBLEM)
         clientId = change.get("clientId")
@@ -956,10 +960,11 @@ def syncBatch():
         return fail("error", 400, "ops must be a list of 1 to 500 changes")
     with lock:
         reader = state["readers"][uid()]
-        order = sorted(range(len(ops)), key=lambda i: syncAt(ops[i].get("at")) or "")
+        now = nowStamp()
+        order = sorted(range(len(ops)), key=lambda i: syncAt(ops[i].get("at"), now) or "")
         results = [None] * len(ops)
         for index in order:
-            results[index] = applyChange(reader, ops[index])
+            results[index] = applyChange(reader, ops[index], now)
     return ok({"results": results})
 
 

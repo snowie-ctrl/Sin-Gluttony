@@ -505,3 +505,14 @@ def test_aRemovedExtraTheReaderDoesNotKeepIsLeftOut(client, monkeypatch):
     monkeypatch.setenv("STUB_REMOVED", "3")
     stub.reset()
     assert get(client, "/saved/manifest?extra=3").get_json()["data"]["recipes"] == []
+
+def test_theStubTakesOneClockForTheWholeBatch(client, monkeypatch):
+    # Every reading of the clock is a millisecond later than the last. Both changes are ahead of it, so both must
+    # clamp to the batch's one now: the first is applied and the second ties with it, as on the server.
+    ticks = iter(range(10000))
+    monkeypatch.setattr(stub, "nowStamp", lambda: "2026-10-28T00:00:%02d.%03dZ" % divmod(next(ticks), 1000))
+    answered = batch(client, [{"op": "stars", "recipeId": 1, "stars": 2, "at": LATER},
+                              {"op": "stars", "recipeId": 1, "stars": 4, "at": LATER}])
+    assert [r["result"] for r in answered] == ["applied", "already"]
+    assert answered[1]["stars"] == 2
+    assert get(client, "/recipes/1").get_json()["data"]["mine"]["stars"] == 2
