@@ -50,6 +50,8 @@ qt_add_executable(appGluttony
     services/Cook.cpp
     services/RecipeStore.h
     services/RecipeStore.cpp
+    services/SyncQueue.h
+    services/SyncQueue.cpp
     services/Wiring.h
     services/Wiring.cpp
 )

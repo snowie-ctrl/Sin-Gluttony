@@ -94,6 +94,13 @@ gluttony_test(tst_recipestore
             ../services/RecipeStore.h ../services/RecipeStore.cpp
     LIBS Qt6::Network Qt6::Qml)
 
+gluttony_test(tst_syncqueue
+    SOURCES tst_syncqueue.cpp FakeServer.h
+            ../api/Api.h ../api/Api.cpp ../api/AppConfig.h ../api/SessionAuth.h ../api/SessionAuth.cpp
+            ../services/AccountStore.h ../services/AccountStore.cpp
+            ../services/SyncQueue.h ../services/SyncQueue.cpp
+    LIBS Qt6::Network)
+
 gluttony_test(tst_pages
     SOURCES tst_pages.cpp FakeServer.h ../assets/resources.qrc
             ../assets/Preferences.h ../assets/Preferences.cpp
