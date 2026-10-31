@@ -327,6 +327,8 @@ private slots:
           "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
         server->responses[path("/recipes/1")] = detail;
         server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        // Saved counts a missing session token as offline, and this case never signs in.
+        api->setSessionToken("tok");
         saved->load();
         QTRY_VERIFY(saved->listsLoaded());
         recipes->open(1);
@@ -352,6 +354,8 @@ private slots:
         server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
           "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
         server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        // Saved counts a missing session token as offline, and this case never signs in.
+        api->setSessionToken("tok");
         saved->load();
         QTRY_VERIFY(saved->listsLoaded());
         recipes->open(1);

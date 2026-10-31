@@ -10,6 +10,8 @@
 #include "api/Api.h"
 #include "services/RecipeQuery.h"
 
+class RecipeStore;
+class SyncQueue;
 
 // What a person keeps: their lists (Cravings first, then their own, in their order), the recipes on them, and
 // what they keep on the recipe that is open (`mine`, from GET /recipes/<id>). Every change is asked of the server
@@ -18,6 +20,11 @@
 // Tiles come from many answers (Results, Home, lists, Seconds?), each with the flags the server knew then. A change
 // made here is kept in an overlay that every tile reads through flagsOf(), so a ♥ made on the recipe page shows on
 // every tile at once without asking for any of them again.
+//
+// With no server (or no answer, or a failing one), Devoured marks, stars and notes go into the account's queue
+// (SyncQueue) and show at once; a queued mark is listed in `mine` as pending until the server takes it, and then
+// shows what the server kept. Lists change only with a connection, and say so; with no server the lists and their
+// recipes come from the device's copies (RecipeStore).
 class Saved : public QObject
 {
     Q_OBJECT
@@ -64,6 +71,9 @@ public:
     static constexpr int ItemLimit = 2000;
 
     explicit Saved(Api &api, QObject *parent = nullptr);
+
+    void setStore(RecipeStore *store) { m_store = store; }
+    void setQueue(SyncQueue *queue);
 
     QVariantList lists() const { return m_lists; }
     int cravingsId() const { return m_cravingsId; }
@@ -128,8 +138,9 @@ public:
     // The Devoured tab, "recent" or "stars": asked for unless already shown and unchanged since.
     Q_INVOKABLE void openDevoured(const QString &sort);
 
-    // The recipe page opened another recipe, or its detail arrived (recipeId 0: none open).
-    void showMine(int recipeId, const QVariantMap &mine);
+    // The recipe page opened another recipe, or its detail arrived (recipeId 0: none open). The title names a change
+    // made on it that has to wait (Settings › Waiting to sync).
+    void showMine(int recipeId, const QVariantMap &mine, const QString &title = QString());
     // Signing out: nothing of this person's is left for the next one, and no answer for them lands.
     void clear();
 
@@ -151,6 +162,20 @@ signals:
     void keptChanged();
 
 private:
+    bool offline() const;
+    // No answer, or a failing server: the change waits in the queue rather than being lost.
+    static bool queueable(const Api::Result &result) { return result.httpStatus == 0 || result.httpStatus >= 500; }
+    // A list change asked for with no server: nothing is sent, and the page is told why.
+    bool refuseOffline(const QString &what);
+    void queueChange(QJsonObject change);
+    void takeSynced(const QJsonObject &change, const QJsonObject &result);
+    // A queued mark as `mine` lists it, with a local id below zero.
+    QVariantMap pendingMark(const QString &clientId, const QString &on);
+    // `marks` without the pending ones it holds, then this recipe's marks still in the queue, newest first.
+    QVariantList withPending(int recipeId, const QVariantList &marks);
+    static void sortMarks(QVariantList &marks);
+    void showCopiedLists();
+
     int indexOfList(int listId) const;
     void setCount(int listId, int count);
     void noteFlag(int recipeId, const QString &key, const QVariant &value);
@@ -172,6 +197,16 @@ private:
     void markSaving(QList<int> &list, int recipeId, bool on);
 
     Api &m_api;
+    RecipeStore *m_store = nullptr;
+    SyncQueue *m_queue = nullptr;
+    QString m_mineTitle;
+    // A queued mark's clientId and the local id it shows with.
+    QHash<QString, int> m_pendingIds;
+    int m_nextPendingId = -1;
+    // The open list's rows are the copies', so the server is asked once it answers again.
+    bool m_openFromCopies = false;
+    // The lists shown are the copies', so the server is asked once it answers again.
+    bool m_listsFromCopies = false;
     QVariantList m_lists;
     int m_cravingsId = 0;
     bool m_listsLoaded = false;

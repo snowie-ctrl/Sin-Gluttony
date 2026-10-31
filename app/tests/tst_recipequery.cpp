@@ -3,6 +3,7 @@
 #include <QTest>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <memory>
 
 #include "FakeServer.h"
@@ -181,6 +182,21 @@ private slots:
         QCOMPARE(query->rowAt(0).value("id").toInt(), 1);
         query->moveRecipe(0, 9);        // out of range: nothing moves
         QCOMPARE(query->rowAt(0).value("id").toInt(), 1);
+    }
+
+    void rowsFromElsewhereAreShownWholeAndTheNextRunAsksTheServer()
+    {
+        RecipeQuery listQuery(*api, QStringLiteral("/lists/3/recipes"));
+        listQuery.showRows(QVariantList{QVariantMap{{"id", 5}}, QVariantMap{{"id", 6}}});
+        QCOMPARE(listQuery.count(), 2);
+        QCOMPARE(listQuery.total(), 2);
+        QVERIFY(listQuery.answered());
+        QVERIFY(listQuery.exhausted());
+        QVERIFY(!listQuery.loading());
+        listQuery.run(QUrlQuery());
+        QTRY_VERIFY(std::any_of(server->requests.cbegin(), server->requests.cend(), [](const QUrl &url) {
+            return url.path() == QLatin1String("/api/gluttony/lists/3/recipes");
+        }));
     }
 };
 

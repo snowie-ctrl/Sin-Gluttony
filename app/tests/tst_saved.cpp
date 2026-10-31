@@ -6,6 +6,7 @@
 #include <QTimeZone>
 #include <QRegularExpression>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QUrlQuery>
 
@@ -14,7 +15,10 @@
 
 #include "FakeServer.h"
 #include "api/Api.h"
+#include "services/AccountStore.h"
+#include "services/RecipeStore.h"
 #include "services/Saved.h"
+#include "services/SyncQueue.h"
 
 static QString path(const char *route)
 {
@@ -44,6 +48,10 @@ class TestSaved : public QObject
     // A new server for every case, so a request still on its way never lands in the next one.
     std::unique_ptr<FakeServer> server;
     std::unique_ptr<Api> api;
+    std::unique_ptr<QTemporaryDir> dir;
+    std::unique_ptr<AccountStore> accounts;
+    std::unique_ptr<RecipeStore> copies;
+    std::unique_ptr<SyncQueue> queue;
     std::unique_ptr<Saved> saved;
 
     QList<QUrl> requestsTo(const char *route) const
@@ -80,14 +88,76 @@ class TestSaved : public QObject
         QTRY_COMPARE(open()->count(), int(ids.size()));
     }
 
+    QString live() const { return QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()); }
+
+    // The device's copies and queue for account 7, as Wiring gives Saved them.
+    void attachOffline()
+    {
+        api->setSessionToken("tok");
+        dir = std::make_unique<QTemporaryDir>();
+        accounts = std::make_unique<AccountStore>(dir->path());
+        accounts->open(7, "ann");
+        copies = std::make_unique<RecipeStore>(*api);
+        copies->setStore(accounts.get());
+        queue = std::make_unique<SyncQueue>(*api);
+        queue->setStore(accounts.get());
+        queue->setRetryDelay(60000);
+        saved->setStore(copies.get());
+        saved->setQueue(queue.get());
+    }
+
+    void goOffline()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+    }
+
+    void comeBack()
+    {
+        api->setBases(QString(), live());
+        api->checkNow();
+        QTRY_VERIFY(api->online());
+    }
+
+    // Copies of recipes 5 and 6 on Cravings (3) and 6 on Weeknights (11), fetched while the server answers.
+    void keepCopies()
+    {
+        server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
+          {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[5,6]},
+          {"id":11,"title":"Weeknights","kind":"custom","recipeIds":[6]}],
+          "recipes":[{"id":5,"updatedAt":"2026-10-20T08:30:15","removed":false},
+                     {"id":6,"updatedAt":"2026-10-20T08:30:15","removed":false}]}})";
+        for (const int id : {5, 6})
+            server->responses[path(QStringLiteral("/recipes/%1").arg(id).toLatin1().constData())] =
+                QJsonDocument(QJsonObject{{"status", "ok"}, {"data", QJsonObject{{"id", id}, {"kind", "food"},
+                    {"title", QStringLiteral("Kept %1").arg(id)}, {"hasImage", false}}}}).toJson();
+        copies->refresh();
+        QTRY_VERIFY(copies->has(5) && copies->has(6));
+        QTRY_VERIFY(!copies->refreshing());
+    }
+
+    static QVariantMap mineWithMark(int markId)
+    {
+        return {{"craving", false}, {"lists", QVariantList()},
+                {"devoured", QVariantList{QVariantMap{{"id", markId}, {"on", "2026-10-20"}}}},
+                {"stars", QVariant()}, {"note", QVariant()}};
+    }
+
 private slots:
     void init()
     {
         saved.reset();
+        queue.reset();
+        copies.reset();
+        accounts.reset();
+        dir.reset();
         api.reset();
         server = std::make_unique<FakeServer>();
         api = std::make_unique<Api>();
         api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
+        api->setSessionToken("tok");
         saved = std::make_unique<Saved>(*api);
     }
 
@@ -721,6 +791,209 @@ private slots:
         saved->openDevoured(QStringLiteral("recent"));
         saved->clear();
         QVERIFY(!saved->devouredOpen());
+    }
+
+    void anOfflineMarkWaitsInTheQueueAndShowsAsPending()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub Coq au Vin");
+        goOffline();
+        QSignalSpy done(saved.get(), &Saved::done);
+        QSignalSpy kept(saved.get(), &Saved::keptChanged);
+        saved->devour(1, saved->today());
+        QCOMPARE(queue->count(), 1);
+        const QJsonObject change = queue->changes().first();
+        QCOMPARE(change.value("op").toString(), QStringLiteral("devoured"));
+        QCOMPARE(change.value("on").toString(), saved->today());
+        QCOMPARE(change.value("title").toString(), QStringLiteral("Stub Coq au Vin"));
+        const QVariantList marks = saved->mine().value("devoured").toList();
+        QCOMPARE(marks.size(), 2);
+        const QVariantMap pending = marks.first().toMap();
+        QVERIFY(pending.value("pending").toBool());
+        QVERIFY(pending.value("id").toInt() < 0);
+        QCOMPARE(pending.value("clientId").toString(), change.value("clientId").toString());
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 1}}).value("devouredCount").toInt(), 2);
+        QCOMPARE(done.count(), 1);
+        QCOMPARE(kept.count(), 1);
+        QVERIFY(requestsTo("/devoured/add").isEmpty());
+    }
+
+    void thePendingMarkBecomesTheStoredOneWhenTheServerTakesIt()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        saved->devour(1, saved->today());
+        server->responses[path("/sync/batch")] = QJsonDocument(QJsonObject{{"status", "ok"}, {"data", QJsonObject{
+            {"results", QJsonArray{QJsonObject{{"result", "applied"}, {"id", 42}, {"recipeId", 1},
+                                               {"on", saved->today()}, {"count", 2}}}}}}}).toJson();
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        const QVariantList marks = saved->mine().value("devoured").toList();
+        QCOMPARE(marks.size(), 2);
+        QCOMPARE(marks.first().toMap().value("id").toInt(), 42);
+        QVERIFY(!marks.first().toMap().value("pending").toBool());
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 1}}).value("devouredCount").toInt(), 2);
+    }
+
+    void aPendingMarkCanBeTakenBack()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        saved->devour(1, saved->today());
+        const int pendingId = saved->mine().value("devoured").toList().first().toMap().value("id").toInt();
+        saved->undevour(pendingId);
+        QCOMPARE(queue->count(), 0);
+        QCOMPARE(saved->mine().value("devoured").toList().size(), 1);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 1}}).value("devouredCount").toInt(), 1);
+    }
+
+    void aStoredMarkIsNotTakenOffOffline()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->undevour(41);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("You're offline: a mark can be taken off once you're connected."));
+        QCOMPARE(saved->mine().value("devoured").toList().size(), 1);
+        QVERIFY(requestsTo("/devoured/remove").isEmpty());
+    }
+
+    void offlineStarsAndANoteShowAtOnceAndWait()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        saved->setStars(1, 4);
+        saved->setNote(1, "  less salt ");
+        QCOMPARE(saved->mine().value("stars").toInt(), 4);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 1}}).value("stars").toInt(), 4);
+        QCOMPARE(saved->mine().value("note").toString(), QStringLiteral("less salt"));
+        QCOMPARE(queue->count(), 2);
+        saved->setStars(1, 0);
+        QCOMPARE(queue->count(), 2);
+        // The cleared stars replaced the 4 waiting, behind the note.
+        QVERIFY(queue->changes().at(1).value("stars").isNull());
+        QVERIFY(saved->mine().value("stars").isNull());
+        QVERIFY(requestsTo("/rating").isEmpty() && requestsTo("/note").isEmpty());
+    }
+
+    void aSupersededChangeShowsWhatTheServerKept()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        saved->setStars(1, 2);
+        server->responses[path("/sync/batch")] = R"({"status":"ok","data":{"results":[
+          {"result":"already","recipeId":1,"stars":5}]}})";
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        QCOMPARE(saved->mine().value("stars").toInt(), 5);
+        QCOMPARE(saved->flagsOf(QVariantMap{{"id", 1}}).value("stars").toInt(), 5);
+    }
+
+    void aMarkThatMeetsNoAnswerIsQueuedWithItsClientId()
+    {
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        server->statuses[path("/devoured/add")] = 503;
+        server->responses[path("/devoured/add")] = R"({"status":"error","message":"busy"})";
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        saved->devour(1, saved->today());
+        QTRY_COMPARE(queue->count(), 1);
+        QCOMPARE(failed.count(), 0);
+        const QString sent = bodiesTo("/devoured/add").first().value("clientId").toString();
+        QCOMPARE(queue->changes().first().value("clientId").toString(), sent);
+        QVERIFY(!saved->devouring());
+    }
+
+    void listChangesNeedTheConnection()
+    {
+        attachOffline();
+        loadLists();
+        openWeeknights({1, 2});
+        goOffline();
+        QSignalSpy failed(saved.get(), &Saved::failed);
+        const int before = server->requests.size();
+        saved->createList("New");
+        saved->renameList(11, "Renamed");
+        saved->deleteList(11);
+        saved->moveList(12, -1);
+        saved->setInList(11, 3, true);
+        saved->setCraving(3, true);
+        saved->moveItem(0, 1);
+        QCOMPARE(failed.count(), 7);
+        for (const QList<QVariant> &call : failed)
+            QCOMPARE(call.at(1).toString(), QStringLiteral("Lists change only with a connection."));
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("list"));
+        QCOMPARE(failed.at(3).at(0).toString(), QStringLiteral("lists"));
+        QCOMPARE(failed.at(4).at(0).toString(), QStringLiteral("item"));
+        QCOMPARE(failed.at(6).at(0).toString(), QStringLiteral("move"));
+        QCOMPARE(server->requests.size(), before);
+        // Nothing moved on screen either.
+        QCOMPARE(open()->rowAt(0).value("id").toInt(), 1);
+        QCOMPARE(saved->lists().at(1).toMap().value("id").toInt(), 11);
+    }
+
+    void offlineTheListsAndTheirTilesComeFromTheCopies()
+    {
+        attachOffline();
+        keepCopies();
+        goOffline();
+        saved->load();
+        QVERIFY(saved->listsLoaded());
+        QCOMPARE(saved->cravingsId(), 3);
+        QCOMPARE(saved->lists().size(), 2);
+        QCOMPARE(saved->lists().at(1).toMap().value("title").toString(), QStringLiteral("Weeknights"));
+        saved->openList(3);
+        QCOMPARE(open()->count(), 2);
+        QCOMPARE(open()->rowAt(0).value("title").toString(), QStringLiteral("Kept 5"));
+        QVERIFY(requestsTo("/lists").isEmpty());
+        QVERIFY(requestsTo("/lists/3/recipes").isEmpty());
+    }
+
+    void backOnlineTheListsAndTheOpenListAreAskedForAgain()
+    {
+        attachOffline();
+        keepCopies();
+        goOffline();
+        saved->load();
+        saved->openList(3);
+        server->responses[path("/lists")] = twoLists;
+        server->responses[path("/lists/3/recipes")] = listPage({5, 6, 7});
+        comeBack();
+        // Nothing here asks: Saved follows the connection by itself.
+        QTRY_VERIFY(requestsTo("/lists").size() >= 1);
+        QTRY_VERIFY(requestsTo("/lists/3/recipes").size() >= 1);
+        QTRY_COMPARE(open()->count(), 3);
+    }
+
+    void losingTheConnectionShowsTheCopiesLists()
+    {
+        attachOffline();
+        keepCopies();
+        server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":2}]})";
+        saved->load();
+        QTRY_COMPARE(saved->lists().size(), 1);
+        goOffline();
+        QTRY_COMPARE(saved->lists().size(), 2);
+        QCOMPARE(saved->lists().at(1).toMap().value("title").toString(), QStringLiteral("Weeknights"));
+    }
+
+    void aQueuedMarkIsShownOnceWhenTheDetailAlreadyHoldsIt()
+    {
+        // A copy patched while the mark waited already lists it as pending; showing that copy shows it once.
+        attachOffline();
+        saved->showMine(1, mineWithMark(41), "Stub");
+        goOffline();
+        saved->devour(1, saved->today());
+        const QVariantMap withPending = saved->mine();
+        saved->showMine(0, QVariantMap());
+        saved->showMine(1, withPending, "Stub");
+        QCOMPARE(saved->mine().value("devoured").toList().size(), 2);
     }
 };
 
