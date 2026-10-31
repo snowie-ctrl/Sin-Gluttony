@@ -14,7 +14,7 @@ import secrets
 import sys
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import flask
@@ -239,6 +239,52 @@ def steps(media):
         state["mark"] = mark["id"]
         return "a mark stored once per clientId, stars, a 2,000-emoji note, mine, history, Home's rows"
 
+    def sync(client, state):
+        rid = state["recipeId"]
+        now = datetime.now(timezone.utc)
+
+        def moment(at):
+            return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
+
+        hourAgo = moment(now - timedelta(hours=1))
+        ops = [{"op": "devoured", "recipeId": rid, "on": now.date().isoformat(), "clientId": str(uuid.uuid4()),
+                "at": hourAgo},
+               # Older than the 4 stars the yours step gave just now: the server keeps the 4.
+               {"op": "stars", "recipeId": rid, "stars": 2, "at": hourAgo},
+               # Ahead of the server's clock: counted as now, so newer than the yours step's note.
+               {"op": "note", "recipeId": rid, "text": "smoke queued", "at": moment(now + timedelta(minutes=5))},
+               {"op": "stars", "recipeId": 2 ** 31 - 1, "stars": 3, "at": hourAgo}]
+        results = call(client, "POST", f"{R}/sync/batch", {"ops": ops})["data"]["results"]
+        check([r["result"] for r in results] == ["applied", "already", "applied", "refused"], f"sync: {results}")
+        check(results[1]["stars"] == 4 and results[3]["message"] == "no such recipe", f"sync answers: {results}")
+        again = call(client, "POST", f"{R}/sync/batch", {"ops": ops[:1]})["data"]["results"]
+        check(again[0]["result"] == "already" and again[0]["id"] == results[0]["id"], f"a resent mark: {again}")
+        mine = call(client, "GET", f"{R}/recipes/{rid}")["data"]["mine"]
+        check(mine["stars"] == 4 and mine["note"] == "smoke queued" and len(mine["devoured"]) == 2,
+              f"mine after a sync: {str(mine)[:200]}")
+        call(client, "POST", f"{R}/rating", {"recipeId": rid, "stars": None})
+        cleared = call(client, "POST", f"{R}/sync/batch",
+                       {"ops": [{"op": "stars", "recipeId": rid, "stars": 5, "at": hourAgo}]})["data"]["results"]
+        check(cleared[0] == {"result": "already", "recipeId": rid, "stars": None}, f"a cleared rating: {cleared}")
+        call(client, "POST", f"{R}/rating", {"recipeId": rid, "stars": 4})
+        return "a queued mark once, an older star kept out, a newer note in, a cleared rating kept, a stranger's id refused"
+
+    def manifest(client, state):
+        data = call(client, "GET", f"{R}/saved/manifest?extra={state['secondId']}")["data"]
+        byId = {entry["id"]: entry for entry in data["lists"]}
+        check(data["lists"][0]["id"] == state["cravings"] and state["recipeId"] in byId[state["cravings"]]["recipeIds"],
+              f"manifest lists: {data['lists']}")
+        # The lists step took the second recipe off the list again, so only the first is left on it.
+        check(byId[state["list"]]["recipeIds"] == [state["recipeId"]], f"a list's order: {byId[state['list']]}")
+        recipes = {entry["id"]: entry for entry in data["recipes"]}
+        # The second recipe is on no list: it is in the manifest only because `extra` named it.
+        check(all(state["secondId"] not in entry["recipeIds"] for entry in data["lists"]),
+              f"the second recipe is still on a list: {data['lists']}")
+        check({state["recipeId"], state["secondId"]} <= set(recipes) and all(r["updatedAt"] for r in recipes.values()),
+              f"manifest recipes: {data['recipes']}")
+        call(client, "GET", f"{R}/saved/manifest?extra=x", expect=400)
+        return "every list with its recipes in order, each recipe's UpdatedAt, the cook-mode extras"
+
     def strangers(client, state):
         own = client.environ_base["HTTP_X_SESSION_TOKEN"]
         made = call(client, "POST", f"{R}/auth", {"username": "smoke-stranger", "password": "smoke-password",
@@ -286,8 +332,8 @@ def steps(media):
         return "signed out, the session ends, the device is forgotten"
 
     return [("seed", seed), ("store", store), ("unknown", unknown), ("account", account), ("browse", browse),
-            ("diet", diet), ("home", home), ("lists", lists), ("yours", yours), ("strangers", strangers),
-            ("remove", remove), ("signout", signout)]
+            ("diet", diet), ("home", home), ("lists", lists), ("yours", yours), ("sync", sync), ("manifest", manifest),
+            ("strangers", strangers), ("remove", remove), ("signout", signout)]
 
 
 def runSteps(client, media):

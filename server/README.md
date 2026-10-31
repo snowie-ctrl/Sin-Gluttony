@@ -77,6 +77,11 @@ Written in part 2's milestones, deployed together in milestone 4; nothing here i
   profile, Home and Go on, makes and edits lists, marks Devoured (once per clientId), stars and notes, signs up a
   second account to check it sees none of the first one's, removes a recipe and checks only its saver still sees
   it, and signs out. It inserts two login keys and a second recipe on the scratch database.
+
+  Milestone 3 adds `sync` (a batch of offline changes: a mark stored once however often it is sent, a star older
+  than the stored one kept out, a newer note applied, a cleared rating not brought back, an unknown recipe refused)
+  and `manifest` (every list with its recipes in order, each recipe's `UpdatedAt`, the cook-mode extras). Both need
+  `schema-part2.sql` as this milestone leaves it: `Ratings` and `Notes` with `UpdatedAt DATETIME(3)` and nullable stars.
 - **Cut-over:** `sudo mysql gluttonyDB < schema-part2.sql`, then in `Caduceus.py`, inside the existing Gluttony
   block, beside `gluttonyBP`:
 
