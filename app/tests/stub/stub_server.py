@@ -11,6 +11,9 @@ invalid_key); the username "taken" is 409. Signing out makes /device/identify sa
 Every reader starts with an empty Cravings list. Lists, items, Devoured marks, stars and notes follow docs/api.md and
 refuse what the server refuses, in its words; they last until the stub stops.
 
+What the app did offline arrives with /sync/batch: marks once per clientId, the newest star or note wins (/rating and
+/note remember when they changed). /saved/manifest gives every recipe the snapshot's takenAt as its updatedAt.
+
 STUB_KEPT=1              the stub reader starts with two Cravings, a list "Weeknights", a mark three days ago, four
                          stars and a note, on the first recipes of the snapshot (or the fixture).
 STUB_REMOVED=<id,..>     those recipes are removed by their source: hidden from browsing and Home's picks, and open
@@ -62,7 +65,8 @@ def snapshotFolder():
 
 def reset():
     folder = snapshotFolder()
-    recipes = json.loads((folder / "recipes.json").read_text(encoding="utf-8"))["recipes"]
+    snapshot = json.loads((folder / "recipes.json").read_text(encoding="utf-8"))
+    recipes = snapshot["recipes"]
     diets, _, avoid = (os.environ.get("STUB_DIET") or "").partition(";")
     state.clear()
     state.update({
@@ -75,6 +79,7 @@ def reset():
         "nextUid": 100,
         "nextListId": 1,
         "nextMarkId": 1,
+        "takenAt": str(snapshot.get("takenAt") or "2026-10-27T00:00:00")[:19],
         "removed": {int(v) for v in (os.environ.get("STUB_REMOVED") or "").split(",") if v.strip().isdigit()},
     })
     reader = newReader("stub", "stub-password")
@@ -91,11 +96,16 @@ def nextId(counter):
     return value
 
 
+def nowStamp():
+    """Now in UTC, as the app writes its queued moments, so the two compare as text."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def newReader(username, password):
     """A reader as sign-up leaves one: no diet, and an empty Cravings list (always the first list)."""
     return {"username": username, "password": password, "diets": [], "avoid": [],
             "lists": [{"id": nextId("nextListId"), "title": "Cravings", "kind": "cravings", "items": []}],
-            "devoured": [], "ratings": {}, "notes": {}}
+            "devoured": [], "ratings": {}, "notes": {}, "changedAt": {}}
 
 
 def seedKept(reader):
@@ -750,6 +760,23 @@ def madeOn(value):
     return value if date(1900, 1, 1) <= day <= tomorrow else None
 
 
+def storeMark(reader, rid, on, clientId):
+    """(mark, already, problem): the mark with this clientId, stored now or found from before (as the server's
+    storeMark)."""
+    if not visible(rid, reader):
+        return None, False, "no such recipe"
+    mark = next((m for m in reader["devoured"] if m["clientId"] == clientId), None)
+    if mark:
+        return mark, True, None
+    # A clientId is unique across every account: one held by someone else is refused, and their mark is neither
+    # shown nor changed.
+    if any(m["clientId"] == clientId for other in state["readers"].values() for m in other["devoured"]):
+        return None, False, "that clientId is in use"
+    mark = {"id": nextId("nextMarkId"), "rid": rid, "on": on, "clientId": clientId}
+    reader["devoured"].append(mark)
+    return mark, False, None
+
+
 @app.route(API + "/devoured/add", methods=["POST"])
 def devouredAdd():
     data = body()
@@ -764,17 +791,9 @@ def devouredAdd():
         return fail("error", 400, "clientId must be a UUID")
     with lock:
         reader = state["readers"][uid()]
-        if not visible(rid, reader):
-            return fail("error", 404, "no such recipe")
-        mark = next((m for m in reader["devoured"] if m["clientId"] == clientId), None)
-        already = mark is not None
-        if not mark:
-            # A clientId is unique across every account: one held by someone else is refused, and their mark is
-            # neither shown nor changed.
-            if any(m["clientId"] == clientId for other in state["readers"].values() for m in other["devoured"]):
-                return fail("error", 409, "that clientId is in use")
-            mark = {"id": nextId("nextMarkId"), "rid": rid, "on": on, "clientId": clientId}
-            reader["devoured"].append(mark)
+        mark, already, problem = storeMark(reader, rid, on, clientId)
+        if problem:
+            return fail("error", 404 if problem == "no such recipe" else 409, problem)
         count = sum(1 for m in reader["devoured"] if m["rid"] == mark["rid"])
     return ok({"id": mark["id"], "recipeId": mark["rid"], "on": mark["on"], "count": count, "already": already})
 
@@ -828,6 +847,7 @@ def rating():
         reader["ratings"].pop(rid, None)
     else:
         reader["ratings"][rid] = stars
+    reader["changedAt"][f"stars:{rid}"] = nowStamp()
     return ok({"recipeId": rid, "stars": stars})
 
 
@@ -850,7 +870,115 @@ def noteRoute():
         reader["notes"][rid] = text
     else:
         reader["notes"].pop(rid, None)
+    reader["changedAt"][f"note:{rid}"] = nowStamp()
     return ok({"recipeId": rid, "note": text or None})
+
+
+# ---- what the app did offline ----
+
+AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
+AT_PROBLEM = "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)"
+
+
+def syncAt(value):
+    """The change's moment as the app's text with milliseconds (so it compares with nowStamp), clamped to now."""
+    if not isinstance(value, str) or not AT.fullmatch(value):
+        return None
+    try:
+        datetime.fromisoformat(value[:-1])
+    except ValueError:
+        return None
+    full = value if "." in value else value[:-1] + ".000Z"
+    return min(full, nowStamp())
+
+
+def applyChange(reader, change):
+    refused = lambda message: {"result": "refused", "message": message}
+    kind = change.get("op")
+    if kind not in ("devoured", "stars", "note"):
+        return refused("op must be devoured, stars or note")
+    rid = positiveId(change.get("recipeId"))
+    if not rid:
+        return refused("recipeId must be a recipe id")
+    at = syncAt(change.get("at"))
+    if not at:
+        return refused(AT_PROBLEM)
+    if kind == "devoured":
+        on = madeOn(change.get("on"))
+        if not on:
+            return refused(ON_PROBLEM)
+        clientId = change.get("clientId")
+        if not isinstance(clientId, str) or not CLIENT_ID.fullmatch(clientId):
+            return refused("clientId must be a UUID")
+        mark, already, problem = storeMark(reader, rid, on, clientId)
+        if problem:
+            return refused(problem)
+        count = sum(1 for m in reader["devoured"] if m["rid"] == mark["rid"])
+        return {"result": "already" if already else "applied", "id": mark["id"], "recipeId": mark["rid"],
+                "on": mark["on"], "count": count}
+    key = f"{kind}:{rid}"
+    if kind == "stars":
+        stars = change.get("stars")
+        if "stars" not in change or (stars is not None and (not isinstance(stars, int) or isinstance(stars, bool)
+                                                             or not 1 <= stars <= 5)):
+            return refused(STARS_PROBLEM)
+        if not visible(rid, reader):
+            return refused("no such recipe")
+        if reader["changedAt"].get(key, "") >= at:
+            return {"result": "already", "recipeId": rid, "stars": reader["ratings"].get(rid)}
+        if stars is None:
+            reader["ratings"].pop(rid, None)
+        else:
+            reader["ratings"][rid] = stars
+        reader["changedAt"][key] = at
+        return {"result": "applied", "recipeId": rid, "stars": stars}
+    if not isinstance(change.get("text"), str):
+        return refused("text must be text")
+    text = change["text"].strip()
+    if len(text) > 2000:
+        return refused("a note is at most 2000 characters")
+    if not visible(rid, reader):
+        return refused("no such recipe")
+    if reader["changedAt"].get(key, "") >= at:
+        return {"result": "already", "recipeId": rid, "note": reader["notes"].get(rid)}
+    if text:
+        reader["notes"][rid] = text
+    else:
+        reader["notes"].pop(rid, None)
+    reader["changedAt"][key] = at
+    return {"result": "applied", "recipeId": rid, "note": text or None}
+
+
+@app.route(API + "/sync/batch", methods=["POST"])
+def syncBatch():
+    ops = body().get("ops")
+    if not isinstance(ops, list) or not 1 <= len(ops) <= 500 or not all(isinstance(op, dict) for op in ops):
+        return fail("error", 400, "ops must be a list of 1 to 500 changes")
+    with lock:
+        reader = state["readers"][uid()]
+        order = sorted(range(len(ops)), key=lambda i: syncAt(ops[i].get("at")) or "")
+        results = [None] * len(ops)
+        for index in order:
+            results[index] = applyChange(reader, ops[index])
+    return ok({"results": results})
+
+
+@app.route(API + "/saved/manifest")
+def savedManifest():
+    raw = request.args.get("extra") or ""
+    parts = raw.split(",") if raw else []
+    if len(parts) > 200 or not all(re.fullmatch(r"[0-9]{1,9}", p) and int(p) > 0 for p in parts):
+        return fail("error", 400, "extra must be up to 200 recipe ids, comma separated")
+    reader = state["readers"][uid()]
+    lists = [{"id": l["id"], "title": l["title"], "kind": l["kind"], "recipeIds": list(l["items"])}
+             for l in reader["lists"]]
+    listed = {rid for l in lists for rid in l["recipeIds"]}
+    recipes = []
+    for rid in sorted(listed | {int(p) for p in parts}):
+        if rid not in state["recipes"] or (rid not in listed and not visible(rid, reader)):
+            continue
+        recipes.append({"id": rid, "updatedAt": state["takenAt"], "removed": rid in state["removed"]})
+    return ok({"lists": lists, "recipes": recipes})
 
 
 reset()
