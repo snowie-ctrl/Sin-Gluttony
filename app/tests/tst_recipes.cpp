@@ -182,6 +182,20 @@ private slots:
         QCOMPARE(recipes->recipe().value("title").toString(), QStringLiteral("Stub Spinach Eggs (kept)"));
     }
 
+    void aTunnelAnsweringForADownServerOpensTheSavedCopy()
+    {
+        // The tunnel answers 530 with a page of its own while the origin is down; Api reads that as unreachable.
+        api->setSessionToken("tok");
+        keepEggs();
+        server->statuses["/api/gluttony/recipes/4"] = 530;
+        server->responses["/api/gluttony/recipes/4"] = "<html>origin down</html>";
+        recipes->open(4);
+        QTRY_VERIFY_WITH_TIMEOUT(recipes->fromCopy(), 10000);
+        QVERIFY(recipes->error().isEmpty());
+        QVERIFY(!recipes->loading());
+        QCOMPARE(recipes->recipe().value("title").toString(), QStringLiteral("Stub Spinach Eggs (kept)"));
+    }
+
     void withNoCopyAnOutageSaysSo()
     {
         api->setSessionToken("tok");

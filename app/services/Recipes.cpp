@@ -77,8 +77,10 @@ void Recipes::fetch()
             // A saved recipe's copy takes the freshest detail, what the person keeps on it included.
             if (m_store)
                 m_store->update(m_recipe);
-        } else if (result.httpStatus == 0 && openCopy()) {
-            // The connection went on the way (spec §8): the copy kept on this device stands in, and has said so.
+        } else if ((result.httpStatus == 0 || !m_api.online()) && openCopy()) {
+            // The connection went on the way (spec §8): either no answer came (status 0), or the tunnel answered for
+            // an origin that is down, which Api has already taken offline before this handler runs. The copy kept on
+            // this device is now shown (fromCopy is true) and no error is reported.
             return;
         } else if (result.httpStatus == 404) {
             m_gone = true;
