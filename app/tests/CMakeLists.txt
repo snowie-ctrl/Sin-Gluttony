@@ -77,6 +77,15 @@ gluttony_test(tst_saved
             ../services/Saved.h ../services/Saved.cpp
     LIBS Qt6::Network)
 
+gluttony_test(tst_keepawake
+    SOURCES tst_keepawake.cpp ../services/KeepAwake.h ../services/KeepAwake.cpp)
+
+gluttony_test(tst_cook
+    SOURCES tst_cook.cpp
+            ../services/KeepAwake.h ../services/KeepAwake.cpp
+            ../services/AccountStore.h ../services/AccountStore.cpp
+            ../services/Cook.h ../services/Cook.cpp)
+
 gluttony_test(tst_pages
     SOURCES tst_pages.cpp FakeServer.h ../assets/resources.qrc
             ../assets/Preferences.h ../assets/Preferences.cpp
