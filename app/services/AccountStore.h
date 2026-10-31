@@ -6,8 +6,9 @@
 
 
 // Everything this device keeps for one account, under <data>/accounts/<UID>/: account.json (UID and username,
-// never a token) and, from milestone 3, recipes/<id>.json, the saved recipes kept for offline use (with their
-// pictures beside them). <data>/accounts/last.json names the account signed in last, so a start with no server
+// never a token), recipes/<id>.json and <id>.jpg (the saved recipes kept for offline use, RecipeStore),
+// manifest.json (the lists as the server last listed them), sync-queue.json (changes made offline, SyncQueue) and
+// cook.json (cook mode's places, Cook). <data>/accounts/last.json names the account signed in last, so a start with no server
 // can open it offline. No networking happens here. Pageturner's account folder without its downloads.
 class AccountStore : public QObject
 {
