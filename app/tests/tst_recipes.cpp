@@ -1,9 +1,14 @@
+#include <QJsonDocument>
+#include <QTemporaryDir>
 #include <QTest>
+#include <QUrlQuery>
 
 #include <memory>
 
 #include "FakeServer.h"
 #include "api/Api.h"
+#include "services/AccountStore.h"
+#include "services/RecipeStore.h"
 #include "services/Recipes.h"
 
 static const QByteArray eggs = R"({"status":"ok","data":{"id":4,"title":"Stub Spinach Eggs","servings":2,
@@ -16,34 +21,58 @@ class TestRecipes : public QObject
 {
     Q_OBJECT
 
-    FakeServer server;
+    std::unique_ptr<FakeServer> server;
     std::unique_ptr<Api> api;
+    std::unique_ptr<QTemporaryDir> dir;
+    std::unique_ptr<AccountStore> accounts;
+    std::unique_ptr<RecipeStore> copies;
     std::unique_ptr<Recipes> recipes;
 
     int requestsTo(const QString &path) const
     {
         int n = 0;
-        for (const QUrl &url : server.requests)
+        for (const QUrl &url : server->requests)
             n += url.path() == path;
         return n;
+    }
+
+    // A copy of recipe 4 kept on this device, as cook mode or a list would leave it.
+    void keepEggs(const QString &title = QStringLiteral("Stub Spinach Eggs (kept)"))
+    {
+        dir = std::make_unique<QTemporaryDir>();
+        accounts = std::make_unique<AccountStore>(dir->path());
+        accounts->open(7, "ann");
+        copies = std::make_unique<RecipeStore>(*api);
+        copies->setStore(accounts.get());
+        copies->keepForCooking(QVariantMap{{"id", 4}, {"title", title}, {"servings", 2}, {"hasImage", false},
+                                           {"ingredients", QVariantList()}, {"steps", QVariantList()}});
+        recipes->setStore(copies.get());
+    }
+
+    void goOffline()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
     }
 
 private slots:
     void init()
     {
-        server.responses.clear();
-        server.statuses.clear();
-        server.requests.clear();
-        server.holdNext.clear();
         recipes.reset();
+        copies.reset();
+        accounts.reset();
+        dir.reset();
+        server = std::make_unique<FakeServer>();
         api = std::make_unique<Api>();
-        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server.serverPort()));
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         recipes = std::make_unique<Recipes>(*api);
     }
 
     void openingLoadsItAndStartsFromItsOwnServings()
     {
-        server.responses["/api/gluttony/recipes/4"] = eggs;
+        server->responses["/api/gluttony/recipes/4"] = eggs;
         recipes->open(4);
         QVERIFY(recipes->loading());
         QTRY_VERIFY(!recipes->loading());
@@ -61,7 +90,7 @@ private slots:
 
     void withoutStatedServingsTheMultiplierScales()
     {
-        server.responses["/api/gluttony/recipes/2"] = noServings;
+        server->responses["/api/gluttony/recipes/2"] = noServings;
         recipes->open(2);
         QTRY_VERIFY(!recipes->recipe().isEmpty());
         QCOMPARE(recipes->servings(), 0);
@@ -75,8 +104,8 @@ private slots:
 
     void aGoneRecipeSaysSo()
     {
-        server.responses["/api/gluttony/recipes/999"] = R"({"status":"error","message":"no such recipe"})";
-        server.statuses["/api/gluttony/recipes/999"] = 404;
+        server->responses["/api/gluttony/recipes/999"] = R"({"status":"error","message":"no such recipe"})";
+        server->statuses["/api/gluttony/recipes/999"] = 404;
         recipes->open(999);
         QTRY_VERIFY(recipes->gone());
         QVERIFY(!recipes->loading());
@@ -86,13 +115,13 @@ private slots:
 
     void aFailureSaysWhyAndRetryAsksAgain()
     {
-        server.responses["/api/gluttony/recipes/4"] = R"({"status":"error","message":"server error"})";
-        server.statuses["/api/gluttony/recipes/4"] = 500;
+        server->responses["/api/gluttony/recipes/4"] = R"({"status":"error","message":"server error"})";
+        server->statuses["/api/gluttony/recipes/4"] = 500;
         recipes->open(4);
         QTRY_COMPARE(recipes->error(), QStringLiteral("server error"));
         QVERIFY(!recipes->gone());
-        server.statuses.clear();
-        server.responses["/api/gluttony/recipes/4"] = eggs;
+        server->statuses.clear();
+        server->responses["/api/gluttony/recipes/4"] = eggs;
         recipes->reload();
         QTRY_COMPARE(recipes->servings(), 2);
         QVERIFY(recipes->error().isEmpty());
@@ -100,14 +129,14 @@ private slots:
 
     void aLateAnswerForTheLastRecipeIsDropped()
     {
-        server.responses["/api/gluttony/recipes/4"] = eggs;
-        server.responses["/api/gluttony/recipes/2"] = noServings;
-        server.holdNext["/api/gluttony/recipes/4"] = 1;
+        server->responses["/api/gluttony/recipes/4"] = eggs;
+        server->responses["/api/gluttony/recipes/2"] = noServings;
+        server->holdNext["/api/gluttony/recipes/4"] = 1;
         recipes->open(4);
         QTRY_COMPARE(requestsTo("/api/gluttony/recipes/4"), 1);
         recipes->open(2);
         QTRY_VERIFY(!recipes->recipe().isEmpty());
-        server.releaseHeld();
+        server->releaseHeld();
         QTest::qWait(200);
         QCOMPARE(recipes->recipeId(), 2);
         QCOMPARE(recipes->recipe().value("id").toInt(), 2);
@@ -118,6 +147,78 @@ private slots:
         QVERIFY(recipes->thumbUrl(4).endsWith(QStringLiteral("/api/gluttony/thumbs/4")));
         QVERIFY(recipes->imageUrl(4).endsWith(QStringLiteral("/api/gluttony/images/4")));
         QVERIFY(recipes->thumbUrl(0).isEmpty());
+    }
+
+    void offlineTheCopyOpensWithoutAsking()
+    {
+        api->setSessionToken("tok");
+        keepEggs();
+        goOffline();
+        recipes->open(4);
+        QVERIFY(!recipes->loading());
+        QVERIFY(recipes->fromCopy());
+        QCOMPARE(recipes->recipe().value("title").toString(), QStringLiteral("Stub Spinach Eggs (kept)"));
+        QCOMPARE(recipes->servings(), 2);
+        QCOMPARE(requestsTo("/api/gluttony/recipes/4"), 0);
+    }
+
+    void anOfflineStartHasNoTokenAndOpensTheCopy()
+    {
+        keepEggs();
+        recipes->open(4);
+        QVERIFY(recipes->fromCopy());
+        QCOMPARE(requestsTo("/api/gluttony/recipes/4"), 0);
+    }
+
+    void aLostConnectionOpensTheSavedCopy()
+    {
+        // The app still thinks it is online; the request meets no answer, and the copy stands in.
+        api->setSessionToken("tok");
+        keepEggs();
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        recipes->open(4);
+        QTRY_VERIFY_WITH_TIMEOUT(recipes->fromCopy(), 10000);
+        QVERIFY(recipes->error().isEmpty());
+        QCOMPARE(recipes->recipe().value("title").toString(), QStringLiteral("Stub Spinach Eggs (kept)"));
+    }
+
+    void withNoCopyAnOutageSaysSo()
+    {
+        api->setSessionToken("tok");
+        keepEggs();
+        goOffline();
+        recipes->open(2);
+        QTRY_VERIFY_WITH_TIMEOUT(!recipes->loading(), 10000);
+        QCOMPARE(recipes->error(), QStringLiteral("Could not reach the server"));
+        QVERIFY(!recipes->fromCopy());
+    }
+
+    void aLoadedRecipeRefreshesItsCopy()
+    {
+        api->setSessionToken("tok");
+        keepEggs();
+        server->responses["/api/gluttony/recipes/4"] = eggs;
+        recipes->open(4);
+        QTRY_VERIFY(!recipes->loading());
+        QVERIFY(!recipes->fromCopy());
+        QCOMPARE(copies->recipe(4).value("title").toString(), QStringLiteral("Stub Spinach Eggs"));
+        // A recipe with no copy is not kept by being looked at.
+        server->responses["/api/gluttony/recipes/2"] = noServings;
+        recipes->open(2);
+        QTRY_VERIFY(!recipes->loading());
+        QVERIFY(!copies->has(2));
+    }
+
+    void aGoneAnswerIsNotHiddenByACopy()
+    {
+        api->setSessionToken("tok");
+        keepEggs();
+        server->statuses["/api/gluttony/recipes/4"] = 404;
+        server->responses["/api/gluttony/recipes/4"] = R"({"status":"error","message":"no such recipe"})";
+        recipes->open(4);
+        QTRY_VERIFY(!recipes->loading());
+        QVERIFY(recipes->gone());
+        QVERIFY(!recipes->fromCopy());
     }
 };
 

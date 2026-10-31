@@ -67,8 +67,11 @@ gluttony_test(tst_home
 gluttony_test(tst_recipes
     SOURCES tst_recipes.cpp FakeServer.h
             ../api/Api.h ../api/Api.cpp ../api/AppConfig.h ../api/SessionAuth.h ../api/SessionAuth.cpp
+            ../api/AuthNetworkFactory.h
+            ../services/AccountStore.h ../services/AccountStore.cpp
+            ../services/RecipeStore.h ../services/RecipeStore.cpp
             ../services/Recipes.h ../services/Recipes.cpp
-    LIBS Qt6::Network)
+    LIBS Qt6::Network Qt6::Qml)
 
 gluttony_test(tst_saved
     SOURCES tst_saved.cpp FakeServer.h
@@ -109,6 +112,7 @@ gluttony_test(tst_pages
             ../services/Session.h ../services/Session.cpp ../services/Diet.h ../services/Diet.cpp
             ../services/RecipeQuery.h ../services/RecipeQuery.cpp ../services/Catalog.h ../services/Catalog.cpp
             ../services/Home.h ../services/Home.cpp ../services/Recipes.h ../services/Recipes.cpp
+            ../services/RecipeStore.h ../services/RecipeStore.cpp ../api/AuthNetworkFactory.h
             ../services/Saved.h ../services/Saved.cpp
             ../services/Wiring.h ../services/Wiring.cpp
     LIBS Qt6::Network Qt6::Quick Qt6::QuickControls2 gluttony_uiplugin)
