@@ -27,12 +27,17 @@ Rectangle {
                                ? StepIngredients.mentioned(root.steps[Cook.step].text, root.lines) : []
 
     Component.onCompleted: root.forceActiveFocus()
+    // Cook mode is modal while it is open: if something under it (the search field, by Ctrl+K) takes the focus, the
+    // keys come back here, so ↑ ↓, space and Esc always reach cook mode.
+    onActiveFocusChanged: if (!root.activeFocus && Cook.active) root.forceActiveFocus()
     Keys.onUpPressed: Cook.previous()
     Keys.onDownPressed: Cook.next()
     Keys.onSpacePressed: Cook.next()
     Keys.onEscapePressed: Cook.close()
-    // A click anywhere keeps the keys with cook mode (a chip or a line may otherwise take the focus).
-    MouseArea { anchors.fill: parent; onPressed: mouse => { root.forceActiveFocus(); mouse.accepted = false } }
+    // The lowest item, so it only gets the presses nothing above it took: it keeps the keys with cook mode (a chip or a
+    // line may otherwise take the focus) and, by accepting them, stops a click on blank space reaching the page
+    // underneath (the search field, the rail, the recipe's buttons).
+    MouseArea { anchors.fill: parent; onPressed: root.forceActiveFocus() }
 
     Item {
         id: header

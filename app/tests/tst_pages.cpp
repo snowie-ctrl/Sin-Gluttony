@@ -2053,6 +2053,56 @@ private slots:
         click(findVisible("actionCraving"));
         QTRY_COMPARE(find("actionError")->property("text").toString(), QStringLiteral("Lists change only with a connection."));
     }
+
+    void aClickOnBlankCookSpaceNeitherReachesThePageUnderneathNorLosesTheKeys()
+    {
+        openCookMode();
+        // Cook mode's header sits over the top bar's search field; a click there must stop at cook mode.
+        QQuickItem *field = find("searchField");
+        QVERIFY(field);
+        QSignalSpy framed(window(), &QQuickWindow::frameSwapped);
+        window()->update();
+        framed.wait(250);
+        const QPointF over = field->mapToScene(QPointF(field->width() / 2, field->height() / 2));
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, over.toPoint());
+        QVERIFY(!field->hasActiveFocus());
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+    }
+
+    void controlKDoesNotTakeTheKeysFromCookMode()
+    {
+        openCookMode();
+        QTest::keyClick(window(), Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+    }
+
+    void aTimerKeepsItsItemWhileItCountsAndDismissingAFinishedOneLeavesTheOthers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        const int running = cook->startTimer(600, "Stub Braise · step 2");
+        const int finishing = cook->startTimer(1, "Stub Braise · step 3");
+        const QString runningName = QStringLiteral("timer-%1").arg(running);
+        QTRY_VERIFY(findVisible(runningName));
+        QQuickItem *before = findVisible(runningName);
+        const QString clockBefore = findVisible(QStringLiteral("timerClock-%1").arg(running))->property("text").toString();
+        QTRY_VERIFY(cook->timers().last().toMap().value("done").toBool());
+        // A tick has changed the running timer's clock, and it is still the same item.
+        QTRY_VERIFY(findVisible(QStringLiteral("timerClock-%1").arg(running))->property("text").toString() != clockBefore);
+        QVERIFY(findVisible(runningName) == before);
+        QTRY_VERIFY(findVisible(QStringLiteral("timerDismiss-%1").arg(finishing)));
+        click(findVisible(QStringLiteral("timerDismiss-%1").arg(finishing)));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        QTRY_VERIFY(!find(QStringLiteral("timer-%1").arg(finishing)));
+        QVERIFY(findVisible(runningName));
+        QVERIFY(findVisible(runningName) == before);
+    }
 };
 
 QTEST_MAIN(TestPages)

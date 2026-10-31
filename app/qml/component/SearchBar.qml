@@ -21,6 +21,8 @@ Item {
 
     Shortcut {
         sequences: ["Ctrl+K"]
+        // Cook mode covers the window; the hidden field must not take its keys.
+        enabled: !Cook.active
         onActivated: {
             field.forceActiveFocus()
             field.selectAll()
