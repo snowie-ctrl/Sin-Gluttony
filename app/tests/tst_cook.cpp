@@ -206,6 +206,53 @@ private slots:
         QVERIFY(cook->timers().isEmpty());
     }
 
+    // A laptop that sleeps would not chime: the machine stays awake while a timer runs, with cook mode open or not.
+    void aRunningTimerKeepsTheMachineAwakeAfterCookModeCloses()
+    {
+        QSignalSpy changed(cook.get(), &Cook::awakeChanged);
+        cook->open(recipe());
+        QCOMPARE(changed.count(), 1);
+        cook->startTimer(120, "step 1");
+        cook->close();
+        QVERIFY(cook->awake());
+        // Already awake the whole time: nothing to announce.
+        QCOMPARE(changed.count(), 1);
+        now += 121'000;
+        cook->update();
+        QVERIFY(!cook->awake());
+        QCOMPARE(changed.count(), 2);
+    }
+
+    void aTimerStartedWithCookModeClosedKeepsTheMachineAwakeUntilDismissed()
+    {
+        QVERIFY(!cook->awake());
+        const int id = cook->startTimer(120, "step 1");
+        QVERIFY(cook->awake());
+        cook->dismissTimer(id);
+        QVERIFY(!cook->awake());
+    }
+
+    void aFinishedTimerAloneDoesNotKeepTheMachineAwake()
+    {
+        cook->startTimer(60, "a");
+        const int running = cook->startTimer(120, "b");
+        now += 61'000;
+        cook->update();
+        QVERIFY(cook->awake());
+        cook->dismissTimer(running);
+        QVERIFY(!cook->awake());
+    }
+
+    void withNoTimerClosingCookModeLetsTheMachineSleep()
+    {
+        cook->open(recipe());
+        const int id = cook->startTimer(60, "a");
+        cook->dismissTimer(id);
+        QVERIFY(cook->awake());
+        cook->close();
+        QVERIFY(!cook->awake());
+    }
+
     void twoTimersEndingTogetherEachSayDone()
     {
         QSignalSpy done(cook.get(), &Cook::timerDone);

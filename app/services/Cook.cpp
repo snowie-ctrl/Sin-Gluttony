@@ -67,7 +67,7 @@ void Cook::open(const QVariantMap &recipe)
         }
     }
     m_active = true;
-    m_keepAwake.setActive(true);
+    updateAwake();
     emit activeChanged();
     emit stepChanged();
     emit ticksChanged();
@@ -80,7 +80,7 @@ void Cook::close()
         return;
     save();
     m_active = false;
-    m_keepAwake.setActive(false);
+    updateAwake();
     emit activeChanged();
 }
 
@@ -130,6 +130,16 @@ bool Cook::anyRunning() const
     return std::any_of(m_timers.cbegin(), m_timers.cend(), [](const Timer &timer) { return !timer.done; });
 }
 
+void Cook::updateAwake()
+{
+    // A timer that is counting needs the machine awake after cook mode closes too: asleep, it would not chime.
+    const bool wanted = m_active || anyRunning();
+    if (wanted == m_keepAwake.active())
+        return;
+    m_keepAwake.setActive(wanted);
+    emit awakeChanged();
+}
+
 void Cook::announceTimers()
 {
     m_shown = timers();
@@ -143,6 +153,7 @@ int Cook::startTimer(int seconds, const QString &label)
     const int id = m_nextTimerId++;
     m_timers.append({id, label, seconds, m_clock() + qint64(seconds) * 1000, false});
     m_tick.start();
+    updateAwake();
     announceTimers();
     return id;
 }
@@ -156,6 +167,7 @@ void Cook::dismissTimer(int timerId)
     m_timers.erase(found);
     if (!anyRunning())
         m_tick.stop();
+    updateAwake();
     announceTimers();
 }
 
@@ -171,6 +183,7 @@ void Cook::update()
     }
     if (!anyRunning())
         m_tick.stop();
+    updateAwake();
     if (timers() != m_shown)
         announceTimers();
     for (const Timer &timer : finished)
@@ -181,13 +194,13 @@ void Cook::clear()
 {
     const bool wasActive = m_active;
     m_active = false;
-    m_keepAwake.setActive(false);
     m_recipe.clear();
     m_recipeId = 0;
     m_step = 0;
     m_ticks.clear();
     m_timers.clear();
     m_tick.stop();
+    updateAwake();
     announceTimers();
     if (wasActive)
         emit activeChanged();

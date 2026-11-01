@@ -15,9 +15,10 @@ class AccountStore;
 
 
 // The open cook session (spec §5): the recipe being cooked, its current step and the ingredient lines ticked off,
-// and the kitchen timers. While cook mode is open the screen is kept on (KeepAwake). The step and ticks are kept for
-// each recipe for 12 hours, per device, in the account's folder (cook.json), so coming back to a recipe resumes it.
-// Timers outlive cook mode: they keep counting, shown in the rail, and a finished one stays until it is dismissed.
+// and the kitchen timers. While cook mode is open, or any timer is counting, the machine is kept awake (KeepAwake): a
+// timer that outlives cook mode must still be able to chime. The step and ticks are kept for each recipe for 12 hours,
+// per device, in the account's folder (cook.json), so coming back to a recipe resumes it. Timers outlive cook mode:
+// they keep counting, shown in the rail, and a finished one stays until it is dismissed.
 class Cook : public QObject
 {
     Q_OBJECT
@@ -32,7 +33,8 @@ class Cook : public QObject
     Q_PROPERTY(QVariantList ticks READ ticks NOTIFY ticksChanged)
     // [{id, label, seconds, remaining, done}], oldest first; remaining is in whole seconds, rounded up.
     Q_PROPERTY(QVariantList timers READ timers NOTIFY timersChanged)
-    Q_PROPERTY(bool awake READ awake NOTIFY activeChanged)
+    // Whether the machine is being kept awake: cook mode is open, or a timer is counting.
+    Q_PROPERTY(bool awake READ awake NOTIFY awakeChanged)
 
 public:
     static constexpr qint64 ResumeMs = 12LL * 60 * 60 * 1000;
@@ -74,6 +76,7 @@ signals:
     void stepChanged();
     void ticksChanged();
     void timersChanged();
+    void awakeChanged();
     // Cook mode opened on this recipe, which is then kept for use offline (RecipeStore::keepForCooking).
     void opened(const QVariantMap &recipe);
     // A timer reached zero: the chime plays once for each.
@@ -94,6 +97,8 @@ private:
     QString keptFile() const;
     bool anyRunning() const;
     void announceTimers();
+    // KeepAwake follows cook mode being open or any timer running; says so when that changes.
+    void updateAwake();
 
     AccountStore *m_store = nullptr;
     std::function<qint64()> m_clock;
