@@ -513,6 +513,30 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > asked, 6000);
     }
 
+    void aDiscardedChangeAsksForTheManifestAgain()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        // A change the server keeps refusing ends up stuck in Settings › Waiting to sync.
+        server->responses[path("/sync/batch")] =
+            R"({"status":"ok","data":{"results":[{"result":"refused","message":"no such recipe"}]}})";
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 1}, {"stars", 4}});
+        for (int i = 0; i < 10 && queue->stuck().isEmpty(); ++i) {
+            QTRY_VERIFY(!queue->sending());
+            if (queue->stuck().isEmpty())
+                queue->flush();
+        }
+        QTRY_COMPARE(queue->stuck().size(), 1);
+        QTRY_VERIFY(!queue->sending());
+        QCOMPARE(requestsTo("/saved/manifest").size(), 1);
+        queue->discard(queue->stuck().first().toMap().value("id").toString());
+        QCOMPARE(queue->count(), 0);
+        // Two seconds later the copies are brought back to what the server kept.
+        QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > 1, 6000);
+    }
+
     void signingOutClosesCookModeAndStopsTheTimers()
     {
         start();

@@ -11,7 +11,8 @@ class TestChime : public QObject
 private slots:
     void theChimeLoadsAndSaysSo()
     {
-        // The timers' sound must load wherever the app runs; a package without Qt Multimedia's plugin says "error".
+        // The timers' sound must load in this build with Qt Multimedia's DLL present. It does not prove a package
+        // carries the multimedia plugin or FFmpeg: release.ps1's file check guards those.
         QTemporaryDir dir;
         const QString file = dir.filePath("chime.txt");
         Chime chime;

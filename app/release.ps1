@@ -1,7 +1,8 @@
 # Builds the Release app and packages it for Windows: Gluttony.exe with its Qt (Qt Multimedia, for the timers'
 # chime, included), the MSVC runtime, and no config\secrets.json (each install brings its own; README). Then checks
-# the package: the files it must carry, and a run against the stub with nothing else on its PATH that grabs Home
-# and loads the chime. Paths default to the owner's machine; override with GLUTTONY_QT / GLUTTONY_QT_TOOLS /
+# the package: the files it must carry (the multimedia plugin and FFmpeg's DLLs among them), and a run against the
+# stub with nothing else on its PATH that grabs Home and loads the chime ("ready" proves the sound loads with Qt
+# Multimedia's DLL present; the file check is what guards the plugin and FFmpeg). Paths default to the owner's machine; override with GLUTTONY_QT / GLUTTONY_QT_TOOLS /
 # GLUTTONY_VCVARS, as tests\build.ps1 does. -SkipCheck packages without the run.
 param([switch]$SkipCheck)
 $ErrorActionPreference = 'Stop'
@@ -43,9 +44,11 @@ $needed = @('Gluttony.exe', 'Qt6Core.dll', 'Qt6Quick.dll', 'Qt6Multimedia.dll', 
             'platforms\qwindows.dll', 'imageformats\qjpeg.dll', 'multimedia\ffmpegmediaplugin.dll',
             'qml\QtQuick\Controls')
 $missing = @($needed | Where-Object { -not (Test-Path (Join-Path $out $_)) })
-if (-not (Get-ChildItem $out -Filter 'avcodec-*.dll')) { $missing += 'avcodec-*.dll' }
+# FFmpeg's DLLs carry a version in their names, so each is matched by pattern.
+foreach ($pattern in 'avcodec-*.dll', 'avformat-*.dll', 'avutil-*.dll', 'swresample-*.dll', 'swscale-*.dll') {
+    if (-not (Get-ChildItem $out -Filter $pattern)) { $missing += $pattern }
+}
 if ($missing) { throw "the package is missing: $($missing -join ', ')" }
-if (Test-Path (Join-Path $out 'config\secrets.json')) { throw 'the package must never carry a secrets.json' }
 
 if (-not $SkipCheck) {
     $check = Join-Path $env:TEMP 'gluttony-release-check'
@@ -63,5 +66,7 @@ if (-not $SkipCheck) {
     Write-Host "Checked: the package starts with no Qt on its PATH, and the chime loads ($check\home.png)."
 }
 
+# Checked last, so it also covers anything the check run above wrote into the package.
+if (Test-Path (Join-Path $out 'config\secrets.json')) { throw 'the package must never carry a secrets.json' }
 Compress-Archive -Path "$out\*" -DestinationPath $zip
 Write-Host "Packaged $zip"

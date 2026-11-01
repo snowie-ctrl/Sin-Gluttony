@@ -155,6 +155,7 @@ void SyncQueue::discard(const QString &id)
     m_changes.removeAt(at);
     save();
     emit changed();
+    emit discarded();
 }
 
 void SyncQueue::countFailure(int index, const QString &message)

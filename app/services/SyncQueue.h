@@ -72,6 +72,8 @@ signals:
     void changed();
     // The server took this change: `result` is its answer (with the stars, note, or mark it now holds).
     void taken(const QJsonObject &change, const QJsonObject &result);
+    // A change the person gave up on (Settings › Waiting to sync) left the queue without the server taking it.
+    void discarded();
 
 private:
     void load();

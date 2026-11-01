@@ -91,6 +91,13 @@ try {
     # A package must carry its own Qt: nothing else is put on its PATH, so a missing DLL shows here, not on a
     # friend's machine.
     $env:PATH                   = if ($Exe) { "$env:SystemRoot\System32;$env:SystemRoot" } else { "$qt\bin;$env:PATH" }
+    if ($Exe) {
+        # Qt also finds its DLLs and plugins through these, so a shell with Qt set up must not leak them into the
+        # package's run.
+        foreach ($name in 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH', 'QML_IMPORT_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH') {
+            Set-Item -Path "Env:$name" -Value ''
+        }
+    }
     $env:GLUTTONY_SECRETS       = $secrets
     $env:GLUTTONY_SETTINGS_DIR  = "$scratch\settings"
     $env:GLUTTONY_DATA_DIR      = "$scratch\data"

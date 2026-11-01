@@ -85,6 +85,9 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     // What the queue's answer settled reaches every copy, not only the open recipe's: the manifest, which carries
     // each recipe's `mine`, is asked again once the server has taken the changes.
     QObject::connect(&queue, &SyncQueue::taken, refreshSoon, qOverload<>(&QTimer::start));
+    // A discarded change was shown on its copy as a star or note the server never took: the manifest is asked again
+    // so the copy goes back to what the server keeps.
+    QObject::connect(&queue, &SyncQueue::discarded, refreshSoon, qOverload<>(&QTimer::start));
 
     // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
     // on its next visit.
