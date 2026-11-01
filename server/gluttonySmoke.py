@@ -282,8 +282,13 @@ def steps(media):
               f"the second recipe is still on a list: {data['lists']}")
         check({state["recipeId"], state["secondId"]} <= set(recipes) and all(r["updatedAt"] for r in recipes.values()),
               f"manifest recipes: {data['recipes']}")
+        # The manifest's `mine` is the recipe page's, read on real MySQL by a different query.
+        for rid in (state["recipeId"], state["secondId"]):
+            shown = call(client, "GET", f"{R}/recipes/{rid}")["data"]["mine"]
+            check(recipes[rid].get("mine") == shown,
+                  f"recipe {rid}'s mine in the manifest: {str(recipes[rid].get('mine'))[:200]} vs {str(shown)[:200]}")
         call(client, "GET", f"{R}/saved/manifest?extra=x", expect=400)
-        return "every list with its recipes in order, each recipe's UpdatedAt, the cook-mode extras"
+        return "every list with its recipes, each recipe's UpdatedAt and mine, the cook-mode extras"
 
     def strangers(client, state):
         own = client.environ_base["HTTP_X_SESSION_TOKEN"]

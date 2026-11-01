@@ -771,8 +771,11 @@ def stamp(moment):
 def savedManifest():
     """What the app keeps for use without a server: every list (Cravings first, then the person's order) with its
     recipes in their order, and every recipe on them with when part 1 last changed it, so the app fetches only what
-    has moved on. `extra` names recipes the app opened in cook mode, which it keeps beside them; one the person may
-    no longer see (its source removed it, and they don't keep it) is left out, and the app lets its copy go."""
+    has moved on. Each recipe also carries the person's own `mine` block, as /recipes/<id> gives it: a star, a note,
+    a mark or a list changed on another device reaches this device's copy without fetching the recipe again, and a
+    mark or list removal (which leaves no row to date) is seen too. `extra` names recipes the app opened in cook
+    mode, which it keeps beside them; one the person may no longer see (its source removed it, and they don't keep
+    it) is left out, and the app lets its copy go."""
     extra, problem = rules.extraIds(request.args.get("extra"))
     if problem:
         return fail(problem, 400)
@@ -791,11 +794,30 @@ def savedManifest():
         ids = sorted(listed | set(extra))
         recipes = []
         if ids:
-            cur.execute(f"SELECT RecipeID, UpdatedAt, RemovedAt FROM Recipes "
-                        f"WHERE RecipeID IN ({', '.join(['%s'] * len(ids))}) ORDER BY RecipeID", tuple(ids))
+            marks = ", ".join(["%s"] * len(ids))
+            # The person's stars and note ride along with each recipe's row; a cleared rating or a deleted note is
+            # a row with no value (schema-part2.sql), read as null, as mineOf reads it.
+            cur.execute("SELECT r.RecipeID, r.UpdatedAt, r.RemovedAt, t.Stars, NULLIF(n.Text, '') AS Note "
+                        "FROM Recipes r "
+                        "LEFT JOIN Ratings t ON t.UserID = %s AND t.RecipeID = r.RecipeID "
+                        "LEFT JOIN Notes n ON n.UserID = %s AND n.RecipeID = r.RecipeID "
+                        f"WHERE r.RecipeID IN ({marks}) ORDER BY r.RecipeID", (uid, uid, *ids))
+            rows = cur.fetchall()
+            cur.execute(f"SELECT RecipeID, DevouredID, MadeOn FROM Devoured WHERE UserID = %s AND RecipeID IN ({marks}) "
+                        "ORDER BY RecipeID, MadeOn DESC, DevouredID DESC", (uid, *ids))
+            devoured = {}
             for row in cur.fetchall():
+                devoured.setdefault(row["RecipeID"], []).append({"id": row["DevouredID"],
+                                                                 "on": rules.isoDate(row["MadeOn"])})
+            cravings = {rid for entry in lists if entry["kind"] == "cravings" for rid in entry["recipeIds"]}
+            # The person's own lists in their order, as mineOf names them (Cravings is `craving`, not a list).
+            custom = [(entry["id"], set(entry["recipeIds"])) for entry in lists if entry["kind"] == "custom"]
+            for row in rows:
+                rid = row["RecipeID"]
                 removed = row["RemovedAt"] is not None
-                if removed and row["RecipeID"] not in listed and not kept.keptBy(cur, uid, row["RecipeID"]):
+                if removed and rid not in listed and not kept.keptBy(cur, uid, rid):
                     continue
-                recipes.append({"id": row["RecipeID"], "updatedAt": stamp(row["UpdatedAt"]), "removed": removed})
+                mine = {"craving": rid in cravings, "lists": [listId for listId, held in custom if rid in held],
+                        "devoured": devoured.get(rid, []), "stars": row["Stars"], "note": row["Note"]}
+                recipes.append({"id": rid, "updatedAt": stamp(row["UpdatedAt"]), "removed": removed, "mine": mine})
     return ok({"lists": lists, "recipes": recipes})
