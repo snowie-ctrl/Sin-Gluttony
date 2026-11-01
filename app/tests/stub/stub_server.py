@@ -159,7 +159,7 @@ def ping():
     return ok()
 
 
-def signedIn(rid):
+def signedIn(rid, fingerprint):
     # The stub reader keeps its one well-known token; any other account gets one per sign-in, so signing one
     # device out (its session ends, docs/api.md) leaves the other's.
     if rid == UID:
@@ -168,6 +168,7 @@ def signedIn(rid):
         state["nextToken"] = state.get("nextToken", 0) + 1
         token = f"stub-{rid}-{state['nextToken']}"
     state["tokens"][token] = rid
+    state.setdefault("tokenDevice", {})[token] = fingerprint
     state["deviceUid"] = rid
     return ok(UID=rid, username=state["readers"][rid]["username"], token=token)
 
@@ -178,7 +179,7 @@ def identify():
         return fail("error", 400, "missing fingerprint")
     with lock:
         rid = state["deviceUid"]
-        return signedIn(rid) if rid else ok(status="new")
+        return signedIn(rid, body()["fingerprint"]) if rid else ok(status="new")
 
 
 @app.route(API + "/auth", methods=["POST"])
@@ -202,10 +203,10 @@ def auth():
             rid = state["nextUid"]
             state["nextUid"] += 1
             state["readers"][rid] = newReader(username, password)
-            return signedIn(rid)
+            return signedIn(rid, data["fingerprint"])
         for rid, reader in state["readers"].items():
             if reader["username"] == username and reader["password"] == password:
-                return signedIn(rid)
+                return signedIn(rid, data["fingerprint"])
     return fail("invalid_credentials", 401)
 
 
@@ -213,7 +214,11 @@ def auth():
 def logout():
     with lock:
         state["deviceUid"] = None
-        state["tokens"].pop(request.headers.get("X-Session-Token") or "", None)
+        # This device is forgotten and its sessions end (docs/api.md): the caller's, and any other the device holds.
+        ended = {request.headers.get("X-Session-Token") or ""}
+        ended |= {t for t, fp in state.get("tokenDevice", {}).items() if fp == body().get("fingerprint")}
+        for token in ended:
+            state["tokens"].pop(token, None)
     return ok()
 
 

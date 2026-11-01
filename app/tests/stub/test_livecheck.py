@@ -65,3 +65,69 @@ def test_signingUpNeedsTheKey(stubBase, monkeypatch, capsys):
     monkeypatch.setenv("GLUTTONY_CHECK_PASSWORD", PASSWORD)
     monkeypatch.delenv("GLUTTONY_CHECK_KEY", raising=False)
     assert liveCheck.main(["--base", stubBase, "--username", "claude-check", "--sign-up"]) == 2
+
+
+def checker(stubBase):
+    return [r for r in stub.state["readers"].values() if r["username"] == "claude-check"][0]
+
+
+def leftBehind(reader):
+    # Everything a step keeps on the server: custom lists, Cravings, marks, stars and notes.
+    return {"lists": [l["title"] for l in reader["lists"] if l["kind"] != "cravings"],
+            "cravings": reader["lists"][0]["items"], "devoured": reader["devoured"],
+            "ratings": reader["ratings"], "notes": reader["notes"]}
+
+
+def test_aRunThatFailsMidWayTakesBackWhatItKept(stubBase, secrets, capsys):
+    original = stub.app.view_functions["savedManifest"]
+    stub.app.view_functions["savedManifest"] = lambda: stub.fail("error", 500, "boom")
+    try:
+        assert liveCheck.main(["--base", stubBase, "--username", "claude-check", "--sign-up"]) == 1
+    finally:
+        stub.app.view_functions["savedManifest"] = original
+    out = capsys.readouterr().out
+    assert out.count("FAIL") == 1 and "FAIL  manifest" in out and "PASS  yours" in out
+    assert leftBehind(checker(stubBase)) == {"lists": [], "cravings": [], "devoured": [], "ratings": {}, "notes": {}}
+    # The session ended too: no token of the check's account is left.
+    assert [t for t, rid in stub.state["tokens"].items() if rid != stub.UID] == []
+    assert liveCheck.main(["--base", stubBase, "--username", "claude-check"]) == 0, capsys.readouterr().out
+
+
+def test_aListLeftByAnEarlierRunIsClearedBeforeTheNextOne(stubBase, secrets, capsys):
+    assert liveCheck.main(["--base", stubBase, "--username", "claude-check", "--sign-up"]) == 0
+    checker(stubBase)["lists"].append({"id": 900, "title": "claude-check renamed", "kind": "custom", "items": [1]})
+    checker(stubBase)["lists"].append({"id": 901, "title": "Weeknights", "kind": "custom", "items": []})
+    assert liveCheck.main(["--base", stubBase, "--username", "claude-check"]) == 0, capsys.readouterr().out
+    assert leftBehind(checker(stubBase))["lists"] == ["Weeknights"]
+
+
+def test_aStepThatBreaksOffTheContractIsOneFailLine(stubBase, secrets, capsys):
+    recipes = "recipes"
+    original = stub.app.view_functions[recipes]
+    stub.app.view_functions[recipes] = lambda: stub.ok({})
+    try:
+        assert liveCheck.main(["--base", stubBase, "--username", "claude-check", "--sign-up"]) == 1
+    finally:
+        stub.app.view_functions[recipes] = original
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("FAIL")]
+    assert lines == ["FAIL  catalog: KeyError: 'total'"]
+    assert [t for t, rid in stub.state["tokens"].items() if rid != stub.UID] == []
+
+
+def test_aBaseThatIsNotTheApiIsRefused(secrets, capsys):
+    assert liveCheck.main(["--base", "http://127.0.0.1:1/somewhere", "--username", "claude-check"]) == 2
+    assert "/api/gluttony" in capsys.readouterr().out
+
+
+def test_failureTextIsAsciiWhateverTheServerSays(stubBase, secrets, capsys):
+    recipes = "recipes"
+    original = stub.app.view_functions[recipes]
+    # UTF-8 on the wire, as a server that does not escape sends it.
+    raw = json.dumps({"status": "error", "message": "caf" + chr(0xe9)}, ensure_ascii=False).encode("utf-8")
+    stub.app.view_functions[recipes] = lambda: stub.app.response_class(raw, 500, mimetype="application/json")
+    try:
+        assert liveCheck.main(["--base", stubBase, "--username", "claude-check", "--sign-up"]) == 1
+    finally:
+        stub.app.view_functions[recipes] = original
+    out = capsys.readouterr().out
+    assert out.isascii() and "FAIL  catalog" in out

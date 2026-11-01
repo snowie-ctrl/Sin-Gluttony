@@ -546,3 +546,14 @@ def test_aNeighbouringPathIsNotTheApi(client):
     for path in ("/api/gluttony-admin/state", "/api/gluttonyx/ping", "/"):
         assert client.get(path).status_code == 404
     assert client.get(API + "/ping").status_code == 200
+
+
+def test_signingOutEndsEverySessionOfThatDevice(client):
+    made = client.post(f"{stub.API}/auth", json={"username": "second-reader", "password": "second-password",
+                                                 "fingerprint": "a", "key": "stub-key"}).get_json()["token"]
+    # Identifying the device hands out a session too; signing the device out ends both (docs/api.md).
+    again = client.post(f"{stub.API}/device/identify", json={"fingerprint": "a"}).get_json()["token"]
+    assert made != again
+    client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": made})
+    for token in (made, again):
+        assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": token}).status_code == 401

@@ -35,6 +35,19 @@ def check(condition, message):
         raise CheckFailed(message)
 
 
+def plain(text):
+    """Text for the console: ASCII only, whatever the server sent."""
+    return str(text).encode("ascii", "backslashreplace").decode("ascii")
+
+
+def attempt(call, *arguments):
+    """One cleanup call. A cleanup that fails is not worth hiding the step's own FAIL line for, so it is swallowed."""
+    try:
+        return call(*arguments)
+    except Exception:
+        return None
+
+
 def moment(at):
     """A UTC instant as the app stamps a queued change (YYYY-MM-DDTHH:MM:SS.sssZ)."""
     return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
@@ -76,6 +89,36 @@ class Server:
         return json.loads(data) if "json" in kind else data
 
 
+def tidyLists(s):
+    """Delete every custom list this check made (their titles start with claude-check); returns Cravings' id."""
+    cravings = None
+    for entry in attempt(lambda: s.call("GET", "/lists")["data"]) or []:
+        if entry.get("kind") == "cravings":
+            cravings = entry["id"]
+        elif str(entry.get("title", "")).startswith("claude-check"):
+            attempt(s.call, "POST", "/lists/delete", {"id": entry["id"]})
+    return cravings
+
+
+def cleanUp(s, state):
+    """Best effort, whatever happened: take back what the steps keep, then end the session. It never raises and
+    prints nothing, so a failed step's FAIL line is the last word."""
+    if not s.token or state.get("signedOut"):
+        return
+    cravings = tidyLists(s)
+    rid = state.get("recipeId")
+    if rid:
+        mine = attempt(lambda: s.call("GET", f"/recipes/{rid}")["data"]["mine"]) or {}
+        for mark in mine.get("devoured", []):
+            attempt(s.call, "POST", "/devoured/remove", {"id": mark["id"]})
+        if cravings:
+            attempt(s.call, "POST", "/lists/items/remove", {"listId": cravings, "recipeId": rid})
+        attempt(s.call, "POST", "/rating", {"recipeId": rid, "stars": None})
+        attempt(s.call, "POST", "/note", {"recipeId": rid, "text": ""})
+    attempt(s.call, "POST", "/auth/logout", {"fingerprint": s.fingerprint})
+    s.token = None
+
+
 def steps(args, password, key):
     def ping(s, state):
         check(s.call("GET", "/ping", signed=False).get("status") == "ok", "ping did not answer ok")
@@ -101,6 +144,8 @@ def steps(args, password, key):
         s.token = made["token"]
         again = s.call("POST", "/device/identify", {"fingerprint": s.fingerprint}, signed=False)
         check(again.get("status") == "ok" and again.get("UID") == made["UID"], "the device does not sign itself in")
+        # A run that died earlier may have left its lists behind; they would only confuse this one.
+        tidyLists(s)
         return ("signed up with the key" if args.sign_up else "signed in") + ", and the device signs itself in"
 
     def catalog(s, state):
@@ -244,6 +289,7 @@ def steps(args, password, key):
 
     def signout(s, state):
         s.call("POST", "/auth/logout", {"fingerprint": s.fingerprint})
+        state["signedOut"] = True
         s.call("GET", "/recipes", expect=401)
         check(s.call("POST", "/device/identify", {"fingerprint": s.fingerprint}, signed=False)["status"] == "new",
               "the device still signs itself in")
@@ -275,6 +321,15 @@ def main(argv=None):
     parser.add_argument("--outside", action="store_true", help="also check that nothing else answers on this host")
     parser.add_argument("--limits", action="store_true", help="end with six wrong sign-ins (the limiter's 429)")
     args = parser.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):
+        # A console that cannot show a character prints an escape for it instead of failing the run.
+        try:
+            sys.stdout.reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            pass
+    if not args.base.rstrip("/").endswith("/api/gluttony"):
+        print("--base must end in /api/gluttony, for example http://127.0.0.1/api/gluttony")
+        return 2
     password = os.environ.get("GLUTTONY_CHECK_PASSWORD", "")
     key = os.environ.get("GLUTTONY_CHECK_KEY", "")
     if len(password) < 8 or (args.sign_up and not key):
@@ -282,13 +337,19 @@ def main(argv=None):
         return 2
     server = Server(args.base, "claude-check-" + uuid.uuid5(uuid.NAMESPACE_URL, args.username).hex[:16])
     state = {}
-    for name, step in steps(args, password, key):
-        try:
-            print(f"PASS  {name}: {step(server, state)}", flush=True)
-        except CheckFailed as failure:
-            print(f"FAIL  {name}: {failure}", flush=True)
-            return 1
-    return 0
+    try:
+        for name, step in steps(args, password, key):
+            try:
+                print(plain(f"PASS  {name}: {step(server, state)}"), flush=True)
+            except CheckFailed as failure:
+                print(plain(f"FAIL  {name}: {failure}"), flush=True)
+                return 1
+            except Exception as failure:
+                print(plain(f"FAIL  {name}: {type(failure).__name__}: {str(failure)[:200]}"), flush=True)
+                return 1
+        return 0
+    finally:
+        cleanUp(server, state)
 
 
 if __name__ == "__main__":
