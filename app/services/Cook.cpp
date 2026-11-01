@@ -15,6 +15,24 @@ Cook::Cook(QObject *parent)
     connect(&m_tick, &QTimer::timeout, this, &Cook::update);
 }
 
+void Cook::setStore(AccountStore *store)
+{
+    m_store = store;
+    if (!store)
+        return;
+    // Spec §5: timers run until dismissed. An ended session or a device forgotten elsewhere only closes the folder,
+    // and the same person signing in again finds them; they belong to the account, so a sign-out (its folder wiped)
+    // or another account ends them.
+    connect(store, &AccountStore::changed, this, [this]() {
+        if (m_owner > 0 && m_store->uid() > 0 && m_store->uid() != m_owner)
+            clear();
+    });
+    connect(store, &AccountStore::wiped, this, [this](int uid) {
+        if (uid == m_owner)
+            clear();
+    });
+}
+
 QVariantList Cook::ticks() const
 {
     QVariantList out;
@@ -66,6 +84,8 @@ void Cook::open(const QVariantMap &recipe)
                 m_ticks << line;
         }
     }
+    if (m_store && m_store->uid() > 0)
+        m_owner = m_store->uid();
     m_active = true;
     updateAwake();
     emit activeChanged();
@@ -152,6 +172,8 @@ int Cook::startTimer(int seconds, const QString &label)
         return 0;
     const int id = m_nextTimerId++;
     m_timers.append({id, label, seconds, m_clock() + qint64(seconds) * 1000, false});
+    if (m_store && m_store->uid() > 0)
+        m_owner = m_store->uid();
     m_tick.start();
     updateAwake();
     announceTimers();
@@ -196,6 +218,7 @@ void Cook::clear()
     m_active = false;
     m_recipe.clear();
     m_recipeId = 0;
+    m_owner = -1;
     m_step = 0;
     m_ticks.clear();
     m_timers.clear();

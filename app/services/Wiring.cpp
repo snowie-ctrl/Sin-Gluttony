@@ -93,7 +93,10 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     // The catalog and Home are cleared before the diet, whose clearing switches it back on: by then nothing is
     // left to ask again.
     QObject::connect(&session, &Session::signedOut, &diet, [&diet, &catalog, &home, &recipes, &saved, &cook]() {
-        cook.clear();
+        // The sign-in page takes the screen, so cook mode closes. Its timers stay: they end with the account (Cook
+        // follows the folder), not with a session the server ended mid-roast.
+        if (cook.active())
+            cook.close();
         catalog.clear();
         home.clear();
         recipes.clear();

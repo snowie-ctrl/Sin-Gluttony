@@ -526,6 +526,25 @@ private slots:
         QVERIFY(cook->timers().isEmpty());
     }
 
+    void anEndedSessionLeavesCookModeButKeepsTheTimers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        cook->startTimer(60, "a");
+        // The server ends the session: the next request meets a 401. Asking who the device is again (the retry after
+        // an ended session) must not sign it straight back in, or the case would race the sign-in it checks for.
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
+        server->statuses[path("/lists")] = 401;
+        server->responses[path("/lists")] = R"({"status":"error","message":"not signed in"})";
+        saved->load();
+        QTRY_VERIFY(!session->authenticated());
+        QVERIFY(!cook->active());
+        QCOMPARE(cook->timers().size(), 1);
+    }
+
     void aReloadOfTheOpenRecipeKeepsWhatWasChangedMeanwhile()
     {
         // Recipes says "changed" when a reload starts, while the old detail (and its old `mine`) is still held:

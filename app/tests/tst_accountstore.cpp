@@ -70,6 +70,22 @@ private slots:
         QCOMPARE(store.uid(), -1);
     }
 
+    void wipingNamesTheAccountItWiped()
+    {
+        QTemporaryDir root;
+        AccountStore store(root.path());
+        QSignalSpy wiped(&store, &AccountStore::wiped);
+        store.open(7, "ann");
+        store.wipe();
+        QCOMPARE(wiped.count(), 1);
+        QCOMPARE(wiped.first().first().toInt(), 7);
+        store.open(8, "bob");
+        store.close();
+        store.wipeAccount(8);
+        QCOMPARE(wiped.count(), 2);
+        QCOMPARE(wiped.last().first().toInt(), 8);
+    }
+
     void aClosedAccountCanStillBeWiped()
     {
         QTemporaryDir root;

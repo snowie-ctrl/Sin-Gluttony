@@ -52,6 +52,9 @@ public:
 signals:
     // The open account changed (signed in, out, or wiped): everything kept per account is looked for again.
     void changed();
+    // An account's folder was deleted (a sign-out), naming it: what belongs to that account goes too, unlike a
+    // folder that is only closed (an ended session), whose account may sign in again.
+    void wiped(int uid);
 
 private:
     void removeAccount(int uid);
