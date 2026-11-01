@@ -19,6 +19,7 @@ The stub (`tests/stub/stub_server.py`, port 5079) imitates `docs/api.md`. It ser
 recipes, taken once with `tests/stub/snapshot.py`; never committed) or, without one, four fixture recipes. Sign in as
 `stub` / `stub-password`; sign up with the key `stub-key`. Lists, Devoured marks, stars and notes last until the
 stub stops; `STUB_KEPT=1` starts with some kept, and `STUB_REMOVED=<ids>` marks recipes removed by their source.
+`/sync/batch` and `/saved/manifest` follow `docs/api.md`; every recipe's `updatedAt` is the snapshot's `takenAt`.
 
 1. `config/secrets.json` (git ignores it): `{"apiBase": "http://127.0.0.1:5079/api/gluttony"}`.
 2. `..\server\.venv\Scripts\python.exe tests\stub\stub_server.py`
@@ -37,10 +38,28 @@ pictures) even when a snapshot is present, so the examples that name an id open 
 - `api/`: Api (envelope, LAN or public, offline), AppConfig (`secrets.json`), SessionAuth and AuthNetworkFactory
   (the token on picture requests), TileModel.
 - `services/`: Nav, AccountStore, Session, Diet, RecipeQuery (any paged list of tiles), Catalog, Home, Recipes,
-  Saved (lists, Cravings, Devoured, stars, notes, and the flags every tile reads), and Wiring (what follows a
-  sign-in and a sign-out).
-- `qml/`: Main, NavShell, `pages/` (Login, Home, Results, Recipe, Saved, Settings), `component/`, and
-  `logic/*.mjs` (words, moods, tiles, filters, scale, units, credit, days). Every word the app shows is in
-  `logic/words.mjs`. Date arithmetic and day labels are in `logic/days.mjs`, never `new Date(text)`; today, and the
-  day of an instant the server sends, are the device's own calendar day (`Saved.today()`, `Saved.localDay()`).
+  Saved (lists, Cravings, Devoured, stars, notes, and the flags every tile reads), RecipeStore (the saved and cooked
+  recipes kept on the device, and the manifest), SyncQueue (what was done offline, sent with /sync/batch), Cook
+  (cook mode's step, ticks, timers and 12-hour place; KeepAwake from Showtime), Chime (the timer's sound), and Wiring
+  (what follows a sign-in and a sign-out).
+- `qml/`: Main, NavShell, `pages/` (Login, Home, Results, Recipe, Saved, Settings, Cook), `component/`, and
+  `logic/*.mjs` (words, moods, tiles, filters, scale, units, credit, days, timers, stepIngredients). Every word the
+  app shows is in `logic/words.mjs`. Date arithmetic and day labels are in `logic/days.mjs`, never `new Date(text)`;
+  today, and the day of an instant the server sends, are the device's own calendar day (`Saved.today()`,
+  `Saved.localDay()`).
 - `assets/`: Preferences (the Gula look's tokens), Playfair Display (SIL OFL), icons.
+
+## Cook mode and offline
+
+▶ Cook mode on a recipe page opens it full screen: every step, the current one lit (↑ ↓ or space to move, Esc to
+leave), the ingredients scaled as on the recipe page with the lines the step names lit and a click to tick one off,
+and a timer chip for every duration a step states (a range times its lower end). Timers keep running in the rail
+after cook mode closes; each chimes (`assets/sounds/chime.wav`, made by `makeChime.py`) and flashes until dismissed.
+The place in a recipe is kept for 12 hours (`cook.json` in the account folder).
+
+Every recipe on a list, and every one opened in cook mode in the last 30 days, is kept in the account folder
+(`recipes/<id>.json` and `.jpg`), refreshed from `/saved/manifest` at sign-in and whenever the server answers again.
+With no server, Home shows the saved rows, Saved shows the kept lists, search finds kept recipes by title, and the
+recipe page and cook mode read the copy. Devoured marks, stars and notes made offline wait in `sync-queue.json` and go
+with `/sync/batch` on reconnect; a change the server refuses five times waits in Settings › Waiting to sync. Lists
+change only with a connection.

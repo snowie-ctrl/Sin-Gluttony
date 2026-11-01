@@ -1,6 +1,7 @@
 # Copied from Pageturner Pageturner/tests/stub/grab.ps1 at ad9342e; Gluttony's switches and hooks, the stub run
 # with the server's venv, no download seeding, -Kept and -Removed for the stub's kept lists and removed recipes,
-# -Fixture to serve the fixture's recipes whether or not a snapshot is present.
+# -Fixture to serve the fixture's recipes whether or not a snapshot is present, -Cook and -Offline for cook mode and an
+# offline start.
 # Runs the test build of the app against the stub API and saves a screenshot. The stub serves snapshot/ when it
 # exists; the examples that name an id pass -Fixture, so they open the fixture's four recipes (ids 1-4), which have
 # no pictures, so those grabs show placeholders. Without -Fixture, pass an id from the snapshot instead.
@@ -18,6 +19,9 @@
 #   grab.ps1 -Out actions.png -Fixture -Kept -Recipe 1          (the recipe page's actions, with a note)
 #   grab.ps1 -Out removed.png -Fixture -Kept -Removed 1 -Recipe 1 (a removed recipe its saver still opens)
 #   grab.ps1 -Out settings.png -Page settings-page              (Settings)
+#   grab.ps1 -Out cook.png -Fixture -Recipe 1 -Cook               (cook mode on a recipe)
+#   grab.ps1 -Out offline.png -Kept -Offline                      (an offline start: Home's saved rows)
+#   grab.ps1 -Out offsaved.png -Kept -Offline -Page saved-page    (an offline start: the kept lists)
 param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Page = 'home-page',
@@ -36,7 +40,9 @@ param(
     [int]$Slow = 0,
     [switch]$Kept,
     [string]$Removed = '',
-    [switch]$Fixture
+    [switch]$Fixture,
+    [switch]$Cook,
+    [switch]$Offline
 )
 $ErrorActionPreference = 'Stop'
 $here   = $PSScriptRoot
@@ -72,6 +78,7 @@ $env:STUB_KEPT          = if ($Kept) { '1' } else { '' }
 $env:STUB_REMOVED       = $Removed
 # Always set, so a STUB_SNAPSHOT left in the caller's shell never changes what a grab serves.
 $env:STUB_SNAPSHOT      = if ($Fixture) { Join-Path $here 'fixture' } else { '' }
+$env:GLUTTONY_START_COOK = if ($Cook) { '1' } else { '' }
 
 $stub = $null
 try {
@@ -84,13 +91,28 @@ try {
     $env:GLUTTONY_DATA_DIR      = "$scratch\data"
     # The basic render loop runs QML animations off the clock, so grabs are repeatable (as in Pageturner).
     $env:QSG_RENDER_LOOP        = 'basic'
+    $env:GLUTTONY_TZ            = $Tz
+    $env:GLUTTONY_GRAB_SIZE     = $Size
+
+    if ($Offline) {
+        # A first run signs in and keeps the saved recipes on the device (the manifest's refresh), then the stub
+        # stops, so the grab is an offline start of the account signed in last.
+        $env:GLUTTONY_START_PAGE   = 'home-page'
+        $env:GLUTTONY_START_RECIPE = ''
+        $env:GLUTTONY_START_QUERY  = ''
+        $env:GLUTTONY_CLICK        = ''
+        $env:GLUTTONY_GRAB         = Join-Path $scratch 'first-run.png'
+        $env:GLUTTONY_GRAB_DELAY   = '6000'
+        Start-Process $exe -Wait
+        Stop-Process -Id $stub.Id -ErrorAction SilentlyContinue
+        $stub = $null
+    }
+
     $env:GLUTTONY_START_PAGE    = $Page
     $env:GLUTTONY_START_RECIPE  = if ($Recipe) { "$Recipe" } else { '' }
     $env:GLUTTONY_START_QUERY   = $Query
-    $env:GLUTTONY_TZ            = $Tz
     $env:GLUTTONY_GRAB          = $outFile
     $env:GLUTTONY_GRAB_DELAY    = "$Delay"
-    $env:GLUTTONY_GRAB_SIZE     = $Size
     $env:GLUTTONY_CLICK         = $Click
     $env:GLUTTONY_CLICK_DELAY   = "$ClickDelay"
     Start-Process $exe -Wait

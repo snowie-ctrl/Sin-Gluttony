@@ -97,8 +97,15 @@ int main(int argc, char *argv[])
     const int startRecipe = qEnvironmentVariableIntValue("GLUTTONY_START_RECIPE");
     if (startRecipe > 0) {
         nav.setStartPage(QStringLiteral("recipe-page"));
+        // With GLUTTONY_START_COOK, cook mode opens once the recipe has arrived, so a grab shows it.
+        const bool startCook = !qEnvironmentVariable("GLUTTONY_START_COOK").isEmpty();
         QObject::connect(&session, &Session::loginSucceeded, &recipes,
                          [&recipes, startRecipe]() { recipes.open(startRecipe); }, Qt::SingleShotConnection);
+        if (startCook)
+            QObject::connect(&recipes, &Recipes::changed, &cook, [&recipes, &cook, startRecipe]() {
+                if (!cook.active() && recipes.recipeId() == startRecipe && !recipes.loading() && !recipes.recipe().isEmpty())
+                    cook.open(recipes.recipe());
+            });
     }
     const QString startQuery = qEnvironmentVariable("GLUTTONY_START_QUERY");
     if (!startQuery.isEmpty()) {
