@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test Gui Network Qml Quick)
+find_package(Qt6 REQUIRED COMPONENTS Test Gui Network Qml Quick Multimedia)
 
 # One test executable: its sources, the libraries beyond Qt Test, and a ctest entry. Console programs, so their
 # output reaches ctest; offscreen, so no window reaches the owner's screen.
@@ -107,6 +107,10 @@ gluttony_test(tst_syncqueue
             ../services/AccountStore.h ../services/AccountStore.cpp
             ../services/SyncQueue.h ../services/SyncQueue.cpp
     LIBS Qt6::Network)
+
+gluttony_test(tst_chime
+    SOURCES tst_chime.cpp ../services/Chime.h ../services/Chime.cpp ../assets/resources.qrc
+    LIBS Qt6::Multimedia)
 
 gluttony_test(tst_pages
     SOURCES tst_pages.cpp FakeServer.h ../assets/resources.qrc

@@ -13,6 +13,17 @@ file naming its source and commit. Windows first; iOS is part 7.
   `-R <name>` runs only matching C++ tests; `-NoQml` skips the QML stage.
 - The stub's own tests: `..\server\.venv\Scripts\python.exe -m pytest tests\stub -q` from `app\`.
 
+## Release
+
+`powershell -File release.ps1` builds the Release app in `build\release` and packages it as
+`build\Gluttony-<version>-windows-x64\` and its `.zip`: `Gluttony.exe`, Qt (Qt Multimedia and its FFmpeg plugin
+included, for the timers' chime), the MSVC runtime, and `config\secrets.example.json`. It then runs the package
+against the stub with nothing else on its PATH, grabs Home and checks the chime loads (`-SkipCheck` skips that run).
+
+The package never carries a `secrets.json`. Each install gets its own `config\secrets.json` beside `Gluttony.exe`:
+`{"apiBase": "https://<public host>/api/gluttony"}` for a friend, plus `"lanApiBase": "http://<LAN host>:<port>/api/gluttony"`
+at home, where the app tries the LAN address first.
+
 ## Running against the stub
 
 The stub (`tests/stub/stub_server.py`, port 5079) imitates `docs/api.md`. It serves `tests/stub/snapshot/` (real

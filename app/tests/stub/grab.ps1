@@ -22,6 +22,7 @@
 #   grab.ps1 -Out cook.png -Fixture -Recipe 1 -Cook               (cook mode on a recipe)
 #   grab.ps1 -Out offline.png -Kept -Offline                      (an offline start: Home's saved rows)
 #   grab.ps1 -Out offsaved.png -Kept -Offline -Page saved-page    (an offline start: the kept lists)
+#   .\grab.ps1 -Out home.png -Exe ..\..\build\Gluttony-1.0-windows-x64\Gluttony.exe -Fixture   (a packaged build)
 param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Page = 'home-page',
@@ -42,14 +43,16 @@ param(
     [string]$Removed = '',
     [switch]$Fixture,
     [switch]$Cook,
-    [switch]$Offline
+    [switch]$Offline,
+    [string]$Exe = ''
 )
 $ErrorActionPreference = 'Stop'
 $here   = $PSScriptRoot
 $src    = Split-Path (Split-Path $here -Parent) -Parent
 $repo   = Split-Path $src -Parent
 $qt     = if ($env:GLUTTONY_QT) { $env:GLUTTONY_QT } else { 'D:\allNewQT6\6.11.1\msvc2022_64' }
-$exe    = Join-Path $src 'build\tests\appGluttony.exe'
+# -Exe runs another build (release.ps1's package) instead of the test build.
+$exe    = if ($Exe) { (Resolve-Path -LiteralPath $Exe).Path } else { Join-Path $src 'build\tests\appGluttony.exe' }
 # A git worktree has no venv of its own, so GLUTTONY_PYTHON can point at the main checkout's.
 $python = if ($env:GLUTTONY_PYTHON) { $env:GLUTTONY_PYTHON } else { Join-Path $repo 'server\.venv\Scripts\python.exe' }
 
@@ -85,7 +88,9 @@ try {
     $stub = Start-Process $python -ArgumentList "`"$here\stub_server.py`"" -PassThru -WindowStyle Hidden
     Start-Sleep -Seconds 2
 
-    $env:PATH                   = "$qt\bin;$env:PATH"
+    # A package must carry its own Qt: nothing else is put on its PATH, so a missing DLL shows here, not on a
+    # friend's machine.
+    $env:PATH                   = if ($Exe) { "$env:SystemRoot\System32;$env:SystemRoot" } else { "$qt\bin;$env:PATH" }
     $env:GLUTTONY_SECRETS       = $secrets
     $env:GLUTTONY_SETTINGS_DIR  = "$scratch\settings"
     $env:GLUTTONY_DATA_DIR      = "$scratch\data"
