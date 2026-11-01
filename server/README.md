@@ -64,7 +64,7 @@ database is not empty: drop and recreate it".
 4. `sudo mkdir -p /pool/appFiles/gluttony/images /pool/appFiles/gluttony/thumbs` owned by the upload user.
 5. Restart `Caduceus.service`.
 6. Check from outside that the tunnel does not route either prefix: the public host's `/api/gluttony/ping` must not
-   answer `{"status": "ok"}`. (Part 2 opens `/api/gluttony/` on purpose; see below.)
+   answer `{"status": "ok"}` (until milestone 4). (Part 2 opens `/api/gluttony/` on purpose; see below.)
 
 ## Part 2 (accounts and the app's routes)
 
@@ -99,3 +99,67 @@ Written in part 2's milestones, deployed together in milestone 4; nothing here i
   `device/identify`.
 - **Login keys:** `sudo mysql gluttonyDB -e "INSERT INTO LoginKeys (KeyValue) VALUES ('<a long random key>')"`.
 - **The tunnel:** `gluttony.forculus.net` passes only `/api/gluttony/`; `/api/gluttony-admin/` stays LAN only.
+
+## Milestone 4: the rollout
+
+Each server step below waits for the owner's go-ahead at the time. "Claude" steps run from the PC over SSH; "owner"
+steps are typed by the owner on plutus.
+
+1. **Check what is there (Claude, read only).** The four part 1 files in `util/` match the commit last deployed
+   (`git show <commit>:server/<file> | md5sum` against `md5sum` on plutus; `diff --strip-trailing-cr` if only line
+   endings differ). `DBUtils.py` maps `"gluttony"`. `Caduceus.py` sets no `MAX_CONTENT_LENGTH`.
+2. **Scratch database (owner).** `gluttony_smoke` as in "The smoke test" above, with `schema.sql` then
+   `schema-part2.sql` loaded.
+3. **Copy the routes (Claude).** Back up the four existing files as `<file>.bak-<date>`, then copy
+   `gluttonyAdminRoutes.py`, `gluttonyRoutes.py`, `gluttonyRules.py`, `gluttonySession.py`, `gluttonyKept.py`,
+   `gluttonyUserRoutes.py` and `gluttonySmoke.py` from `main` (a `git archive` tar, unpacked on plutus), and
+   `python3 -m py_compile` each. Caduceus keeps running the old ones until it restarts.
+4. **Smoke test (Claude), then drop the scratch database (owner).** Every line `PASS`, `together` included.
+5. **Load the schema (owner).** `sudo mysql gluttonyDB < schema-part2.sql`.
+6. **Register the user routes (Claude).** Back up `Caduceus.py`, then inside the Gluttony block, after
+   `app.register_blueprint(gluttonyBP, url_prefix="/api/gluttony")`:
+
+   ```python
+       from util.gluttonyUserRoutes import gluttonyUserBP
+       app.register_blueprint(gluttonyUserBP, url_prefix="/api/gluttony")
+   ```
+
+   The block's comment now says the app's routes are public through `gluttony.forculus.net` behind sessions, and
+   the admin routes stay LAN-only. Check it imports: `cd /database/API && /database/venv/bin/python -c "import Caduceus"`
+   must print no `gluttony routes not loaded`.
+7. **Restart (owner).** `sudo systemctl restart Caduceus.service`. LAN check: `/api/gluttony/ping` answers ok,
+   `/api/gluttony/recipes` without a session answers 401.
+8. **nginx (Claude).** Back up `/etc/nginx/sites-available/forculus.conf`, add this block beside the others, then
+   `sudo nginx -t` and `sudo systemctl reload nginx`:
+
+   ```nginx
+   # Gluttony's app API: only its own prefix through the tunnel. The admin prefix
+   # (/api/gluttony-admin/) never matches this location and stays LAN-only. A
+   # /sync/batch of 500 offline notes can be ~4 MB, past nginx's 1 MB default.
+   server {
+       listen 80;
+       server_name gluttony.forculus.net;
+       location /api/gluttony/ {
+           client_max_body_size 8m;
+           proxy_pass http://127.0.0.1:5000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+       location / {
+           return 404;
+       }
+   }
+   ```
+9. **From outside (Claude).** `https://gluttony.forculus.net/api/gluttony/ping` answers ok; `/api/gluttony/recipes`
+   answers 401; `/api/gluttony-admin/state` and `/` answer 404.
+10. **Login keys (owner).** One for the owner, one for the live check:
+    `sudo mysql gluttonyDB -e "INSERT INTO LoginKeys (KeyValue) VALUES ('<a long random key>')"`.
+11. **Live check (Claude).** `server/liveCheck.py` on the LAN base with `--sign-up`, then on the public base with
+    `--outside --limits` (see its docstring). Every line `PASS`.
+12. **Remove the check account (owner).**
+    `sudo mysql gluttonyDB -e "DELETE FROM Users WHERE Username = 'claude-check'; DELETE FROM LoginKeys WHERE KeyValue = '<the check key>'"`
+    (its lists, marks, ratings, notes, devices and sessions go with it).
+13. **The app (owner).** Unzip `Gluttony-<version>-windows-x64.zip` (`app/release.ps1`), put `config\secrets.json`
+    beside `Gluttony.exe`, sign up with the key, and go through the pages at home, then away (another network).
