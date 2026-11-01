@@ -501,6 +501,16 @@ def test_theStubsManifestHasTheListsAndTheirRecipes(client, monkeypatch):
     assert bad.status_code == 400 and bad.get_json()["message"] == "extra must be up to 200 recipe ids, comma separated"
 
 
+def test_theStubsManifestCarriesEachRecipesMine(client, monkeypatch):
+    monkeypatch.setenv("STUB_KEPT", "1")
+    stub.reset()
+    data = get(client, "/saved/manifest?extra=3").get_json()["data"]
+    for entry in data["recipes"]:
+        assert entry["mine"] == get(client, f"/recipes/{entry['id']}").get_json()["data"]["mine"]
+    # STUB_KEPT stars and notes a recipe, so at least one mine is not empty.
+    assert any(entry["mine"]["stars"] or entry["mine"]["note"] for entry in data["recipes"])
+
+
 def test_aRemovedExtraTheReaderDoesNotKeepIsLeftOut(client, monkeypatch):
     monkeypatch.setenv("STUB_REMOVED", "3")
     stub.reset()

@@ -12,7 +12,7 @@ Every reader starts with an empty Cravings list. Lists, items, Devoured marks, s
 refuse what the server refuses, in its words; they last until the stub stops.
 
 What the app did offline arrives with /sync/batch: marks once per clientId, the newest star or note wins (/rating and
-/note remember when they changed). /saved/manifest gives every recipe the snapshot's takenAt as its updatedAt.
+/note remember when they changed). /saved/manifest gives every recipe the snapshot's takenAt as its updatedAt, and the reader's mine as /recipes/<id> gives it.
 
 STUB_KEPT=1              the stub reader starts with two Cravings, a list "Weeknights", a mark three days ago, four
                          stars and a note, on the first recipes of the snapshot (or the fixture).
@@ -982,7 +982,8 @@ def savedManifest():
     for rid in sorted(listed | {int(p) for p in parts}):
         if rid not in state["recipes"] or (rid not in listed and not visible(rid, reader)):
             continue
-        recipes.append({"id": rid, "updatedAt": state["takenAt"], "removed": rid in state["removed"]})
+        recipes.append({"id": rid, "updatedAt": state["takenAt"], "removed": rid in state["removed"],
+                        "mine": mineOf(reader, rid)})
     return ok({"lists": lists, "recipes": recipes})
 
 
