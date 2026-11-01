@@ -114,7 +114,8 @@ steps are typed by the owner on plutus.
    the upstream its existing server blocks use, and whether one of them is the `default_server`.
 2. **Copy the files (Claude).** Back up the four part 1 files in `util/` (`gluttonyAdminRoutes.py`, `gluttonyRoutes.py`,
    `gluttonyRules.py`, `gluttonySmoke.py`) as `<file>.bak-<date>` in `/database/API/util/`. From `main`, make a tar of
-   the server files and unpack it on plutus: `git archive -o gluttony-m4.tar main:server gluttonyAdminRoutes.py gluttonyRoutes.py gluttonyRules.py gluttonySession.py gluttonyKept.py gluttonyUserRoutes.py gluttonySmoke.py schema.sql schema-part2.sql`,
+   the server files and unpack it on plutus: `git -c core.autocrlf=false archive -o gluttony-m4.tar main:server gluttonyAdminRoutes.py gluttonyRoutes.py gluttonyRules.py gluttonySession.py gluttonyKept.py gluttonyUserRoutes.py gluttonySmoke.py schema.sql schema-part2.sql`
+   (`core.autocrlf=false` keeps the files' LF endings; a Windows checkout's archive is CRLF otherwise),
    copy it to plutus, unpack it with `mkdir -p /tmp/gluttony-m4 && tar -xf gluttony-m4.tar -C /tmp/gluttony-m4`, copy the seven `.py` files
    into `/database/API/util/`, and `/database/venv/bin/python -m py_compile` each `.py`. Caduceus keeps running the old ones until it restarts.
 3. **Scratch database (owner).** `gluttony_smoke` as in "The smoke test" above, with `/tmp/gluttony-m4/schema.sql` then
@@ -157,8 +158,9 @@ steps are typed by the owner on plutus.
        server_name gluttony.forculus.net;
        location /api/gluttony/ {
            client_max_body_size 8m;
-           # A zone-wide cache rule must never cache session-protected answers.
-           add_header Cache-Control "private, no-store" always;
+           # A zone-wide cache rule must never cache session-protected answers. Not no-store: that would also
+       # undo the picture routes' own private one-day cache in the app.
+           add_header Cache-Control "private" always;
            proxy_pass http://127.0.0.1:5000;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
