@@ -6,7 +6,8 @@ the four in fixture/recipes.json. Filters, the profile and the safety rule follo
 include and exclude match only the ingredient itself, not its children.
 
 Sign in as stub / stub-password (UID 7, token "stub"). Sign up with the key "stub-key" (any other key is 403
-invalid_key); the username "taken" is 409. Signing out makes /device/identify say "new" until the next /auth.
+invalid_key); the username "taken" is 409. Signing out makes /device/identify say "new" until the next /auth,
+and ends that session's token (the stub reader's own token returns at its next sign-in).
 
 Every reader starts with an empty Cravings list. Lists, items, Devoured marks, stars and notes follow docs/api.md and
 refuse what the server refuses, in its words; they last until the stub stops.
@@ -144,7 +145,8 @@ def body():
 
 @app.before_request
 def guard():
-    route = request.path[len(API):] if request.path.startswith(API) else None
+    # Only /api/gluttony/... is the API: a neighbour such as /api/gluttony-admin is not served here, as on the real host.
+    route = request.path[len(API):] if request.path.startswith(API + "/") else None
     if route is not None and route not in PUBLIC and uid() is None:
         return fail("error", 401, "not signed in")
     return None
@@ -158,7 +160,13 @@ def ping():
 
 
 def signedIn(rid):
-    token = TOKEN if rid == UID else f"stub-{rid}"
+    # The stub reader keeps its one well-known token; any other account gets one per sign-in, so signing one
+    # device out (its session ends, docs/api.md) leaves the other's.
+    if rid == UID:
+        token = TOKEN
+    else:
+        state["nextToken"] = state.get("nextToken", 0) + 1
+        token = f"stub-{rid}-{state['nextToken']}"
     state["tokens"][token] = rid
     state["deviceUid"] = rid
     return ok(UID=rid, username=state["readers"][rid]["username"], token=token)
@@ -205,6 +213,7 @@ def auth():
 def logout():
     with lock:
         state["deviceUid"] = None
+        state["tokens"].pop(request.headers.get("X-Session-Token") or "", None)
     return ok()
 
 

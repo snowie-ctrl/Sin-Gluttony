@@ -526,3 +526,23 @@ def test_theStubTakesOneClockForTheWholeBatch(client, monkeypatch):
     assert [r["result"] for r in answered] == ["applied", "already"]
     assert answered[1]["stars"] == 2
     assert get(client, "/recipes/1").get_json()["data"]["mine"]["stars"] == 2
+
+
+def test_signingOutEndsThatSessionOnly(client):
+    def signIn(fingerprint):
+        made = client.post(f"{stub.API}/auth", json={"username": "second-reader", "password": "second-password",
+                                                     "fingerprint": fingerprint, "key": "stub-key" if fingerprint == "a" else ""})
+        return made.get_json()["token"]
+    first = signIn("a")
+    second = signIn("b")
+    assert first != second
+    client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": first})
+    assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": first}).status_code == 401
+    assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": second}).status_code == 200
+
+
+def test_aNeighbouringPathIsNotTheApi(client):
+    # Only /api/gluttony/... answers, as on the real host; a path that merely starts with the same letters is 404.
+    for path in ("/api/gluttony-admin/state", "/api/gluttonyx/ping", "/"):
+        assert client.get(path).status_code == 404
+    assert client.get(API + "/ping").status_code == 200
