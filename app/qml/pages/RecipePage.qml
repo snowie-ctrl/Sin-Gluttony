@@ -6,8 +6,9 @@ import "../logic/scale.mjs" as Scale
 import "../logic/units.mjs" as Units
 import "../logic/credit.mjs" as Credit
 import "../logic/days.mjs" as Days
+import "../logic/timers.mjs" as Timers
 
-// The recipe page (layout A): a wide picture with the title over it, a strip of chips, the actions (♥ Craving,
+// The recipe page (layout A): a wide picture with the title over it, a strip of chips, the actions (▶ Cook mode, ♥ Craving,
 // + List, ✓ Devoured on a day that can be changed, the stars, ✎ Note, with the note under them), then the
 // ingredients in a column that stays put while the steps scroll, Seconds? and the credit the sources require.
 // Quantities follow the servings (or multiplier) chosen and the units preference; clicking a changed line shows it
@@ -233,6 +234,12 @@ Item {
                     outlined: true
                     text: Words.goneNote
                 }
+                Chip {
+                    objectName: "fromCopyNote"
+                    visible: Recipes.fromCopy
+                    outlined: true
+                    text: Words.savedCopy
+                }
             }
 
             Column {
@@ -246,6 +253,13 @@ Item {
                     width: parent.width
                     spacing: Preferences.spacingSmall
 
+                    ActionButton {
+                        objectName: "actionCook"
+                        primary: true
+                        text: "▶ " + Words.cookMode
+                        enabled: root.ready && (root.r.steps || []).length > 0
+                        onClicked: Cook.open(root.r)
+                    }
                     Chip {
                         objectName: "actionCraving"
                         text: (root.mine.craving ? "♥ " : "♡ ") + Words.craving
@@ -310,7 +324,7 @@ Item {
                         delegate: Chip {
                             required property var modelData
                             objectName: "devouredMark-" + modelData.id
-                            text: "✓ " + Days.label(modelData.on, Saved.today())
+                            text: "✓ " + Days.label(modelData.on, Saved.today()) + (modelData.pending ? " · " + Words.pendingMark : "")
                             selected: root.pickedMark === modelData.id
                             onClicked: root.pickedMark = root.pickedMark === modelData.id ? 0 : modelData.id
                         }
@@ -481,6 +495,7 @@ Item {
                         delegate: Column {
                             required property var modelData
                             required property int index
+                            readonly property int stepIndex: index
                             width: method.width
                             spacing: 4
 
@@ -512,6 +527,26 @@ Item {
                                     color: Preferences.textPrimary
                                     font.family: Preferences.appFont
                                     font.pixelSize: Preferences.fontSizeBody
+                                }
+                            }
+                            // A timer for every duration the step states (spec §4); it keeps running wherever the
+                            // cook goes, in the rail.
+                            Flow {
+                                x: 40
+                                width: parent.width - 40
+                                spacing: Preferences.spacingSmall
+                                visible: timerChips.count > 0
+                                Repeater {
+                                    id: timerChips
+                                    model: Timers.timersIn(modelData.text)
+                                    delegate: Chip {
+                                        required property var modelData
+                                        required property int index
+                                        objectName: "stepTimer-" + stepIndex + "-" + index
+                                        text: "⏱ " + modelData.text
+                                        onClicked: Cook.startTimer(modelData.seconds,
+                                                                   Words.timerLabel(root.r.title || "", stepIndex + 1))
+                                    }
                                 }
                             }
                         }

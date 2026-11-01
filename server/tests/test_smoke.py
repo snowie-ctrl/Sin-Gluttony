@@ -66,5 +66,5 @@ def test_aPictureAnswerIsReturnedWithoutReadingItAsText():
 def test_theStepsSignUpBeforeBrowsingAndSignOutLast(tmp_path):
     smoke = loadModule("gluttonySmoke")
     assert [name for name, _ in smoke.steps(tmp_path)] == [
-        "seed", "store", "unknown", "account", "browse", "diet", "home", "lists", "yours", "strangers", "remove",
-        "signout"]
+        "seed", "store", "unknown", "account", "browse", "diet", "home", "lists", "yours", "sync", "manifest",
+        "strangers", "remove", "signout"]

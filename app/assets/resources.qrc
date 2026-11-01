@@ -15,5 +15,6 @@
         <file>images/heart-filled.svg</file>
         <file>images/plus.svg</file>
         <file>images/star.svg</file>
+        <file>sounds/chime.wav</file>
     </qresource>
 </RCC>

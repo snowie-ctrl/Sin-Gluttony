@@ -7,7 +7,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network Multimedia)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -44,6 +44,16 @@ qt_add_executable(appGluttony
     services/Recipes.cpp
     services/Saved.h
     services/Saved.cpp
+    services/KeepAwake.h
+    services/KeepAwake.cpp
+    services/Cook.h
+    services/Cook.cpp
+    services/RecipeStore.h
+    services/RecipeStore.cpp
+    services/SyncQueue.h
+    services/SyncQueue.cpp
+    services/Chime.h
+    services/Chime.cpp
     services/Wiring.h
     services/Wiring.cpp
 )
@@ -62,6 +72,7 @@ qt_add_qml_module(gluttony_ui
         qml/pages/RecipePage.qml
         qml/pages/SavedPage.qml
         qml/pages/SettingsPage.qml
+        qml/pages/CookPage.qml
         qml/component/TintedIcon.qml
         qml/component/ActionButton.qml
         qml/component/InputField.qml
@@ -77,6 +88,7 @@ qt_add_qml_module(gluttony_ui
         qml/component/ListPopup.qml
         qml/component/NotePopup.qml
         qml/component/TitlePopup.qml
+        qml/component/TimerStack.qml
         qml/logic/scale.mjs
         qml/logic/units.mjs
         qml/logic/words.mjs
@@ -85,6 +97,8 @@ qt_add_qml_module(gluttony_ui
         qml/logic/filters.mjs
         qml/logic/credit.mjs
         qml/logic/days.mjs
+        qml/logic/timers.mjs
+        qml/logic/stepIngredients.mjs
 )
 target_link_libraries(gluttony_ui PRIVATE Qt6::Quick Qt6::QuickControls2)
 
@@ -93,7 +107,7 @@ set_target_properties(appGluttony PROPERTIES WIN32_EXECUTABLE TRUE MACOSX_BUNDLE
 # The sources include each other from the project root ("api/Api.h").
 target_include_directories(appGluttony PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(appGluttony PRIVATE gluttony_uiplugin Qt6::Quick Qt6::QuickControls2 Qt6::Network)
+target_link_libraries(appGluttony PRIVATE gluttony_uiplugin Qt6::Quick Qt6::QuickControls2 Qt6::Network Qt6::Multimedia)
 
 # A dev build finds config/secrets.json in the source tree; a Release build never falls back to it.
 target_compile_definitions(appGluttony PRIVATE

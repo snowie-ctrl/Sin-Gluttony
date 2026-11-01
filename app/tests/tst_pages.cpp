@@ -1,6 +1,10 @@
+#include <QBuffer>
 #include <QDate>
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QColor>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlApplicationEngine>
@@ -25,12 +29,15 @@
 #include "assets/Preferences.h"
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
+#include "services/Cook.h"
 #include "services/Diet.h"
 #include "services/Home.h"
 #include "services/Nav.h"
+#include "services/RecipeStore.h"
 #include "services/Recipes.h"
 #include "services/Saved.h"
 #include "services/Session.h"
+#include "services/SyncQueue.h"
 #include "services/Wiring.h"
 
 Q_IMPORT_QML_PLUGIN(GluttonyPlugin)
@@ -67,6 +74,9 @@ class TestPages : public QObject
     std::unique_ptr<Home> home;
     std::unique_ptr<Recipes> recipes;
     std::unique_ptr<Saved> saved;
+    std::unique_ptr<RecipeStore> copies;
+    std::unique_ptr<SyncQueue> queue;
+    std::unique_ptr<Cook> cook;
     // Declared last, so it is destroyed first: pages go before the services they call.
     std::unique_ptr<QQmlApplicationEngine> engine;
 
@@ -165,6 +175,9 @@ class TestPages : public QObject
         context->setContextProperty("Home", home.get());
         context->setContextProperty("Recipes", recipes.get());
         context->setContextProperty("Saved", saved.get());
+        context->setContextProperty("RecipeStore", copies.get());
+        context->setContextProperty("SyncQueue", queue.get());
+        context->setContextProperty("Cook", cook.get());
         engine->loadFromModule("Gluttony", "Main");
         QVERIFY(window());
         // Tall enough that the whole filter panel and the recipe page's first screen are on it, so clicks land.
@@ -257,6 +270,89 @@ class TestPages : public QObject
         QTRY_VERIFY(findVisible("settingsPage"));
     }
 
+    // A recipe to cook: three steps (the second with a range), three lines, four servings.
+    void openCookRecipe()
+    {
+        server->responses[path("/recipes/7")] = R"json({"status":"ok","data":{"id":7,"kind":"food",
+          "title":"Stub Braise","servings":4,"servingsFrom":"source","hasImage":false,"source":"mealdb",
+          "licence":"TheMealDB","credit":"Stub","ingredients":[
+            {"line":"1.5 kg chicken thighs","quantity":1.5,"quantityMax":null,"unit":"kg","ingredientId":101,"name":"chicken thigh","note":null,"optional":false,"group":null},
+            {"line":"750 ml red wine","quantity":750,"quantityMax":null,"unit":"ml","ingredientId":102,"name":"red wine","note":null,"optional":false,"group":null},
+            {"line":"Salt to taste","quantity":null,"quantityMax":null,"unit":null,"ingredientId":105,"name":"salt","note":null,"optional":false,"group":null}],
+          "steps":[{"text":"Brown the chicken thighs.","group":null},
+                   {"text":"Pour in the wine and simmer for 20–25 minutes.","group":null},
+                   {"text":"Season with salt.","group":null}],
+          "tags":{"flavour":[],"occasion":[],"source":[]},"facts":{"complete":true,"contains":[],"diets":[]},
+          "versions":[]}})json";
+        recipes->open(7);
+        nav->navigateTo("recipe-page");
+    }
+
+    void openCookMode()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookPage"));
+    }
+
+    // Recipes 5 (on Cravings) and 6 (devoured, on Weeknights) kept on the device by the sign-in's refresh.
+    void keepTwoCopies()
+    {
+        server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
+          {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[5]},
+          {"id":11,"title":"Weeknights","kind":"custom","recipeIds":[6]}],
+          "recipes":[{"id":5,"updatedAt":"2026-10-20T08:30:15","removed":false},
+                     {"id":6,"updatedAt":"2026-10-20T08:30:15","removed":false}]}})";
+        server->responses[path("/recipes/5")] = R"({"status":"ok","data":{"id":5,"kind":"food","title":"Kept Coq au Vin",
+          "servings":4,"hasImage":false,"ingredients":[],"steps":[{"text":"Cook it.","group":null}],"versions":[],
+          "mine":{"craving":true,"lists":[],"devoured":[],"stars":null,"note":null}}})";
+        server->responses[path("/recipes/6")] = R"({"status":"ok","data":{"id":6,"kind":"food","title":"Kept Spinach Eggs",
+          "servings":2,"hasImage":false,"ingredients":[],"steps":[{"text":"Cook it.","group":null}],"versions":[],
+          "mine":{"craving":false,"lists":[11],"devoured":[{"id":41,"on":"2026-10-20"}],"stars":4,"note":null}}})";
+    }
+
+    void goOffline()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+    }
+
+    void comeBack()
+    {
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
+        api->checkNow();
+        QTRY_VERIFY(api->online());
+    }
+
+    // Signed in with the two copies kept, then the server goes.
+    void startOfflineWithCopies()
+    {
+        keepTwoCopies();
+        start();
+        QTRY_VERIFY(copies->has(5) && copies->has(6));
+        QTRY_VERIFY(!copies->refreshing());
+        goOffline();
+    }
+
+    // A change the server refused five times: one stuck change in Settings.
+    void makeAStuckChange()
+    {
+        server->responses[path("/sync/batch")] = R"({"status":"ok","data":{"results":[
+          {"result":"refused","message":"no such recipe"}]}})";
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 99}, {"stars", 4}, {"title", "Stub Gone"}});
+        for (int i = 0; i < 10 && queue->stuck().isEmpty(); ++i) {
+            QTRY_VERIFY(!queue->sending());
+            if (queue->stuck().isEmpty())
+                queue->flush();
+        }
+        QTRY_COMPARE(queue->stuck().size(), 1);
+    }
+
 private slots:
     void initTestCase()
     {
@@ -267,6 +363,9 @@ private slots:
     void init()
     {
         engine.reset();
+        cook.reset();
+        queue.reset();
+        copies.reset();
         saved.reset();
         recipes.reset();
         home.reset();
@@ -289,6 +388,9 @@ private slots:
         api = std::make_unique<Api>();
         api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
         nav = std::make_unique<Nav>();
+        // The device's copies, the queue and cook mode's place live in the account folder; each case starts with none, so
+        // a step kept by the last case is never resumed by this one.
+        QDir(dir.path() + "/data").removeRecursively();
         accounts = std::make_unique<AccountStore>(dir.path() + "/data");
         session = std::make_unique<Session>(*api);
         diet = std::make_unique<Diet>(*api);
@@ -296,8 +398,13 @@ private slots:
         home = std::make_unique<Home>(*api, *diet);
         recipes = std::make_unique<Recipes>(*api);
         saved = std::make_unique<Saved>(*api);
-        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes, *saved);
+        copies = std::make_unique<RecipeStore>(*api);
+        queue = std::make_unique<SyncQueue>(*api);
+        cook = std::make_unique<Cook>();
+        wireServices(*session, *accounts, *diet, *catalog, *home, *recipes, *saved, *copies, *queue, *cook);
         server->responses[path("/lists")] = R"({"status":"ok","data":[{"id":3,"title":"Cravings","kind":"cravings","count":0}]})";
+        server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
+          {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[]}],"recipes":[]}})";
 
         // Any warning from Gluttony's own QML (a binding error, an unknown property) fails the test.
         QTest::failOnWarning(QRegularExpression(QStringLiteral("qrc:/qt/qml/Gluttony/")));
@@ -319,6 +426,82 @@ private slots:
         QTRY_COMPARE(requestsTo("/lists").size(), 1);
     }
 
+    void signingInBringsTheCopiesUpToDate()
+    {
+        start();
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_COMPARE(copies->lists().size(), 1);
+    }
+
+    void cookingARecipeKeepsItOnTheDevice()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        QVERIFY(copies->has(1));
+        QCOMPARE(copies->recipe(1).value("title").toString(), QStringLiteral("Stub Coq au Vin"));
+        cook->close();
+    }
+
+    void aKeptRecipesPictureIsReadFromTheDevice()
+    {
+        // A picture the image decoder can read, or the page's Image warns and the case fails.
+        QImage pixel(2, 2, QImage::Format_RGB32);
+        pixel.fill(Qt::red);
+        QByteArray picture;
+        QBuffer buffer(&picture);
+        buffer.open(QIODevice::WriteOnly);
+        pixel.save(&buffer, "PNG");
+        server->responses[path("/images/1")] = picture;
+        start();
+        QTRY_VERIFY(find("navShell"));
+        // The sign-in's refresh first, so its (empty) manifest is never read as leaving the copy out.
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        copies->keepForCooking(QVariantMap{{"id", 1}, {"kind", "food"}, {"title", "Stub Coq au Vin"}, {"hasImage", true},
+                                           {"steps", QVariantList()}, {"ingredients", QVariantList()}});
+        QTRY_VERIFY(copies->pictureUrl(1, true).startsWith("file:"));
+        server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub Coq au Vin",
+          "hasImage":true,"ingredients":[],"steps":[],"versions":[]}})";
+        recipes->open(1);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QQuickItem *frame = find("picture");
+        QVERIFY(frame);
+        QTRY_VERIFY(frame->property("source").toUrl().isLocalFile());
+    }
+
+    void theRecipesTitleNamesAChangeThatMustWait()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        // With the detail in, Saved knows what to call a change made on it.
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+        saved->setStars(1, 4);
+        QCOMPARE(queue->count(), 1);
+        QCOMPARE(queue->changes().first().value("title").toString(), QStringLiteral("Stub Coq au Vin"));
+    }
+
+    void signingOutClosesCookModeAndStopsTheTimers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        cook->startTimer(60, "a");
+        session->logout();
+        QVERIFY(!cook->active());
+        QVERIFY(cook->timers().isEmpty());
+    }
+
     void aReloadOfTheOpenRecipeKeepsWhatWasChangedMeanwhile()
     {
         // Recipes says "changed" when a reload starts, while the old detail (and its old `mine`) is still held:
@@ -327,6 +510,8 @@ private slots:
           "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
         server->responses[path("/recipes/1")] = detail;
         server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        // Saved counts a missing session token as offline, and this case never signs in.
+        api->setSessionToken("tok");
         saved->load();
         QTRY_VERIFY(saved->listsLoaded());
         recipes->open(1);
@@ -352,6 +537,8 @@ private slots:
         server->responses[path("/recipes/1")] = R"({"status":"ok","data":{"id":1,"kind":"food","title":"Stub",
           "mine":{"craving":false,"lists":[],"devoured":[],"stars":null,"note":null}}})";
         server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":1,"count":1}})";
+        // Saved counts a missing session token as offline, and this case never signs in.
+        api->setSessionToken("tok");
         saved->load();
         QTRY_VERIFY(saved->listsLoaded());
         recipes->open(1);
@@ -1660,6 +1847,402 @@ private slots:
         type("the-old-one");
         QTest::keyClick(window(), Qt::Key_Return);
         QTRY_COMPARE(requestsTo("/user/password").size(), 1);
+    }
+
+    void cookModeOpensFromTheRecipePageAndLeavesWithEsc()
+    {
+        openCookMode();
+        QVERIFY(cook->active());
+        QCOMPARE(cook->recipeId(), 7);
+        QTRY_COMPARE(findVisible("cookTitle")->property("text").toString(), QStringLiteral("Stub Braise"));
+        QCOMPARE(findVisible("cookStepOf")->property("text").toString(), QStringLiteral("Step 1 of 3"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(!find("cookPage"));
+        QVERIFY(findVisible("recipeTitle"));
+    }
+
+    void theKeysAndAClickMoveTheLitStep()
+    {
+        openCookMode();
+        QTRY_VERIFY(find("cookStep-0") && find("cookStep-0")->property("current").toBool());
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTRY_VERIFY(find("cookStep-1")->property("current").toBool());
+        QVERIFY(!find("cookStep-0")->property("current").toBool());
+        QTest::keyClick(window(), Qt::Key_Space);
+        QTRY_COMPARE(cook->step(), 2);
+        QTest::keyClick(window(), Qt::Key_Up);
+        QTRY_COMPARE(cook->step(), 1);
+        QTRY_VERIFY(findVisible("cookStep-0"));
+        click(findVisible("cookStepText-0"));
+        QTRY_COMPARE(cook->step(), 0);
+        QCOMPARE(findVisible("cookStepOf")->property("text").toString(), QStringLiteral("Step 1 of 3"));
+    }
+
+    void theLinesTheStepNamesAreLitAndAClickTicksOne()
+    {
+        openCookMode();
+        QTRY_VERIFY(find("cookLine-0"));
+        QVERIFY(find("cookLine-0")->property("isLit").toBool());     // "Brown the chicken thighs."
+        QVERIFY(!find("cookLine-1")->property("isLit").toBool());
+        cook->goTo(1);
+        QTRY_VERIFY(find("cookLine-1")->property("isLit").toBool()); // "the wine"
+        QVERIFY(!find("cookLine-0")->property("isLit").toBool());
+        click(findVisible("cookLine-2"));
+        QTRY_COMPARE(cook->ticks(), (QVariantList{2}));
+        QTRY_VERIFY(find("cookLine-2")->property("ticked").toBool());
+    }
+
+    void cookModeUsesTheServingsAndUnitsChosenOnTheRecipePage()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("actionCook"));
+        recipes->setServings(8);
+        preferences->setProperty("units", "us");
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookLineText-0"));
+        QTRY_VERIFY(findVisible("cookLineText-0")->property("text").toString().startsWith("6⅔ lb"));
+    }
+
+    void aTimerChipStartsATimerThatStaysAfterCookModeCloses()
+    {
+        openCookMode();
+        cook->goTo(1);
+        QTRY_VERIFY(findVisible("cookTimer-1-0"));
+        QCOMPARE(findVisible("cookTimer-1-0")->property("text").toString(), QStringLiteral("⏱ 20–25 minutes"));
+        click(findVisible("cookTimer-1-0"));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        const QVariantMap timer = cook->timers().first().toMap();
+        QCOMPARE(timer.value("seconds").toInt(), 1200);
+        QCOMPARE(timer.value("label").toString(), QStringLiteral("Stub Braise · step 2"));
+        QTRY_VERIFY(findVisible("cookTimers"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("railTimers"));
+        QTRY_VERIFY(findVisible(QStringLiteral("timer-%1").arg(timer.value("id").toInt())));
+    }
+
+    void aFinishedTimerSaysSoUntilItIsDismissed()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        const int id = cook->startTimer(1, "Stub Braise · step 2");
+        QTRY_VERIFY(cook->timers().first().toMap().value("done").toBool());
+        QTRY_VERIFY(findVisible(QStringLiteral("timerDismiss-%1").arg(id)));
+        click(findVisible(QStringLiteral("timerDismiss-%1").arg(id)));
+        QTRY_VERIFY(cook->timers().isEmpty());
+        QTRY_VERIFY(!findVisible("railTimers"));
+    }
+
+    void theRecipePagesStepsOfferTimersToo()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openCookRecipe();
+        QTRY_VERIFY(findVisible("stepTimer-1-0"));
+        QVERIFY(!find("stepTimer-0-0"));
+        click(findVisible("stepTimer-1-0"));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        QVERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("railTimers"));
+    }
+
+    void comingBackWithinTwelveHoursResumesTheStep()
+    {
+        openCookMode();
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(cook->active());
+        QCOMPARE(cook->step(), 1);
+        QTRY_VERIFY(find("cookStep-1") && find("cookStep-1")->property("current").toBool());
+    }
+
+    void cookModeKeepsWorkingWhenTheServerGoes()
+    {
+        openCookMode();
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        api->get("/ping", QUrlQuery(), nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(!api->online(), 10000);
+        QVERIFY(findVisible("cookPage"));
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QVERIFY(copies->has(7));
+    }
+
+    void offlineHomeShowsTheSavedRowsOnly()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("offlineHome"));
+        QVERIFY(!findVisible("homePick"));
+        QTRY_COMPARE(find("cravingsRow")->property("recipes").toList().size(), 1);
+        QCOMPARE(find("againRow")->property("recipes").toList().size(), 1);
+        QCOMPARE(find("againRow")->property("recipes").toList().first().toMap().value("title").toString(),
+                 QStringLiteral("Kept Spinach Eggs"));
+        click(findVisible("offlineSavedButton"));
+        QTRY_VERIFY(findVisible("savedPage"));
+    }
+
+    void homeAsksAgainWhenTheServerIsBack()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("offlineHome"));
+        const int before = requestsTo("/home").size();
+        comeBack();
+        QTRY_COMPARE(requestsTo("/home").size(), before + 1);
+        QTRY_VERIFY(!findVisible("offlineHome"));
+        // Exactly one more, not one now and another a moment later.
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/home").size(), before + 1);
+    }
+
+    // An offline start that resumes: Session clears `offline` and then signs in again, which asks Home itself, so the
+    // page's own return-from-outage ask must not send a second request beside it.
+    void anOfflineStartThatResumesAsksHomeOnce()
+    {
+        keepTwoCopies();
+        accounts->open(7, QStringLiteral("stub"));
+        QVERIFY(AccountStore::writeJson(accounts->recipeFile(5), QJsonObject{
+            {"recipe", QJsonObject{{"id", 5}, {"kind", "food"}, {"title", "Kept Coq au Vin"}}},
+            {"updatedAt", QString()}, {"cookedAt", 0}}));
+        accounts->close();
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:1/api/gluttony"));
+        api->setPingDelays(60000, 60000);
+        start();
+        QTRY_VERIFY_WITH_TIMEOUT(session->offline(), 10000);
+        QTRY_VERIFY(findVisible("offlineHome"));
+        QCOMPARE(requestsTo("/home").size(), 0);
+        comeBack();
+        QTRY_VERIFY(!session->offline());
+        QTRY_COMPARE(requestsTo("/home").size(), 1);
+        QTRY_VERIFY(!findVisible("offlineHome"));
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/home").size(), 1);
+    }
+
+    void offlineBrowseSaysSoAndOffersTheSavedRecipes()
+    {
+        startOfflineWithCopies();
+        nav->navigateTo("results-page");
+        QTRY_VERIFY(findVisible("resultsOffline"));
+        QVERIFY(!findVisible("resultsEmpty"));
+        click(findVisible("resultsSavedRecipes"));
+        QTRY_VERIFY(findVisible("savedPage"));
+    }
+
+    void offlineSearchFindsTheSavedRecipes()
+    {
+        startOfflineWithCopies();
+        QTRY_VERIFY(findVisible("searchField"));
+        click(findVisible("searchField"));
+        type("spinach");
+        QTRY_VERIFY(find("searchOffline") && find("searchOffline")->isVisible());
+        QTRY_VERIFY(findVisible("quickRecipe-0"));
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTest::keyClick(window(), Qt::Key_Return);
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QCOMPARE(findVisible("recipeTitle")->property("text").toString(), QStringLiteral("Kept Spinach Eggs"));
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QVERIFY(requestsTo("/ingredients").isEmpty());
+    }
+
+    void offlineSearchSaysWhenNothingSavedMatches()
+    {
+        startOfflineWithCopies();
+        click(findVisible("searchField"));
+        type("lasagne");
+        QTRY_VERIFY(find("searchNoSaved") && find("searchNoSaved")->isVisible());
+    }
+
+    void offlineSavedShowsTheCopiesListsAndSaysListsNeedTheConnection()
+    {
+        startOfflineWithCopies();
+        click(findVisible("railSaved"));
+        QTRY_VERIFY(findVisible("savedPage"));
+        QTRY_VERIFY(findVisible("tab-3"));
+        QVERIFY(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedOffline"));
+        QVERIFY(!findVisible("newListTab"));
+        click(findVisible("tab-11"));
+        QTRY_VERIFY(findVisible("savedCell-0"));
+        QVERIFY(!findVisible("removeFromList"));
+        QVERIFY(!findVisible("dragHandle"));
+        QVERIFY(!findVisible("renameList"));
+    }
+
+    void offlineAMarkWaitsAndSaysSo()
+    {
+        startOfflineWithCopies();
+        recipes->open(6);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QTRY_VERIFY(findVisible("actionDevoured"));
+        click(findVisible("actionDevoured"));
+        QTRY_COMPARE(queue->count(), 1);
+        const int pendingId = saved->mine().value("devoured").toList().first().toMap().value("id").toInt();
+        QVERIFY(pendingId < 0);
+        const QString mark = QStringLiteral("devouredMark-%1").arg(pendingId);
+        QTRY_VERIFY(findVisible(mark));
+        QVERIFY(findVisible(mark)->property("text").toString().contains("waiting to sync"));
+        // A ♥ needs the connection, and says so.
+        click(findVisible("actionCraving"));
+        QTRY_COMPARE(find("actionError")->property("text").toString(), QStringLiteral("Lists change only with a connection."));
+    }
+
+    void aClickOnBlankCookSpaceNeitherReachesThePageUnderneathNorLosesTheKeys()
+    {
+        openCookMode();
+        // Cook mode's header sits over the top bar's search field; a click there must stop at cook mode.
+        QQuickItem *field = find("searchField");
+        QVERIFY(field);
+        QSignalSpy framed(window(), &QQuickWindow::frameSwapped);
+        window()->update();
+        framed.wait(250);
+        const QPointF over = field->mapToScene(QPointF(field->width() / 2, field->height() / 2));
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, over.toPoint());
+        QVERIFY(!field->hasActiveFocus());
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+    }
+
+    void controlKDoesNotTakeTheKeysFromCookMode()
+    {
+        openCookMode();
+        QTest::keyClick(window(), Qt::Key_K, Qt::ControlModifier);
+        QTest::keyClick(window(), Qt::Key_Down);
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+    }
+
+    void aTimerKeepsItsItemWhileItCountsAndDismissingAFinishedOneLeavesTheOthers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        const int running = cook->startTimer(600, "Stub Braise · step 2");
+        const int finishing = cook->startTimer(1, "Stub Braise · step 3");
+        const QString runningName = QStringLiteral("timer-%1").arg(running);
+        QTRY_VERIFY(findVisible(runningName));
+        QQuickItem *before = findVisible(runningName);
+        const QString clockBefore = findVisible(QStringLiteral("timerClock-%1").arg(running))->property("text").toString();
+        QTRY_VERIFY(cook->timers().last().toMap().value("done").toBool());
+        // A tick has changed the running timer's clock, and it is still the same item.
+        QTRY_VERIFY(findVisible(QStringLiteral("timerClock-%1").arg(running))->property("text").toString() != clockBefore);
+        QVERIFY(findVisible(runningName) == before);
+        QTRY_VERIFY(findVisible(QStringLiteral("timerDismiss-%1").arg(finishing)));
+        click(findVisible(QStringLiteral("timerDismiss-%1").arg(finishing)));
+        QTRY_COMPARE(cook->timers().size(), 1);
+        QTRY_VERIFY(!find(QStringLiteral("timer-%1").arg(finishing)));
+        QVERIFY(findVisible(runningName));
+        QVERIFY(findVisible(runningName) == before);
+    }
+
+    void waitingToSyncListsAStuckChangeWithTryAgainAndDiscard()
+    {
+        openSettings();
+        QVERIFY(!findVisible("waitingToSync"));
+        makeAStuckChange();
+        const QString id = queue->stuck().first().toMap().value("id").toString();
+        QTRY_VERIFY(findVisible("waitingToSync"));
+        QTRY_VERIFY(findVisible("syncChange-" + id));
+        const QString shown = findVisible("syncChange-" + id)->property("text").toString();
+        QVERIFY(shown.contains("★ 4 stars") && shown.contains("Stub Gone"));
+        server->responses[path("/sync/batch")] = R"({"status":"ok","data":{"results":[
+          {"result":"applied","recipeId":99,"stars":4}]}})";
+        click(findVisible("syncRetry-" + id));
+        QTRY_COMPARE(queue->count(), 0);
+        QTRY_VERIFY(!findVisible("waitingToSync"));
+
+        makeAStuckChange();
+        const QString again = queue->stuck().first().toMap().value("id").toString();
+        QTRY_VERIFY(findVisible("syncDiscard-" + again));
+        click(findVisible("syncDiscard-" + again));
+        QTRY_COMPARE(queue->count(), 0);
+    }
+
+    void signingOutWithQueuedChangesWarnsFirst()
+    {
+        openSettings();
+        goOffline();
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 1}, {"stars", 4}, {"title", "Stub"}});
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(find("signOutWarning") && find("signOutWarning")->isVisible());
+        QVERIFY(session->authenticated());
+        click(findVisible("signOutCancel"));
+        // A closed popup's content leaves the window's items, so it may be gone rather than hidden.
+        QTRY_VERIFY(!find("signOutWarning") || !find("signOutWarning")->isVisible());
+        QVERIFY(session->authenticated());
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(findVisible("signOutAnyway"));
+        click(findVisible("signOutAnyway"));
+        QTRY_VERIFY(!session->authenticated());
+        QVERIFY(!QFile::exists(dir.path() + "/data/accounts/7/sync-queue.json"));
+    }
+
+    void signingOutWithNothingQueuedAsksNothing()
+    {
+        openSettings();
+        click(findVisible("settingsSignOut"));
+        QTRY_VERIFY(!session->authenticated());
+    }
+
+    // A long session: the copies follow the lists, not only the sign-in and the reconnect. A run of hearts asks the
+    // manifest once, a moment after the last, and the new recipes can then be opened with no server.
+    void recipesSavedWhileOnlineAreKeptForTheNextOutage()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_VERIFY(saved->listsLoaded());
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        keepTwoCopies();
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":5,"count":1}})";
+        saved->setCraving(5, true);
+        saved->setCraving(6, true);
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 2);
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 2);
+        QTRY_VERIFY(copies->has(5) && copies->has(6));
+        QTRY_VERIFY(!copies->refreshing());
+        // One ask for the two hearts, not one each.
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/saved/manifest").size(), 2);
+        goOffline();
+        recipes->open(5);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QCOMPARE(findVisible("recipeTitle")->property("text").toString(), QStringLiteral("Kept Coq au Vin"));
+    }
+
+    // Cook mode opens with the recipe as the page loaded it; a note written since (offline, queued) must survive the
+    // copy cook mode makes.
+    void cookModeKeepsTheNoteWrittenSinceTheRecipeLoaded()
+    {
+        startOfflineWithCopies();
+        recipes->open(6);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        saved->setNote(6, QStringLiteral("Less salt next time"));
+        QTRY_COMPARE(copies->recipe(6).value("mine").toMap().value("note").toString(),
+                     QStringLiteral("Less salt next time"));
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookPage"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QCOMPARE(copies->recipe(6).value("mine").toMap().value("note").toString(), QStringLiteral("Less salt next time"));
+        // The stars and the mark the copy already had are still there beside it.
+        QCOMPARE(copies->recipe(6).value("mine").toMap().value("stars").toInt(), 4);
+        recipes->open(6);
+        QTRY_COMPARE(saved->mine().value("note").toString(), QStringLiteral("Less salt next time"));
     }
 };
 

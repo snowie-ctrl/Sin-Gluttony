@@ -426,3 +426,93 @@ def test_stubKeptSeedsSomethingToShow(client, monkeypatch):
     assert [(l["kind"], l["count"]) for l in shown] == [("cravings", 2), ("custom", 1)]
     assert get(client, "/devoured").get_json()["data"]["total"] == 1
     assert get(client, "/recipes/1").get_json()["data"]["mine"]["stars"] == 4
+
+
+import time
+
+
+def post(client, path, body):
+    return client.post(API + path, json=body, headers=AUTH)
+
+
+def batch(client, ops):
+    answer = post(client, "/sync/batch", {"ops": ops})
+    assert answer.status_code == 200, answer.get_json()
+    return answer.get_json()["data"]["results"]
+
+
+HOUR_AGO = "2000-01-01T00:00:00.000Z"
+LATER = "2099-01-01T00:00:00.000Z"
+QUEUED_MARK = "11111111-2222-4333-8444-555555555555"
+
+
+def test_theStubAppliesABatchAndStoresAMarkOnce(client):
+    ops = [{"op": "devoured", "recipeId": 1, "on": "2026-10-28", "clientId": QUEUED_MARK, "at": HOUR_AGO},
+           {"op": "stars", "recipeId": 1, "stars": 3, "at": HOUR_AGO},
+           {"op": "note", "recipeId": 1, "text": " less salt ", "at": HOUR_AGO}]
+    first = batch(client, ops)
+    assert [r["result"] for r in first] == ["applied", "applied", "applied"]
+    assert first[0]["count"] == 1 and first[1] == {"result": "applied", "recipeId": 1, "stars": 3}
+    assert first[2] == {"result": "applied", "recipeId": 1, "note": "less salt"}
+    again = batch(client, ops)
+    assert [r["result"] for r in again] == ["already", "already", "already"] and again[0]["id"] == first[0]["id"]
+    mine = get(client, "/recipes/1").get_json()["data"]["mine"]
+    assert mine["stars"] == 3 and mine["note"] == "less salt" and len(mine["devoured"]) == 1
+
+
+def test_theStubKeepsTheNewestChange(client):
+    post(client, "/rating", {"recipeId": 1, "stars": 5})
+    assert batch(client, [{"op": "stars", "recipeId": 1, "stars": 2, "at": HOUR_AGO}]) == [
+        {"result": "already", "recipeId": 1, "stars": 5}]
+    post(client, "/rating", {"recipeId": 1, "stars": None})
+    assert batch(client, [{"op": "stars", "recipeId": 1, "stars": 2, "at": HOUR_AGO}]) == [
+        {"result": "already", "recipeId": 1, "stars": None}]
+    post(client, "/note", {"recipeId": 1, "text": ""})
+    assert batch(client, [{"op": "note", "recipeId": 1, "text": "old", "at": HOUR_AGO}]) == [
+        {"result": "already", "recipeId": 1, "note": None}]
+    # A clock ahead of the stub's counts as now: newer than what was stored a moment ago.
+    time.sleep(0.01)
+    assert batch(client, [{"op": "stars", "recipeId": 1, "stars": 2, "at": LATER}])[0]["result"] == "applied"
+
+
+def test_theStubRefusesBadChangesAsTheServerDoes(client):
+    answered = batch(client, [{"op": "bake", "recipeId": 1, "at": HOUR_AGO},
+                              {"op": "stars", "recipeId": 1, "stars": 9, "at": HOUR_AGO},
+                              {"op": "stars", "recipeId": 1, "stars": 2, "at": "soon"},
+                              {"op": "note", "recipeId": 999, "text": "x", "at": HOUR_AGO},
+                              {"op": "devoured", "recipeId": 1, "on": "2026-10-28", "clientId": "x", "at": HOUR_AGO}])
+    assert [r.get("message") for r in answered] == [
+        "op must be devoured, stars or note", "stars must be a whole number from 1 to 5, or null",
+        "at must be a UTC time (YYYY-MM-DDTHH:MM:SS.sssZ)", "no such recipe", "clientId must be a UUID"]
+    for ops in ([], [{}] * 501):
+        answer = post(client, "/sync/batch", {"ops": ops})
+        assert answer.status_code == 400 and answer.get_json()["message"] == "ops must be a list of 1 to 500 changes"
+
+
+def test_theStubsManifestHasTheListsAndTheirRecipes(client, monkeypatch):
+    monkeypatch.setenv("STUB_KEPT", "1")
+    stub.reset()
+    data = get(client, "/saved/manifest?extra=3").get_json()["data"]
+    assert data["lists"][0]["kind"] == "cravings" and data["lists"][0]["recipeIds"] == [1, 4]
+    assert data["lists"][1] == {"id": data["lists"][1]["id"], "title": "Weeknights", "kind": "custom", "recipeIds": [2]}
+    assert [r["id"] for r in data["recipes"]] == [1, 2, 3, 4]
+    assert all(r["updatedAt"] and r["removed"] is False for r in data["recipes"])
+    bad = get(client, "/saved/manifest?extra=a")
+    assert bad.status_code == 400 and bad.get_json()["message"] == "extra must be up to 200 recipe ids, comma separated"
+
+
+def test_aRemovedExtraTheReaderDoesNotKeepIsLeftOut(client, monkeypatch):
+    monkeypatch.setenv("STUB_REMOVED", "3")
+    stub.reset()
+    assert get(client, "/saved/manifest?extra=3").get_json()["data"]["recipes"] == []
+
+def test_theStubTakesOneClockForTheWholeBatch(client, monkeypatch):
+    # Every reading of the clock is a millisecond later than the last. Both changes are ahead of it, so both must
+    # clamp to the batch's one now: the first is applied and the second ties with it, as on the server.
+    ticks = iter(range(10000))
+    monkeypatch.setattr(stub, "nowStamp", lambda: "2026-10-28T00:00:%02d.%03dZ" % divmod(next(ticks), 1000))
+    answered = batch(client, [{"op": "stars", "recipeId": 1, "stars": 2, "at": LATER},
+                              {"op": "stars", "recipeId": 1, "stars": 4, "at": LATER}])
+    assert [r["result"] for r in answered] == ["applied", "already"]
+    assert answered[1]["stars"] == 2
+    assert get(client, "/recipes/1").get_json()["data"]["mine"]["stars"] == 2

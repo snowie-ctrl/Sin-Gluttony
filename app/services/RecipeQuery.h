@@ -41,6 +41,9 @@ public:
     void dropRecipe(int recipeId);
     // A row dragged to another place; the server is told by whoever moved it (Saved).
     void moveRecipe(int from, int to) { m_model.moveRow(from, to); }
+    // Rows from somewhere other than the server (the copies kept for offline use): shown whole, with nothing more to
+    // ask for. The next run() asks the server from the start, whatever the query.
+    void showRows(const QVariantList &rows);
 
     QObject *tiles() { return &m_model; }
     int count() const { return m_model.rowCount(); }

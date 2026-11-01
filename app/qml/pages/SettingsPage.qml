@@ -5,7 +5,8 @@ import "../logic/days.mjs" as Days
 
 // Settings: the account (username, password, the devices that sign in by themselves, signing out), the diet
 // profile, units, the colours, and how the app reaches the server. What Session says back (done, or why not) shows
-// under the account, in plain words.
+// under the account, in plain words. Changes made offline that the server refused five times wait under Waiting to
+// sync, with Try again and Discard; signing out with changes still queued asks first, since it deletes them.
 Flickable {
     id: root
     objectName: "settingsPage"
@@ -40,6 +41,52 @@ Flickable {
     }
 
     DietPopup { id: dietEditor }
+
+    Popup {
+        id: signOutPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: 440
+        modal: true
+        padding: Preferences.spacingLarge
+        background: Rectangle {
+            color: Preferences.backgroundSecondary
+            radius: Preferences.cornerRadius
+            border.color: Preferences.borderColor
+        }
+        contentItem: Column {
+            objectName: "signOutWarning"
+            spacing: Preferences.spacingSmall
+            Text {
+                text: Words.queuedTitle
+                color: Preferences.textPrimary
+                font.family: Preferences.headingFont
+                font.weight: Font.Black
+                font.pixelSize: Preferences.fontSizeHeading
+            }
+            Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                text: Words.queuedWarning(SyncQueue.count)
+                color: Preferences.textSecondary
+                font.family: Preferences.appFont
+                font.pixelSize: Preferences.fontSizeBody
+            }
+            Row {
+                spacing: Preferences.spacingSmall
+                ActionButton {
+                    objectName: "signOutAnyway"
+                    danger: true
+                    text: Words.signOutAnyway
+                    onClicked: {
+                        signOutPopup.close()
+                        Session.logout()
+                    }
+                }
+                ActionButton { objectName: "signOutCancel"; text: Words.cancel; onClicked: signOutPopup.close() }
+            }
+        }
+    }
 
     Column {
         id: column
@@ -168,7 +215,9 @@ Flickable {
                 objectName: "settingsSignOut"
                 danger: true
                 text: Words.signOut
-                onClicked: Session.logout()
+                // Signing out deletes the account's folder, queue included (spec §6): with changes still waiting it
+                // asks first.
+                onClicked: SyncQueue.count > 0 ? signOutPopup.open() : Session.logout()
             }
         }
 
@@ -243,6 +292,53 @@ Flickable {
                 color: Session.online ? Preferences.textPrimary : Preferences.dangerColor
                 font.family: Preferences.appFont
                 font.pixelSize: Preferences.fontSizeBody
+            }
+        }
+
+        Section {
+            objectName: "waitingToSync"
+            visible: SyncQueue.stuck.length > 0
+            title: Words.waitingToSync
+            Caption { width: parent.width; wrapMode: Text.Wrap; text: Words.waitingToSyncHint }
+            Repeater {
+                model: SyncQueue.stuck
+                delegate: Column {
+                    required property var modelData
+                    width: parent.width
+                    spacing: 4
+                    Text {
+                        objectName: "syncChange-" + modelData.id
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: Words.syncWhat(modelData, modelData.on ? Days.label(modelData.on, Saved.today()) : "")
+                              + (modelData.title ? " · " + modelData.title : "")
+                        color: Preferences.textPrimary
+                        font.family: Preferences.appFont
+                        font.pixelSize: Preferences.fontSizeBody
+                    }
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: modelData.message || ""
+                        color: Preferences.dangerColor
+                        font.family: Preferences.appFont
+                        font.pixelSize: Preferences.fontSizeLabel
+                    }
+                    Row {
+                        spacing: Preferences.spacingSmall
+                        ActionButton {
+                            objectName: "syncRetry-" + modelData.id
+                            text: Words.tryAgain
+                            onClicked: SyncQueue.retry(modelData.id)
+                        }
+                        ActionButton {
+                            objectName: "syncDiscard-" + modelData.id
+                            danger: true
+                            text: Words.discard
+                            onClicked: SyncQueue.discard(modelData.id)
+                        }
+                    }
+                }
             }
         }
     }

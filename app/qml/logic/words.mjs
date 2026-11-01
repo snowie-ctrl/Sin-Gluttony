@@ -136,6 +136,27 @@ export const notConnected = "Not connected"
 export const ACCOUNT_DONE = { username: "Username changed", password: "Password changed", device: "Device forgotten" }
 export const deleteNote = "Delete note"
 export const removeMark = "Remove this mark"
+export const cookMode = "Cook mode"
+export const cookLeave = "Leave"
+export const cookKeys = "↑ ↓ or space to move · Esc to leave"
+export const timersTitle = "Timers"
+export const timerDone = "Ding! Time to check"
+export const dismiss = "Dismiss"
+export const stopTimer = "Stop"
+export const offlineHome = "You're offline. Here's what you saved on this device."
+export const offlineBrowse = "You're offline"
+export const offlineBrowseHint = "Browsing and search need the server. Your saved recipes are here on this device."
+export const savedRecipes = "Your saved recipes"
+export const offlineSearch = "Offline: your saved recipes"
+export const noSavedMatch = "No saved recipe matches"
+export const savedCopy = "Saved on this device"
+export const pendingMark = "waiting to sync"
+export const listsNeedConnection = "Lists change only with a connection."
+export const waitingToSync = "Waiting to sync"
+export const waitingToSyncHint = "The server refused these 5 times. Try again, or let them go."
+export const discard = "Discard"
+export const signOutAnyway = "Sign out anyway"
+export const queuedTitle = "Not on the server yet"
 
 // The diet and avoid words match the server's lists (server/gluttonyRules.py DIETS and CONTAINS_ITEMS).
 export const DIETS = [
@@ -237,4 +258,27 @@ export function listTabTitle(list) {
 
 export function lastSignedIn(label) {
     return "last signed in " + label
+}
+
+export function stepOf(n, total) {
+    return "Step " + n + " of " + total
+}
+
+// A timer's name in the rail, where the recipe may no longer be on screen.
+export function timerLabel(title, step) {
+    return title + " · step " + step
+}
+
+export function queuedWarning(n) {
+    return n === 1 ? "1 change made offline hasn't reached the server yet. Signing out deletes it."
+                   : n + " changes made offline haven't reached the server yet. Signing out deletes them."
+}
+
+// A change waiting to sync, as Settings lists it. dayLabel is days.mjs' label for a mark's day.
+export function syncWhat(change, dayLabel) {
+    if (change.op === "devoured")
+        return "✓ " + devoured + " " + dayLabel
+    if (change.op === "stars")
+        return change.stars ? "★ " + change.stars + " stars" : "Stars cleared"
+    return change.text ? "✎ " + note : "Note deleted"
 }

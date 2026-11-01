@@ -5,17 +5,24 @@ import "../logic/tiles.mjs" as Tiles
 
 // Search on every page (Ctrl+K). What is typed asks for up to six recipes and five ingredients; the arrow keys
 // walk both lists, and Enter opens the one highlighted, or with nothing highlighted, every result for the words
-// typed. Choosing an ingredient opens Browse with it as Must include.
+// typed. Choosing an ingredient opens Browse with it as Must include. With no server it searches the saved recipes on
+// the device by title, and Enter with nothing highlighted opens the Saved page.
 Item {
     id: root
     objectName: "searchBar"
 
     property int highlighted: -1
-    readonly property int recipeCount: Catalog.quickRecipes.length
-    readonly property int rowCount: recipeCount + Catalog.quickIngredients.length
+    readonly property bool offline: !Session.online || Session.offline
+    // Offline, the recipes are the device's copies whose title holds what is typed; there are no ingredients.
+    readonly property var recipes: root.offline ? (RecipeStore.revision, RecipeStore.search(field.text)) : Catalog.quickRecipes
+    readonly property var ingredients: root.offline ? [] : Catalog.quickIngredients
+    readonly property int recipeCount: root.recipes.length
+    readonly property int rowCount: recipeCount + root.ingredients.length
 
     Shortcut {
         sequences: ["Ctrl+K"]
+        // Cook mode covers the window; the hidden field must not take its keys.
+        enabled: !Cook.active
         onActivated: {
             field.forceActiveFocus()
             field.selectAll()
@@ -24,16 +31,20 @@ Item {
 
     function choose(index) {
         if (index >= 0 && index < root.recipeCount) {
-            Recipes.open(Catalog.quickRecipes[index].id)
+            Recipes.open(root.recipes[index].id)
             Nav.navigateTo("recipe-page")
         } else if (index >= root.recipeCount && index < root.rowCount) {
-            const ingredient = Catalog.quickIngredients[index - root.recipeCount]
+            const ingredient = root.ingredients[index - root.recipeCount]
             Catalog.openWith({}, Words.searchWith + ingredient.name)
             Catalog.addIngredient("include", ingredient.id, ingredient.name)
             Nav.navigateTo("results-page")
         } else if (field.text.trim().length > 0) {
-            Catalog.search(field.text)
-            Nav.navigateTo("results-page")
+            if (root.offline) {
+                Nav.navigateTo("saved-page")
+            } else {
+                Catalog.search(field.text)
+                Nav.navigateTo("results-page")
+            }
         } else {
             return
         }
@@ -54,7 +65,8 @@ Item {
         placeholderText: Words.searchPlaceholder + "      Ctrl+K"
         onTextEdited: {
             root.highlighted = -1
-            debounce.restart()
+            if (!root.offline)
+                debounce.restart()
         }
         Keys.onDownPressed: root.highlighted = Math.min(root.highlighted + 1, root.rowCount - 1)
         Keys.onUpPressed: root.highlighted = Math.max(root.highlighted - 1, -1)
@@ -74,7 +86,8 @@ Item {
         y: root.height + 6
         width: root.width
         padding: 8
-        visible: field.activeFocus && root.rowCount > 0 && Catalog.quickTerm === field.text.trim()
+        visible: field.activeFocus && (root.offline ? field.text.trim().length > 0
+                                                    : root.rowCount > 0 && Catalog.quickTerm === field.text.trim())
         closePolicy: Popup.NoAutoClose
 
         background: Rectangle {
@@ -89,7 +102,25 @@ Item {
             spacing: 2
 
             Text {
-                visible: root.recipeCount > 0
+                objectName: "searchOffline"
+                visible: root.offline
+                leftPadding: 8
+                text: Words.offlineSearch
+                color: Preferences.textMuted
+                font.family: Preferences.appFont
+                font.pixelSize: Preferences.fontSizeCaption
+            }
+            Text {
+                objectName: "searchNoSaved"
+                visible: root.offline && root.recipeCount === 0
+                leftPadding: 8
+                text: Words.noSavedMatch
+                color: Preferences.textSecondary
+                font.family: Preferences.appFont
+                font.pixelSize: Preferences.fontSizeBody
+            }
+            Text {
+                visible: root.recipeCount > 0 && !root.offline
                 leftPadding: 8
                 text: Words.searchRecipes
                 color: Preferences.textMuted
@@ -97,7 +128,7 @@ Item {
                 font.pixelSize: Preferences.fontSizeCaption
             }
             Repeater {
-                model: Catalog.quickRecipes
+                model: root.recipes
                 delegate: Rectangle {
                     required property var modelData
                     required property int index
@@ -146,7 +177,7 @@ Item {
             }
 
             Text {
-                visible: Catalog.quickIngredients.length > 0
+                visible: root.ingredients.length > 0
                 leftPadding: 8
                 topPadding: 6
                 text: Words.searchIngredients
@@ -155,7 +186,7 @@ Item {
                 font.pixelSize: Preferences.fontSizeCaption
             }
             Repeater {
-                model: Catalog.quickIngredients
+                model: root.ingredients
                 delegate: Rectangle {
                     required property var modelData
                     required property int index

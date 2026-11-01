@@ -6,12 +6,14 @@ import "../logic/days.mjs" as Days
 // Saved: a tab for Cravings, one for each of the person's lists, and one for Devoured. A list's recipes are
 // moved by their grip (⠿) and taken off with a named button; the person's own lists are renamed, moved and deleted from their
 // header. Devoured is every time something was made, newest first or by stars. The open tab lives in Saved, so
-// the page comes back where it was left.
+// the page comes back where it was left. With no server the lists and their recipes are the device's copies; the tools
+// that change a list are put away, and a line says why.
 Item {
     id: root
     objectName: "savedPage"
 
     readonly property bool onDevoured: Saved.devouredOpen
+    readonly property bool offline: !Session.online || Session.offline
     readonly property var query: root.onDevoured ? Saved.devouredHistory : Saved.listRecipes
     readonly property var openList: {
         for (let i = 0; i < Saved.lists.length; ++i)
@@ -137,7 +139,7 @@ Item {
             }
             Chip {
                 objectName: "newListTab"
-                visible: Saved.canCreateList
+                visible: Saved.canCreateList && !root.offline
                 text: Words.newListPlus
                 onClicked: {
                     titlePopup.mode = "create"
@@ -146,7 +148,7 @@ Item {
             }
             Text {
                 objectName: "listLimitReached"
-                visible: Saved.listsLoaded && !Saved.canCreateList
+                visible: Saved.listsLoaded && !Saved.canCreateList && !root.offline
                 height: 30
                 verticalAlignment: Text.AlignVCenter
                 text: Words.listLimitReached
@@ -154,6 +156,15 @@ Item {
                 font.family: Preferences.appFont
                 font.pixelSize: Preferences.fontSizeCaption
             }
+        }
+
+        Text {
+            objectName: "savedOffline"
+            visible: root.offline
+            text: Words.listsNeedConnection
+            color: Preferences.textMuted
+            font.family: Preferences.appFont
+            font.pixelSize: Preferences.fontSizeLabel
         }
 
         Item {
@@ -174,7 +185,7 @@ Item {
             Row {
                 anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                 spacing: 6
-                visible: root.custom
+                visible: root.custom && !root.offline
                 Chip {
                     objectName: "moveListEarlier"
                     visible: root.custom
@@ -291,7 +302,7 @@ Item {
             // The grip: hold it and let go over another cell to move this recipe there.
             Rectangle {
                 objectName: "dragHandle"
-                visible: !root.onDevoured
+                visible: !root.onDevoured && !root.offline
                 anchors { left: parent.left; top: parent.top; margins: Preferences.spacingSmall }
                 width: 26
                 height: 26
@@ -327,7 +338,7 @@ Item {
             // A named danger button under the tile, never a bare glyph: taking a recipe off a list is destructive.
             ActionButton {
                 objectName: "removeFromList"
-                visible: !root.onDevoured
+                visible: !root.onDevoured && !root.offline
                 anchors { left: parent.left; bottom: parent.bottom }
                 danger: true
                 text: Words.removeFromList

@@ -10,6 +10,7 @@ Item {
     objectName: "resultsPage"
 
     readonly property var results: Catalog.results
+    readonly property bool offline: !Session.online || Session.offline
 
     Component.onCompleted: {
         if (Object.keys(Catalog.options).length === 0)
@@ -94,6 +95,7 @@ Item {
 
         GridView {
             id: grid
+            visible: !root.offline
             objectName: "resultsGrid"
             anchors { top: dietRow.bottom; topMargin: Preferences.spacingMedium; left: parent.left; right: parent.right; bottom: parent.bottom }
             clip: true
@@ -113,7 +115,7 @@ Item {
 
         Text {
             anchors.centerIn: grid
-            visible: root.results.loading && root.results.count === 0
+            visible: root.results.loading && root.results.count === 0 && !root.offline
             text: Words.loadingWords
             color: Preferences.textMuted
             font.family: Preferences.appFont
@@ -122,7 +124,7 @@ Item {
 
         Column {
             anchors.centerIn: grid
-            visible: root.results.error.length > 0 && root.results.count === 0
+            visible: root.results.error.length > 0 && root.results.count === 0 && !root.offline
             spacing: Preferences.spacingSmall
             Text {
                 text: root.results.error
@@ -137,7 +139,7 @@ Item {
             objectName: "resultsEmpty"
             anchors.centerIn: grid
             visible: root.results.answered && !root.results.loading && root.results.count === 0
-                     && root.results.error.length === 0
+                     && root.results.error.length === 0 && !root.offline
             spacing: Preferences.spacingSmall
             Text {
                 text: Words.nothingFits
@@ -162,6 +164,33 @@ Item {
                     text: Words.switchDietOff
                     onClicked: Diet.enabled = false
                 }
+            }
+        }
+
+        // Spec §6: browsing needs the server; the saved recipes are on the device.
+        Column {
+            objectName: "resultsOffline"
+            anchors.centerIn: grid
+            visible: root.offline
+            spacing: Preferences.spacingSmall
+            Text {
+                text: Words.offlineBrowse
+                color: Preferences.textPrimary
+                font.family: Preferences.headingFont
+                font.weight: Font.Black
+                font.pixelSize: Preferences.fontSizeHeading
+            }
+            Text {
+                text: Words.offlineBrowseHint
+                color: Preferences.textSecondary
+                font.family: Preferences.appFont
+                font.pixelSize: Preferences.fontSizeBody
+            }
+            ActionButton {
+                objectName: "resultsSavedRecipes"
+                primary: true
+                text: Words.savedRecipes
+                onClicked: Nav.navigateTo("saved-page")
             }
         }
     }

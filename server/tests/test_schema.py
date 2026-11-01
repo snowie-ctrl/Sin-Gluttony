@@ -87,7 +87,7 @@ def test_theSpecsIndexesAndKeysAreThere():
 def test_theLimitsAreInTheColumns():
     assert "Title VARCHAR(60) NOT NULL" in block("Lists")
     assert "Text VARCHAR(2000) NOT NULL" in block("Notes")
-    assert "CHECK (Stars BETWEEN 1 AND 5)" in block("Ratings")
+    assert "CHECK (Stars IS NULL OR Stars BETWEEN 1 AND 5)" in block("Ratings")
     assert "CHECK (Kind IN ('cravings', 'custom'))" in block("Lists")
 
 
@@ -103,3 +103,13 @@ def test_anAccountCanHoldOnlyOneCravingsList():
 def test_cravingsOfIsSetExactlyOnCravings():
     # A list is Cravings exactly when it names its owner in CravingsOf, so the unique key can't be sidestepped.
     assert "CONSTRAINT ck_lists_cravingsof CHECK ((Kind = 'cravings') = (CravingsOf IS NOT NULL))" in block("Lists")
+
+
+def test_starsAndNotesKeepWhenTheyChangedEvenWhenCleared():
+    # A cleared rating or note stays as a row (Stars NULL, Text ''), holding when it was cleared: /sync/batch
+    # compares a queued change with it, so a change made offline before the clearing never brings it back.
+    assert "Stars TINYINT NULL," in block("Ratings")
+    for table in ("Ratings", "Notes"):
+        assert "UpdatedAt DATETIME(3) NOT NULL," in block(table), table
+        assert "ON UPDATE" not in block(table), table
+        assert "DEFAULT" not in block(table).split("UpdatedAt", 1)[1].split(",", 1)[0], table

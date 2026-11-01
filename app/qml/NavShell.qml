@@ -3,7 +3,7 @@ import QtQuick.Controls
 import "logic/words.mjs" as Words
 
 // The app around its pages: the icon rail on the left, the top bar with search on every page, and the page beside
-// them. Pages are swapped by name; a new shell starts on Nav.currentPage. While the server cannot be reached a
+// them, and the kitchen timers in the rail once cook mode has closed. Pages are swapped by name; a new shell starts on Nav.currentPage. While the server cannot be reached a
 // banner under the top bar says so.
 Rectangle {
     id: root
@@ -87,8 +87,17 @@ Rectangle {
             }
         }
 
+        // Timers outlive cook mode (spec §5): they stay here, counting down, until each is put away.
+        TimerStack {
+            objectName: "railTimers"
+            compact: true
+            visible: !Cook.active && Cook.timers.length > 0
+            anchors { bottom: settingsButton.top; bottomMargin: Preferences.spacingMedium; horizontalCenter: parent.horizontalCenter }
+        }
+
         // Settings holds the account, and signing out, as well as the rest.
         RailButton {
+            id: settingsButton
             objectName: "railSettings"
             anchors { bottom: parent.bottom; bottomMargin: 16; horizontalCenter: parent.horizontalCenter }
             label: Words.navSettings

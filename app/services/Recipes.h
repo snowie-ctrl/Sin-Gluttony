@@ -5,10 +5,12 @@
 
 #include "api/Api.h"
 
+class RecipeStore;
 
 // The recipe being looked at: its detail (GET /recipes/<id>), and the servings or multiplier chosen for it on
 // this visit. Cook mode (milestone 3) reads the same choices. A recipe that has gone from the catalog (404) says
-// so rather than failing.
+// so rather than failing. With no server the copy kept on this device (RecipeStore) is shown, and one loaded from
+// the server refreshes that copy.
 class Recipes : public QObject
 {
     Q_OBJECT
@@ -21,9 +23,14 @@ class Recipes : public QObject
     // The servings chosen (1 to 99); 0 when the recipe states none, which scales by `multiplier` instead.
     Q_PROPERTY(int servings READ servings WRITE setServings NOTIFY servingsChanged)
     Q_PROPERTY(double multiplier READ multiplier WRITE setMultiplier NOTIFY servingsChanged)
+    // The recipe shown is the copy kept on this device, because the server could not be reached.
+    Q_PROPERTY(bool fromCopy READ fromCopy NOTIFY changed)
 
 public:
     explicit Recipes(Api &api, QObject *parent = nullptr);
+
+    void setStore(RecipeStore *store) { m_store = store; }
+    bool fromCopy() const { return m_fromCopy; }
 
     int recipeId() const { return m_recipeId; }
     QVariantMap recipe() const { return m_recipe; }
@@ -48,8 +55,12 @@ signals:
 
 private:
     void fetch();
+    bool offline() const;
+    bool openCopy();
 
     Api &m_api;
+    RecipeStore *m_store = nullptr;
+    bool m_fromCopy = false;
     int m_recipeId = -1;
     QVariantMap m_recipe;
     bool m_loading = false;

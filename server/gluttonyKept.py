@@ -17,7 +17,7 @@ FLAGS_SQL = ("SELECT r.RecipeID, "
 KEPT_SQL = ("SELECT EXISTS (SELECT 1 FROM ListItems li JOIN Lists l ON l.ListID = li.ListID "
             "WHERE l.UserID = %s AND li.RecipeID = %s) "
             "OR EXISTS (SELECT 1 FROM Devoured WHERE UserID = %s AND RecipeID = %s) "
-            "OR EXISTS (SELECT 1 FROM Notes WHERE UserID = %s AND RecipeID = %s) AS Kept")
+            "OR EXISTS (SELECT 1 FROM Notes WHERE UserID = %s AND RecipeID = %s AND Text <> '') AS Kept")
 
 
 def attachTileFlags(cur, uid, tiles):
@@ -38,7 +38,7 @@ def attachTileFlags(cur, uid, tiles):
 
 def keptBy(cur, uid, recipeId):
     """Whether this person keeps the recipe: in one of their lists (Cravings included), devoured, or noted. A
-    rating alone does not keep a removed recipe (spec §3)."""
+    rating alone does not keep a removed recipe (spec §3), nor does a deleted note (a row with no text)."""
     cur.execute(KEPT_SQL, (uid, recipeId, uid, recipeId, uid, recipeId))
     return bool((cur.fetchone() or {}).get("Kept"))
 
@@ -65,7 +65,8 @@ def mineOf(cur, uid, recipeId):
                 "ORDER BY MadeOn DESC, DevouredID DESC", (uid, recipeId))
     devoured = cur.fetchall()
     cur.execute("SELECT (SELECT Stars FROM Ratings WHERE UserID = %s AND RecipeID = %s) AS Stars, "
-                "(SELECT Text FROM Notes WHERE UserID = %s AND RecipeID = %s) AS Note", (uid, recipeId, uid, recipeId))
+                "(SELECT NULLIF(Text, '') FROM Notes WHERE UserID = %s AND RecipeID = %s) AS Note",
+                (uid, recipeId, uid, recipeId))
     extra = cur.fetchone() or {}
     return {"craving": any(row["Kind"] == "cravings" for row in lists),
             "lists": [row["ListID"] for row in lists if row["Kind"] == "custom"],

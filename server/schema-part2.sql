@@ -111,23 +111,27 @@ CREATE TABLE Devoured (
   CONSTRAINT fk_devoured_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Stars and notes remember when they last changed, in UTC to the millisecond, written by the routes (never by
+-- MySQL's clock, which follows the server's zone). A cleared rating stays as a row with Stars NULL and a deleted
+-- note as a row with no text: /sync/batch compares a change queued offline with that moment, so a change made
+-- before the clearing never brings the old value back.
 CREATE TABLE Ratings (
   UserID INT NOT NULL,
   RecipeID INT NOT NULL,
-  Stars TINYINT NOT NULL,
-  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  Stars TINYINT NULL,
+  UpdatedAt DATETIME(3) NOT NULL,
   PRIMARY KEY (UserID, RecipeID),
-  CONSTRAINT ck_ratings_stars CHECK (Stars BETWEEN 1 AND 5),
+  CONSTRAINT ck_ratings_stars CHECK (Stars IS NULL OR Stars BETWEEN 1 AND 5),
   CONSTRAINT fk_ratings_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE,
   CONSTRAINT fk_ratings_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- A private note, up to 2,000 characters (utf8mb4 counts characters, as the routes do). An empty note is no row.
+-- A private note, up to 2,000 characters (utf8mb4 counts characters, as the routes do). Text '' is a deleted note.
 CREATE TABLE Notes (
   UserID INT NOT NULL,
   RecipeID INT NOT NULL,
   Text VARCHAR(2000) NOT NULL,
-  UpdatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UpdatedAt DATETIME(3) NOT NULL,
   PRIMARY KEY (UserID, RecipeID),
   CONSTRAINT fk_notes_user FOREIGN KEY (UserID) REFERENCES Users (UserID) ON DELETE CASCADE,
   CONSTRAINT fk_notes_recipe FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE

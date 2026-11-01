@@ -34,6 +34,20 @@ void RecipeQuery::dropRecipe(int recipeId)
     }
 }
 
+void RecipeQuery::showRows(const QVariantList &rows)
+{
+    ++m_generation;
+    m_model.clearRows();
+    m_model.appendRows(rows);
+    m_total = int(rows.size());
+    m_page = 1;
+    m_loading = false;
+    m_answered = true;
+    m_error.clear();
+    m_hasQuery = false;
+    emit changed();
+}
+
 void RecipeQuery::run(const QUrlQuery &query)
 {
     if (m_hasQuery && query == m_query && (m_loading || (m_answered && m_error.isEmpty())))
