@@ -287,6 +287,12 @@ void RecipeStore::refresh()
             return;
         }
         const QJsonObject data = result.object.value("data").toObject();
+        // A 200 that is not a manifest (a proxy's page, a server half-deployed) names nothing to keep or to drop, and
+        // reading it as an empty manifest would empty the offline shelf.
+        if (!data.value("lists").isArray() || !data.value("recipes").isArray()) {
+            finishRefresh();
+            return;
+        }
         m_lists = data.value("lists").toArray().toVariantList();
         AccountStore::writeJson(m_store->file(QStringLiteral("manifest.json")),
                                 QJsonObject{{"lists", data.value("lists")}});
@@ -338,8 +344,9 @@ void RecipeStore::fetchDetail(int recipeId, const QString &updatedAt)
                 fetchPicture(recipeId, true);
                 return;
             }
-        } else if (result.httpStatus == 404) {
-            // Gone, or no longer the person's to see: the copy goes with it.
+        } else if (result.httpStatus == 404 && !result.object.isEmpty()) {
+            // The server says it is gone, or no longer the person's to see: the copy goes with it. A 404 that is not
+            // the server's own (a proxy's page, which has no JSON) says nothing about this recipe.
             remove(recipeId);
         } else if (result.httpStatus == 0) {
             // The server went away mid-refresh: the rest waits for the next one.

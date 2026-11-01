@@ -219,6 +219,42 @@ private slots:
         QCOMPARE(store->lists().size(), 2);
     }
 
+    // A 200 that is not a manifest (a proxy's or a half-deployed server's answer) says nothing about what to keep.
+    void aManifestWithoutItsListsOrRecipesDeletesNothing()
+    {
+        server->responses[path("/saved/manifest")] = manifest({5});
+        serve(5, "Five");
+        refreshed();
+        const QJsonObject kept = AccountStore::readJson(dir->path() + "/accounts/7/manifest.json");
+        for (const QByteArray &answer : {QByteArray(R"({"status":"ok","data":{}})"),
+                                         QByteArray(R"({"status":"ok","data":{"lists":[]}})"),
+                                         QByteArray(R"({"status":"ok","data":{"recipes":[]}})"),
+                                         QByteArray(R"({"status":"ok","data":{"lists":"none","recipes":[]}})"),
+                                         QByteArray(R"({"status":"ok"})")}) {
+            server->responses[path("/saved/manifest")] = answer;
+            refreshed();
+            QVERIFY2(store->has(5), answer.constData());
+            QVERIFY2(QFile::exists(copyFile(5)), answer.constData());
+            QCOMPARE(store->lists().size(), 2);
+            QCOMPARE(AccountStore::readJson(dir->path() + "/accounts/7/manifest.json"), kept);
+        }
+    }
+
+    void aDetailThatIsNotTheServersOwn404LeavesTheCopy()
+    {
+        server->responses[path("/saved/manifest")] = manifest({5});
+        serve(5, "Five");
+        refreshed();
+        // A proxy's page, not the server saying the recipe is gone.
+        server->responses[path("/saved/manifest")] = manifest({5}, {}, "2026-10-28T09:00:00");
+        server->statuses[path("/recipes/5")] = 404;
+        server->responses[path("/recipes/5")] = "<html><body>Not Found</body></html>";
+        refreshed();
+        QVERIFY(store->has(5));
+        QVERIFY(QFile::exists(copyFile(5)));
+        // The server's own 404 still takes the copy away (aRecipeThatHasGoneIsDeleted).
+    }
+
     void aRecipeThatHasGoneIsDeleted()
     {
         server->responses[path("/saved/manifest")] = manifest({5});
