@@ -157,7 +157,7 @@ A refused change never stops the others; the batch is one transaction.
 What the app keeps for use without a server. `?extra=<id,...>` names up to 200 recipes it opened in cook mode
 (`400 "extra must be up to 200 recipe ids, comma separated"`).
 
-`data: {lists: [{id, title, kind, recipeIds}], recipes: [{id, updatedAt, removed}]}`:
+`data: {lists: [{id, title, kind, recipeIds}], recipes: [{id, updatedAt, removed, mine}]}`:
 
 - `lists` in `/lists`' order (Cravings first), each with its recipes in the list's own order.
 - `recipes`, by id: every recipe on a list, and every `extra` one the person may still see. A removed recipe stays
@@ -165,3 +165,6 @@ What the app keeps for use without a server. `?extra=<id,...>` names up to 200 r
   out, and the app deletes its copy.
 - `updatedAt` is when part 1 last changed the recipe (`YYYY-MM-DDTHH:MM:SS`). The app fetches the detail and picture
   again when it differs from the one stored with its copy.
+- `mine` is what the person keeps on the recipe, exactly as `/recipes/<id>` gives it (`{craving, lists, devoured,
+  stars, note}`). The app keeps its copy's `mine` equal to it without fetching the recipe again, except while a
+  change of its own for that recipe still waits to be sent.

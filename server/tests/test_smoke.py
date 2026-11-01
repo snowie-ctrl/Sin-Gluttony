@@ -67,4 +67,20 @@ def test_theStepsSignUpBeforeBrowsingAndSignOutLast(tmp_path):
     smoke = loadModule("gluttonySmoke")
     assert [name for name, _ in smoke.steps(tmp_path)] == [
         "seed", "store", "unknown", "account", "browse", "diet", "home", "lists", "yours", "sync", "manifest",
-        "strangers", "remove", "signout"]
+        "together", "strangers", "remove", "signout"]
+
+
+def test_aDeviceThatDiesEndsTheTogetherStepWithAFailureNamingIt(tmp_path):
+    smoke = loadModule("gluttonySmoke")
+    together = dict(smoke.steps(tmp_path))["together"]
+
+    def broken():
+        raise RuntimeError("no connection " + "x" * 300)
+    client = SimpleNamespace(environ_base={"HTTP_X_SESSION_TOKEN": "token"},
+                             application=SimpleNamespace(test_client=broken))
+    with pytest.raises(smoke.SmokeFailed) as failure:
+        together(client, {"secondId": 1})
+    message = str(failure.value)
+    assert "device 0: RuntimeError: no connection" in message
+    # Each device's text is cut to 200 characters, so four of them stay a readable line.
+    assert len(message) < 4 * 260

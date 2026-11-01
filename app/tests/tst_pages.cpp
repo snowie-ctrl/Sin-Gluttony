@@ -489,6 +489,54 @@ private slots:
         QCOMPARE(queue->changes().first().value("title").toString(), QStringLiteral("Stub Coq au Vin"));
     }
 
+    void aSyncedChangeAsksForTheManifestAgain()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        // With the recipe open, Saved can queue a change made on it.
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        goOffline();
+        saved->setStars(1, 4);
+        QCOMPARE(queue->count(), 1);
+        server->responses[path("/sync/batch")] =
+            R"({"status":"ok","data":{"results":[{"result":"applied","recipeId":1,"stars":4}]}})";
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        // The reconnect's own manifest is done with before counting, so only the queue's answer can ask again.
+        QTRY_VERIFY(!copies->refreshing());
+        QTest::qWait(300);
+        QVERIFY(!copies->refreshing());
+        const int asked = int(requestsTo("/saved/manifest").size());
+        // Two seconds after the queue's answer, every copy is brought up to what the server kept.
+        QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > asked, 6000);
+    }
+
+    void aDiscardedChangeAsksForTheManifestAgain()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        // A change the server keeps refusing ends up stuck in Settings › Waiting to sync.
+        server->responses[path("/sync/batch")] =
+            R"({"status":"ok","data":{"results":[{"result":"refused","message":"no such recipe"}]}})";
+        queue->add(QJsonObject{{"op", "stars"}, {"recipeId", 1}, {"stars", 4}});
+        for (int i = 0; i < 10 && queue->stuck().isEmpty(); ++i) {
+            QTRY_VERIFY(!queue->sending());
+            if (queue->stuck().isEmpty())
+                queue->flush();
+        }
+        QTRY_COMPARE(queue->stuck().size(), 1);
+        QTRY_VERIFY(!queue->sending());
+        QCOMPARE(requestsTo("/saved/manifest").size(), 1);
+        queue->discard(queue->stuck().first().toMap().value("id").toString());
+        QCOMPARE(queue->count(), 0);
+        // Two seconds later the copies are brought back to what the server kept.
+        QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > 1, 6000);
+    }
+
     void signingOutClosesCookModeAndStopsTheTimers()
     {
         start();
@@ -500,6 +548,25 @@ private slots:
         session->logout();
         QVERIFY(!cook->active());
         QVERIFY(cook->timers().isEmpty());
+    }
+
+    void anEndedSessionLeavesCookModeButKeepsTheTimers()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        cook->open(recipes->recipe());
+        cook->startTimer(60, "a");
+        // The server ends the session: the next request meets a 401. Asking who the device is again (the retry after
+        // an ended session) must not sign it straight back in, or the case would race the sign-in it checks for.
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
+        server->statuses[path("/lists")] = 401;
+        server->responses[path("/lists")] = R"({"status":"error","message":"not signed in"})";
+        saved->load();
+        QTRY_VERIFY(!session->authenticated());
+        QVERIFY(!cook->active());
+        QCOMPARE(cook->timers().size(), 1);
     }
 
     void aReloadOfTheOpenRecipeKeepsWhatWasChangedMeanwhile()

@@ -1,9 +1,12 @@
 #include "services/RecipeStore.h"
 
+#include <QBuffer>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QImageReader>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QSaveFile>
@@ -16,6 +19,13 @@
 #include "api/AuthNetworkFactory.h"
 #include "services/AccountStore.h"
 
+// Compared as JSON text: a copy read back from disk and one Saved patched hold the same values in different types
+// (a whole number or a double, no value or a null).
+static bool sameMine(const QVariantMap &a, const QVariantMap &b)
+{
+    return QJsonDocument(QJsonObject::fromVariantMap(a)).toJson(QJsonDocument::Compact)
+        == QJsonDocument(QJsonObject::fromVariantMap(b)).toJson(QJsonDocument::Compact);
+}
 
 RecipeStore::RecipeStore(Api &api, QObject *parent)
     : QObject(parent)
@@ -73,6 +83,7 @@ RecipeStore::Entry RecipeStore::entryOf(int recipeId, const QVariantMap &recipe,
     entry.tile = tileOf(recipe);
     entry.updatedAt = updatedAt;
     entry.cookedAt = cookedAt;
+    entry.mine = recipe.value("mine").toMap();
     entry.picture = QFile::exists(pictureFile(recipeId));
     for (const QVariant &mark : recipe.value("mine").toMap().value("devoured").toList())
         entry.lastMadeOn = qMax(entry.lastMadeOn, mark.toMap().value("on").toString());
@@ -86,6 +97,7 @@ void RecipeStore::load()
     m_index.clear();
     m_lists.clear();
     m_toFetch.clear();
+    m_waitedAtAsk.clear();
     m_inFlight = 0;
     m_refreshAgain = false;
     const bool wasRefreshing = std::exchange(m_refreshing, false);
@@ -251,6 +263,11 @@ void RecipeStore::patchMine(int recipeId, const QVariantMap &mine)
     write(recipeId, copy, known.updatedAt, known.cookedAt);
 }
 
+bool RecipeStore::keepsOwnMine(int recipeId) const
+{
+    return m_waitedAtAsk.contains(recipeId) || (m_waiting && m_waiting(recipeId));
+}
+
 void RecipeStore::refresh()
 {
     if (!m_store || m_store->uid() <= 0 || offline())
@@ -276,6 +293,14 @@ void RecipeStore::refresh()
     if (!extra.isEmpty())
         query.addQueryItem(QStringLiteral("extra"), extra.join(QLatin1Char(',')));
 
+    // The recipes with a change of this device's own waiting as the manifest is asked for: the batch and the manifest
+    // leave together, so the manifest may have been read before the batch was applied even when the batch's answer
+    // arrives first and the queue no longer holds the change. Those copies keep their `mine` through this refresh.
+    m_waitedAtAsk.clear();
+    if (m_waiting)
+        for (auto it = m_index.cbegin(); it != m_index.cend(); ++it)
+            if (m_waiting(it.key()))
+                m_waitedAtAsk.insert(it.key());
     const int generation = m_generation;
     const qint64 askedAt = now;
     m_api.get(QStringLiteral("/saved/manifest"), query, [this, generation, askedAt](const Api::Result &result) {
@@ -297,20 +322,37 @@ void RecipeStore::refresh()
         AccountStore::writeJson(m_store->file(QStringLiteral("manifest.json")),
                                 QJsonObject{{"lists", data.value("lists")}});
         QHash<int, QString> wanted;
-        for (const QJsonValue &value : data.value("recipes").toArray())
-            wanted.insert(value.toObject().value("id").toInt(), value.toObject().value("updatedAt").toString());
+        QHash<int, QVariantMap> mines;
+        for (const QJsonValue &value : data.value("recipes").toArray()) {
+            const QJsonObject entry = value.toObject();
+            const int id = entry.value("id").toInt();
+            wanted.insert(id, entry.value("updatedAt").toString());
+            // An empty block is not a `mine` (the server always names every key): it must not wipe a copy's stars.
+            if (entry.value("mine").isObject() && !entry.value("mine").toObject().isEmpty())
+                mines.insert(id, entry.value("mine").toObject().toVariantMap());
+        }
         // A recipe cooked since the manifest was asked for is not named in it yet: it stays.
         for (const int id : m_index.keys())
             if (!wanted.contains(id) && m_index.value(id).cookedAt < askedAt)
                 remove(id);
         m_toFetch.clear();
+        QList<int> minesToPatch;
         for (auto it = wanted.cbegin(); it != wanted.cend(); ++it) {
             const auto known = m_index.constFind(it.key());
             const bool stale = known == m_index.cend() || known->updatedAt != it.value();
             const bool pictureMissing = known != m_index.cend() && known->tile.value("hasImage").toBool() && !known->picture;
             if (stale || pictureMissing)
                 m_toFetch << qMakePair(it.key(), it.value());
+            // Stars, a note, a mark or a list changed on another device: the copy takes the server's `mine` without
+            // fetching the recipe again (a stale one is fetched whole, `mine` and all). Not while a change of this
+            // device's own still waits for the recipe: the queue's answer asks for the manifest again.
+            if (!stale && mines.contains(it.key()) && !keepsOwnMine(it.key())
+                && !sameMine(known->mine, mines.value(it.key())))
+                minesToPatch << it.key();
         }
+        // Patched after the walk: writing a copy changes the index the walk reads.
+        for (const int id : minesToPatch)
+            patchMine(id, mines.value(id));
         // Lowest id first, so a refresh fetches in a repeatable order.
         std::sort(m_toFetch.begin(), m_toFetch.end());
         bump();
@@ -337,7 +379,11 @@ void RecipeStore::fetchDetail(int recipeId, const QString &updatedAt)
         if (generation != m_generation)
             return;
         if (result.ok) {
-            const QVariantMap recipe = result.object.value("data").toObject().toVariantMap();
+            QVariantMap recipe = result.object.value("data").toObject().toVariantMap();
+            // A change of this device's own still waiting for the recipe: the detail may have been read before it
+            // reached the server, so the copy keeps the `mine` it shows.
+            if (keepsOwnMine(recipeId) && m_index.contains(recipeId))
+                recipe.insert("mine", m_index.value(recipeId).mine);
             write(recipeId, recipe, updatedAt, m_index.value(recipeId).cookedAt);
             if (recipe.value("hasImage").toBool()) {
                 // The slot stays counted until the picture has landed too.
@@ -370,12 +416,20 @@ void RecipeStore::fetchPicture(int recipeId, bool counted)
             return;
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError && status == 200 && m_index.contains(recipeId)) {
-            QSaveFile out(file);
-            if (out.open(QIODevice::WriteOnly)) {
-                out.write(reply->readAll());
-                if (out.commit()) {
-                    m_index[recipeId].picture = true;
-                    bump();
+            QByteArray body = reply->readAll();
+            // A captive portal answers every request with its own page and a 200: kept as the picture, it would
+            // stand for good (the stamp hasn't moved, so nothing asks again). Only bytes an image reader recognises
+            // are kept; anything else leaves the picture missing, and the next refresh asks for it.
+            QBuffer probe(&body);
+            probe.open(QIODevice::ReadOnly);
+            if (!QImageReader::imageFormat(&probe).isEmpty()) {
+                QSaveFile out(file);
+                if (out.open(QIODevice::WriteOnly)) {
+                    out.write(body);
+                    if (out.commit()) {
+                        m_index[recipeId].picture = true;
+                        bump();
+                    }
                 }
             }
         }

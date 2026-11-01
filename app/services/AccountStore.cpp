@@ -1,5 +1,6 @@
 // The account half of Pageturner Pageturner/services/AccountStore.cpp at ad9342e: open, close, wipe, the
-// pending sign-out and last.json as there; an offline start needs a saved recipe instead of a download.
+// pending sign-out and last.json as there; an offline start needs a saved recipe instead of a download;
+// wiped names the account whose folder was deleted.
 #include "services/AccountStore.h"
 
 #include <QDebug>
@@ -85,6 +86,7 @@ void AccountStore::wipeAccount(int uid)
 
 void AccountStore::removeAccount(int uid)
 {
+    emit wiped(uid);
     const QString folder = accountsDir() + QStringLiteral("/%1").arg(uid);
     // Nothing names the account any more before its files go, so a wipe cut short never opens offline later.
     const QString last = accountsDir() + QStringLiteral("/last.json");

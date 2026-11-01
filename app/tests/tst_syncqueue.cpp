@@ -154,6 +154,18 @@ private slots:
         QCOMPARE(AccountStore::readJson(dir->path() + "/accounts/7/sync-queue.json").value("changes").toArray().size(), 0);
     }
 
+    void waitsNamesTheRecipesWithAChangeWaiting()
+    {
+        goOffline();
+        queue->add(stars(1, 4));
+        QVERIFY(queue->waits(1));
+        QVERIFY(!queue->waits(2));
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 1}, {"stars", 4}}});
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        QVERIFY(!queue->waits(1));
+    }
+
     void addingWhileTheServerAnswersSendsAtOnce()
     {
         server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 1}, {"stars", 4}}});
@@ -320,6 +332,16 @@ private slots:
         QTRY_COMPARE(queue->changes().first().value("failures").toInt(), 1);
         QCOMPARE(queue->changes().first().value("message").toString(),
                  QStringLiteral("ops must be a list of 1 to 500 changes"));
+    }
+
+    void aBatchTooBigForTheServerCountsAFailureForEach()
+    {
+        // nginx refuses a body over its limit with its own page, before Flask sees it.
+        server->statuses[path("/sync/batch")] = 413;
+        server->responses[path("/sync/batch")] = "<html><center><h1>413 Request Entity Too Large</h1></center></html>";
+        queue->add(stars(1, 4));
+        QTRY_COMPARE(queue->changes().first().value("failures").toInt(), 1);
+        QCOMPARE(queue->changes().first().value("message").toString(), QStringLiteral("Too much to send at once."));
     }
 
     void anotherAccountNeverSendsTheLastOnesChanges()

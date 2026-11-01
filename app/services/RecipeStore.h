@@ -3,6 +3,7 @@
 #include <QList>
 #include <QObject>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -78,6 +79,10 @@ public:
     void update(const QVariantMap &recipe);
     // What the person keeps on a recipe changed (offline, or since its copy was made): the copy says so too.
     void patchMine(int recipeId, const QVariantMap &mine);
+    // Whether this device still has a change of its own waiting for a recipe (Wiring passes SyncQueue::waits). Such
+    // a copy keeps its `mine` when the manifest says otherwise: the manifest may have been read before the change
+    // reached the server.
+    void setWaiting(std::function<bool(int)> waiting) { m_waiting = std::move(waiting); }
     // Asks for the manifest and brings the copies in line with it. A second ask while one is on its way runs once
     // that one has finished.
     Q_INVOKABLE void refresh();
@@ -96,6 +101,8 @@ private:
         bool picture = false;
         // The newest Devoured mark's day, "" when none: Again?'s order.
         QString lastMadeOn;
+        // What the person keeps on it, as the copy holds it: compared with the manifest's.
+        QVariantMap mine;
     };
 
     void load();
@@ -110,12 +117,17 @@ private:
     void finishRefresh();
     void bump();
     bool offline() const;
+    // A change of this device's own waits for the recipe, now or when this refresh asked: its copy's `mine` stands.
+    bool keepsOwnMine(int recipeId) const;
     QString pictureFile(int recipeId) const;
     static QVariantMap tileOf(const QVariantMap &recipe);
 
     Api &m_api;
     AccountStore *m_store = nullptr;
     std::function<qint64()> m_clock;
+    std::function<bool(int)> m_waiting;
+    // The recipes that had a change waiting when the running refresh asked for the manifest.
+    QSet<int> m_waitedAtAsk;
     // Pictures go through a manager that adds the session token, as every Image's does (AuthNetworkFactory).
     QNetworkAccessManager *m_network;
     QHash<int, Entry> m_index;

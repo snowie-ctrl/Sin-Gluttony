@@ -42,7 +42,7 @@ public:
     explicit Cook(QObject *parent = nullptr);
 
     // Where cook.json lives: the open account's folder, which follows sign-in and sign-out.
-    void setStore(AccountStore *store) { m_store = store; }
+    void setStore(AccountStore *store);
     // Milliseconds since the epoch; tests move it forward instead of waiting.
     void setClock(std::function<qint64()> clock) { m_clock = std::move(clock); }
 
@@ -68,7 +68,7 @@ public:
     Q_INVOKABLE void dismissTimer(int timerId);
     // Reads the clock: timers that reached zero say so. The tick calls it four times a second while one runs.
     void update();
-    // Signing out: cook mode closes and the timers go; what was kept stays in the folder signing out deletes.
+    // A sign-out or another account: the cook session and every timer end.
     void clear();
 
 signals:
@@ -105,6 +105,8 @@ private:
     KeepAwake m_keepAwake;
     bool m_active = false;
     int m_recipeId = 0;
+    // The account the open cook session and its timers belong to, -1 for none.
+    int m_owner = -1;
     QVariantMap m_recipe;
     int m_step = 0;
     QList<int> m_ticks;

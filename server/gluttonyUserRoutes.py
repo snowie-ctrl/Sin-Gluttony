@@ -10,7 +10,9 @@ Everything a person keeps is looked up together with their id, so someone else's
 one.
 """
 import hashlib
+import random
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -27,6 +29,13 @@ USERNAME_MIN, USERNAME_MAX = 3, 32
 PASSWORD_MIN, PASSWORD_MAX = 8, 256
 # MySQL's error number for a duplicate key.
 DUPLICATE_ENTRY = 1062
+# MySQL's error numbers when two transactions want each other's locks: a deadlock (MySQL rolls one back) and a lock
+# wait that ran out of time. Both leave nothing applied, so the transaction can simply be tried again.
+LOCK_CONFLICTS = (1213, 1205)
+# How many times /sync/batch tries a batch that met a lock conflict.
+SYNC_ATTEMPTS = 3
+# Batches tried again after a lock conflict since the server started; the smoke test reports it.
+lockRetries = 0
 # The one list every account has from sign-up. The app shows it in its own words; this is what the row holds.
 CRAVINGS_TITLE = "Cravings"
 
@@ -736,12 +745,20 @@ def applyChange(cur, uid, change, now):
     return {"result": "applied" if applied else "already", "recipeId": recipeId, "note": held or None}
 
 
+def retryPause(attempt):
+    """A short, jittered wait before a batch that lost a lock conflict is tried again. A deadlock victim that retried
+    at once would re-take its gap lock while the other devices' batches still hold theirs and be the victim again; the
+    jitter spreads the devices out, and the wait grows a little with each try."""
+    time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))
+
+
 @gluttonyUserBP.route("/sync/batch", methods=["POST"])
 def syncBatch():
     """What the app did while it couldn't reach the server (Devoured marks, stars, notes), up to 500 changes,
     applied oldest first and answered one by one in the order sent. A mark is stored once per clientId; stars and
     notes keep whichever change is newest, so a queue that arrives late never undoes something done since. A change
-    that can't be made is refused with its reason, and never stops the others."""
+    that can't be made is refused with its reason, and never stops the others; a batch that meets a lock conflict is
+    tried again whole, and a server error applies nothing."""
     ops, problem = rules.syncOps(body().get("ops"))
     if problem:
         return fail(problem, 400)
@@ -753,12 +770,22 @@ def syncBatch():
         at, _ = rules.syncAt(ops[index].get("at"), now)
         return at or datetime.min
 
-    results = [None] * len(ops)
-    with database() as (conn, cur):
-        for index in sorted(range(len(ops)), key=oldestFirst):
-            results[index] = applyChange(cur, uid, ops[index], now)
-        conn.commit()
-    return ok({"results": results})
+    global lockRetries
+    # Two devices sending changes for the same recipe at once can deadlock on the gap locks storeNewer's FOR UPDATE
+    # takes on a row that does not exist yet. MySQL rolls one batch back whole, so it is tried again whole.
+    for attempt in range(SYNC_ATTEMPTS):
+        try:
+            results = [None] * len(ops)
+            with database() as (conn, cur):
+                for index in sorted(range(len(ops)), key=oldestFirst):
+                    results[index] = applyChange(cur, uid, ops[index], now)
+                conn.commit()
+            return ok({"results": results})
+        except Exception as error:
+            if getattr(error, "errno", None) not in LOCK_CONFLICTS or attempt == SYNC_ATTEMPTS - 1:
+                raise
+            lockRetries += 1
+            retryPause(attempt)
 
 
 def stamp(moment):
@@ -771,8 +798,11 @@ def stamp(moment):
 def savedManifest():
     """What the app keeps for use without a server: every list (Cravings first, then the person's order) with its
     recipes in their order, and every recipe on them with when part 1 last changed it, so the app fetches only what
-    has moved on. `extra` names recipes the app opened in cook mode, which it keeps beside them; one the person may
-    no longer see (its source removed it, and they don't keep it) is left out, and the app lets its copy go."""
+    has moved on. Each recipe also carries the person's own `mine` block, as /recipes/<id> gives it: a star, a note,
+    a mark or a list changed on another device reaches this device's copy without fetching the recipe again, and a
+    mark or list removal (which leaves no row to date) is seen too. `extra` names recipes the app opened in cook
+    mode, which it keeps beside them; one the person may no longer see (its source removed it, and they don't keep
+    it) is left out, and the app lets its copy go."""
     extra, problem = rules.extraIds(request.args.get("extra"))
     if problem:
         return fail(problem, 400)
@@ -791,11 +821,30 @@ def savedManifest():
         ids = sorted(listed | set(extra))
         recipes = []
         if ids:
-            cur.execute(f"SELECT RecipeID, UpdatedAt, RemovedAt FROM Recipes "
-                        f"WHERE RecipeID IN ({', '.join(['%s'] * len(ids))}) ORDER BY RecipeID", tuple(ids))
+            marks = ", ".join(["%s"] * len(ids))
+            # The person's stars and note ride along with each recipe's row; a cleared rating or a deleted note is
+            # a row with no value (schema-part2.sql), read as null, as mineOf reads it.
+            cur.execute("SELECT r.RecipeID, r.UpdatedAt, r.RemovedAt, t.Stars, NULLIF(n.Text, '') AS Note "
+                        "FROM Recipes r "
+                        "LEFT JOIN Ratings t ON t.UserID = %s AND t.RecipeID = r.RecipeID "
+                        "LEFT JOIN Notes n ON n.UserID = %s AND n.RecipeID = r.RecipeID "
+                        f"WHERE r.RecipeID IN ({marks}) ORDER BY r.RecipeID", (uid, uid, *ids))
+            rows = cur.fetchall()
+            cur.execute(f"SELECT RecipeID, DevouredID, MadeOn FROM Devoured WHERE UserID = %s AND RecipeID IN ({marks}) "
+                        "ORDER BY RecipeID, MadeOn DESC, DevouredID DESC", (uid, *ids))
+            devoured = {}
             for row in cur.fetchall():
+                devoured.setdefault(row["RecipeID"], []).append({"id": row["DevouredID"],
+                                                                 "on": rules.isoDate(row["MadeOn"])})
+            cravings = {rid for entry in lists if entry["kind"] == "cravings" for rid in entry["recipeIds"]}
+            # The person's own lists in their order, as mineOf names them (Cravings is `craving`, not a list).
+            custom = [(entry["id"], set(entry["recipeIds"])) for entry in lists if entry["kind"] == "custom"]
+            for row in rows:
+                rid = row["RecipeID"]
                 removed = row["RemovedAt"] is not None
-                if removed and row["RecipeID"] not in listed and not kept.keptBy(cur, uid, row["RecipeID"]):
+                if removed and rid not in listed and not kept.keptBy(cur, uid, rid):
                     continue
-                recipes.append({"id": row["RecipeID"], "updatedAt": stamp(row["UpdatedAt"]), "removed": removed})
+                mine = {"craving": rid in cravings, "lists": [listId for listId, held in custom if rid in held],
+                        "devoured": devoured.get(rid, []), "stars": row["Stars"], "note": row["Note"]}
+                recipes.append({"id": rid, "updatedAt": stamp(row["UpdatedAt"]), "removed": removed, "mine": mine})
     return ok({"lists": lists, "recipes": recipes})

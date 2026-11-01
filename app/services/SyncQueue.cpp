@@ -119,6 +119,14 @@ QVariantList SyncQueue::pendingMarks(int recipeId) const
     return out;
 }
 
+bool SyncQueue::waits(int recipeId) const
+{
+    for (const QJsonObject &change : m_changes)
+        if (change.value("recipeId").toInt() == recipeId)
+            return true;
+    return false;
+}
+
 void SyncQueue::flush()
 {
     m_refusedNow.clear();
@@ -147,6 +155,7 @@ void SyncQueue::discard(const QString &id)
     m_changes.removeAt(at);
     save();
     emit changed();
+    emit discarded();
 }
 
 void SyncQueue::countFailure(int index, const QString &message)
@@ -206,13 +215,15 @@ void SyncQueue::send()
                 send();
             return;
         }
-        if (result.httpStatus == 400) {
-            // The batch itself was refused as malformed: each change in it counts a failure, so it can't block the
-            // queue for ever.
+        if (result.httpStatus == 400 || result.httpStatus == 413) {
+            // The batch itself was refused: malformed (400), or more than the server takes at once (413, nginx's own
+            // page, with no JSON to read). Each change in it counts a failure, so it can't block the queue for ever.
+            const QString reason = result.httpStatus == 413 ? QStringLiteral("Too much to send at once.")
+                                                            : reasonOf(result);
             for (const QString &id : ids) {
                 const int at = indexOf(id);
                 if (at >= 0)
-                    countFailure(at, reasonOf(result));
+                    countFailure(at, reason);
             }
             save();
             emit changed();

@@ -1,5 +1,7 @@
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -21,6 +23,18 @@ static QString path(const QString &route)
 }
 
 static const qint64 day = 24LL * 60 * 60 * 1000;
+
+// A real 2x2 PNG, a different colour per seed, so the store can tell it is a picture.
+static QByteArray picture(int seed)
+{
+    QImage pixels(2, 2, QImage::Format_RGB32);
+    pixels.fill(QColor::fromRgb(seed * 40 % 256, 80, 120));
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    pixels.save(&buffer, "PNG");
+    return bytes;
+}
 
 // A recipe's detail as GET /recipes/<id> answers it.
 static QByteArray detail(int id, const QString &title, bool hasImage = true, const QJsonObject &mine = {})
@@ -55,6 +69,32 @@ static QByteArray manifest(const QList<int> &cravings, const QList<int> &weeknig
     return QJsonDocument(QJsonObject{{"status", "ok"}, {"data", data}}).toJson();
 }
 
+// A `mine` block as the server sends it.
+static QJsonObject mineWith(const QJsonValue &stars, const QJsonValue &note, const QJsonArray &devoured = {},
+                            bool craving = true)
+{
+    return QJsonObject{{"craving", craving}, {"lists", QJsonArray()}, {"devoured", devoured}, {"stars", stars},
+                       {"note", note}};
+}
+
+// The manifest `body` with `mine` set on recipe `id`, as the server sends what the person keeps on each recipe.
+static QByteArray withMine(const QByteArray &body, int id, const QJsonObject &mine)
+{
+    QJsonObject root = QJsonDocument::fromJson(body).object();
+    QJsonObject data = root.value("data").toObject();
+    QJsonArray recipes = data.value("recipes").toArray();
+    for (int i = 0; i < recipes.size(); ++i) {
+        QJsonObject entry = recipes.at(i).toObject();
+        if (entry.value("id").toInt() == id) {
+            entry.insert("mine", mine);
+            recipes.replace(i, entry);
+        }
+    }
+    data.insert("recipes", recipes);
+    root.insert("data", data);
+    return QJsonDocument(root).toJson();
+}
+
 
 class TestRecipeStore : public QObject
 {
@@ -84,7 +124,7 @@ class TestRecipeStore : public QObject
     void serve(int id, const QString &title, bool hasImage = true)
     {
         server->responses[path(QStringLiteral("/recipes/%1").arg(id))] = detail(id, title, hasImage);
-        server->responses[path(QStringLiteral("/images/%1").arg(id))] = "JPEG-" + QByteArray::number(id);
+        server->responses[path(QStringLiteral("/images/%1").arg(id))] = picture(id);
     }
 
     // Refreshes and waits until it has finished.
@@ -117,6 +157,153 @@ private slots:
         store.reset();
     }
 
+    void aStarGivenOnAnotherDeviceReachesTheCopyWithoutFetchingIt()
+    {
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", true, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/images/5")] = picture(5);
+        refreshed();
+        QCOMPARE(requestsTo("/recipes/5").size(), 1);
+        QCOMPARE(requestsTo("/images/5").size(), 1);
+
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(4, "less salt"));
+        refreshed();
+        const QVariantMap mine = store->recipe(5).value("mine").toMap();
+        QCOMPARE(mine.value("stars").toInt(), 4);
+        QCOMPARE(mine.value("note").toString(), QStringLiteral("less salt"));
+        // The tiles read the copy's flags.
+        QCOMPARE(store->cravings().first().toMap().value("stars").toInt(), 4);
+        // Neither the recipe nor its picture was asked for again.
+        QCOMPARE(requestsTo("/recipes/5").size(), 1);
+        QCOMPARE(requestsTo("/images/5").size(), 1);
+    }
+
+    void aMarkRemovedElsewhereLeavesTheCopy()
+    {
+        const QJsonArray made{QJsonObject{{"id", 41}, {"on", "2026-10-20"}}};
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue(), made));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false,
+                                                       mineWith(QJsonValue(), QJsonValue(), made));
+        refreshed();
+        QCOMPARE(store->again().size(), 1);
+
+        // The mark is taken back on another device: no row is left to date, but the manifest's mine says so.
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        refreshed();
+        QVERIFY(store->again().isEmpty());
+        QVERIFY(store->recipe(5).value("mine").toMap().value("devoured").toList().isEmpty());
+        QCOMPARE(requestsTo("/recipes/5").size(), 1);
+    }
+
+    void aChangeStillWaitingKeepsTheCopysValue()
+    {
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false, mineWith(QJsonValue(), QJsonValue()));
+        refreshed();
+        // Two stars given offline: the queue holds them and Saved has patched the copy.
+        bool waiting = true;
+        store->setWaiting([&waiting](int recipeId) { return waiting && recipeId == 5; });
+        store->patchMine(5, mineWith(2, QJsonValue()).toVariantMap());
+
+        // The manifest is read before the queued stars reach the server: it still says none.
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+
+        // Once the queue has nothing for it, the server's word stands.
+        waiting = false;
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(2, QJsonValue()));
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(5, QJsonValue()));
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 5);
+    }
+
+    void aManifestWithoutMineLeavesTheCopysMineAlone()
+    {
+        // An older server (or a half-deployed one) sends no mine: the copy keeps its own.
+        server->responses[path("/saved/manifest")] = manifest({5});
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false);
+        refreshed();
+        store->patchMine(5, mineWith(3, QJsonValue()).toVariantMap());
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 3);
+    }
+
+    void aManifestReadBeforeTheQueuesBatchDoesNotRollTheCopyBack()
+    {
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false, mineWith(QJsonValue(), QJsonValue()));
+        refreshed();
+        bool waiting = true;
+        store->setWaiting([&waiting](int recipeId) { return waiting && recipeId == 5; });
+        store->patchMine(5, mineWith(2, QJsonValue()).toVariantMap());
+
+        // The manifest is asked for while the change waits, and its answer (read before the batch was applied, so
+        // stars still none) is held back.
+        server->holdNext[path("/saved/manifest")] = 1;
+        store->refresh();
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 2);
+        // The batch's answer comes first: the queue has nothing for the recipe by the time the manifest arrives.
+        waiting = false;
+        server->releaseHeld();
+        QTRY_VERIFY(!store->refreshing());
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+
+        // A refresh asked for with nothing waiting takes the server's word.
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(5, QJsonValue()));
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 5);
+    }
+
+    void aPageThatIsNotAPictureIsNotKept()
+    {
+        // A hotel's Wi-Fi answers every request with its own sign-in page, with a 200.
+        server->responses[path("/saved/manifest")] = manifest({5});
+        serve(5, "Stub Coq au Vin");
+        server->responses[path("/images/5")] = "<html><body>Sign in to the Wi-Fi</body></html>";
+        refreshed();
+        QVERIFY(store->has(5));
+        QVERIFY(!QFile::exists(copyFile(5, ".jpg")));
+        // On a real connection, the next refresh fetches the picture it is missing.
+        server->responses[path("/images/5")] = picture(5);
+        refreshed();
+        QTRY_VERIFY(QFile::exists(copyFile(5, ".jpg")));
+    }
+
+    void aDetailFetchedWhileAChangeWaitsKeepsTheCopysMine()
+    {
+        // A copy whose picture is missing is fetched whole again at the next refresh.
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", true, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/images/5")] = picture(5);
+        server->statuses[path("/images/5")] = 500;
+        refreshed();
+        QVERIFY(store->has(5));
+        QVERIFY(!QFile::exists(copyFile(5, ".jpg")));
+        store->setWaiting([](int recipeId) { return recipeId == 5; });
+        store->patchMine(5, mineWith(2, QJsonValue()).toVariantMap());
+
+        server->statuses.remove(path("/images/5"));
+        refreshed();
+        QCOMPARE(requestsTo("/recipes/5").size(), 2);
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+        QTRY_VERIFY(QFile::exists(copyFile(5, ".jpg")));
+    }
+
+    void anEmptyMineInTheManifestLeavesTheCopysMineAlone()
+    {
+        server->responses[path("/saved/manifest")] = manifest({5});
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false);
+        refreshed();
+        store->patchMine(5, mineWith(3, "keep it").toVariantMap());
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, QJsonObject());
+        refreshed();
+        const QVariantMap mine = store->recipe(5).value("mine").toMap();
+        QCOMPARE(mine.value("stars").toInt(), 3);
+        QCOMPARE(mine.value("note").toString(), QStringLiteral("keep it"));
+    }
+
     void aSavedRecipeIsKeptWithItsPicture()
     {
         server->responses[path("/saved/manifest")] = manifest({5});
@@ -124,9 +311,9 @@ private slots:
         refreshed();
         QVERIFY(store->has(5));
         QVERIFY(QFile::exists(copyFile(5)));
-        QFile picture(copyFile(5, ".jpg"));
-        QVERIFY(picture.open(QIODevice::ReadOnly));
-        QCOMPARE(picture.readAll(), QByteArray("JPEG-5"));
+        QFile kept(copyFile(5, ".jpg"));
+        QVERIFY(kept.open(QIODevice::ReadOnly));
+        QCOMPARE(kept.readAll(), ::picture(5));
         QCOMPARE(store->recipe(5).value("title").toString(), QStringLiteral("Stub Coq au Vin"));
         // Thumbnails come from the large picture (spec §6), on disk, online or not.
         QVERIFY(store->pictureUrl(5, false).startsWith("file:"));

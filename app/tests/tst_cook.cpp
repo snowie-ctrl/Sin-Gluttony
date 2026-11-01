@@ -58,6 +58,44 @@ private slots:
         cook.reset();
     }
 
+    void anEndedSessionKeepsTheTimers()
+    {
+        cook->open(recipe());
+        cook->startTimer(60, "a");
+        // An ended session or a device forgotten elsewhere closes the folder, nothing more.
+        store->close();
+        QCOMPARE(cook->timers().size(), 1);
+        QVERIFY(cook->awake());
+        store->open(7, "ann");
+        QCOMPARE(cook->timers().size(), 1);
+    }
+
+    void anotherAccountDoesNotInheritTheTimers()
+    {
+        cook->startTimer(60, "a");
+        store->close();
+        store->open(8, "bob");
+        QVERIFY(cook->timers().isEmpty());
+        QVERIFY(!cook->awake());
+    }
+
+    void signingOutWipesTheTimers()
+    {
+        cook->open(recipe());
+        cook->startTimer(60, "a");
+        store->wipe();
+        QVERIFY(cook->timers().isEmpty());
+        QVERIFY(!cook->active());
+    }
+
+    void aSignOutTheServerEndedFirstWipesTheTimersToo()
+    {
+        cook->startTimer(60, "a");
+        store->close();
+        store->wipeAccount(7);
+        QVERIFY(cook->timers().isEmpty());
+    }
+
     void openingShowsTheFirstStepAndKeepsTheScreenOn()
     {
         QSignalSpy opened(cook.get(), &Cook::opened);

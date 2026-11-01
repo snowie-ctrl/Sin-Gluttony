@@ -501,6 +501,16 @@ def test_theStubsManifestHasTheListsAndTheirRecipes(client, monkeypatch):
     assert bad.status_code == 400 and bad.get_json()["message"] == "extra must be up to 200 recipe ids, comma separated"
 
 
+def test_theStubsManifestCarriesEachRecipesMine(client, monkeypatch):
+    monkeypatch.setenv("STUB_KEPT", "1")
+    stub.reset()
+    data = get(client, "/saved/manifest?extra=3").get_json()["data"]
+    for entry in data["recipes"]:
+        assert entry["mine"] == get(client, f"/recipes/{entry['id']}").get_json()["data"]["mine"]
+    # STUB_KEPT stars and notes a recipe, so at least one mine is not empty.
+    assert any(entry["mine"]["stars"] or entry["mine"]["note"] for entry in data["recipes"])
+
+
 def test_aRemovedExtraTheReaderDoesNotKeepIsLeftOut(client, monkeypatch):
     monkeypatch.setenv("STUB_REMOVED", "3")
     stub.reset()
@@ -516,3 +526,34 @@ def test_theStubTakesOneClockForTheWholeBatch(client, monkeypatch):
     assert [r["result"] for r in answered] == ["applied", "already"]
     assert answered[1]["stars"] == 2
     assert get(client, "/recipes/1").get_json()["data"]["mine"]["stars"] == 2
+
+
+def test_signingOutEndsThatSessionOnly(client):
+    def signIn(fingerprint):
+        made = client.post(f"{stub.API}/auth", json={"username": "second-reader", "password": "second-password",
+                                                     "fingerprint": fingerprint, "key": "stub-key" if fingerprint == "a" else ""})
+        return made.get_json()["token"]
+    first = signIn("a")
+    second = signIn("b")
+    assert first != second
+    client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": first})
+    assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": first}).status_code == 401
+    assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": second}).status_code == 200
+
+
+def test_aNeighbouringPathIsNotTheApi(client):
+    # Only /api/gluttony/... answers, as on the real host; a path that merely starts with the same letters is 404.
+    for path in ("/api/gluttony-admin/state", "/api/gluttonyx/ping", "/"):
+        assert client.get(path).status_code == 404
+    assert client.get(API + "/ping").status_code == 200
+
+
+def test_signingOutEndsEverySessionOfThatDevice(client):
+    made = client.post(f"{stub.API}/auth", json={"username": "second-reader", "password": "second-password",
+                                                 "fingerprint": "a", "key": "stub-key"}).get_json()["token"]
+    # Identifying the device hands out a session too; signing the device out ends both (docs/api.md).
+    again = client.post(f"{stub.API}/device/identify", json={"fingerprint": "a"}).get_json()["token"]
+    assert made != again
+    client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": made})
+    for token in (made, again):
+        assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": token}).status_code == 401

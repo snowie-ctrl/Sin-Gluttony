@@ -12,6 +12,10 @@ class Chime : public QObject
 public:
     explicit Chime(QObject *parent = nullptr);
     void play();
+    // Writes "ready" or "error" to `file` once the sound has loaded or failed to (main.cpp's GLUTTONY_CHIME_CHECK).
+    // "ready" proves the sound loads in this build with Qt Multimedia's DLL present; that the multimedia plugin and
+    // FFmpeg are in a package is guarded by release.ps1's file check, not by this.
+    void reportTo(const QString &file);
 
 private:
     QSoundEffect m_effect;

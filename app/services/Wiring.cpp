@@ -26,6 +26,7 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     recipes.setStore(&copies);
     saved.setStore(&copies);
     saved.setQueue(&queue);
+    copies.setWaiting([&queue](int recipeId) { return queue.waits(recipeId); });
 
     const auto signedIn = [&diet, &catalog, &home, &saved]() {
         diet.load();
@@ -81,6 +82,12 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     refreshSoon->setInterval(2000);
     QObject::connect(refreshSoon, &QTimer::timeout, &copies, &RecipeStore::refresh);
     QObject::connect(&saved, &Saved::listsKept, refreshSoon, qOverload<>(&QTimer::start));
+    // What the queue's answer settled reaches every copy, not only the open recipe's: the manifest, which carries
+    // each recipe's `mine`, is asked again once the server has taken the changes.
+    QObject::connect(&queue, &SyncQueue::taken, refreshSoon, qOverload<>(&QTimer::start));
+    // A discarded change was shown on its copy as a star or note the server never took: the manifest is asked again
+    // so the copy goes back to what the server keeps.
+    QObject::connect(&queue, &SyncQueue::discarded, refreshSoon, qOverload<>(&QTimer::start));
 
     // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
     // on its next visit.
@@ -89,7 +96,10 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     // The catalog and Home are cleared before the diet, whose clearing switches it back on: by then nothing is
     // left to ask again.
     QObject::connect(&session, &Session::signedOut, &diet, [&diet, &catalog, &home, &recipes, &saved, &cook]() {
-        cook.clear();
+        // The sign-in page takes the screen, so cook mode closes. Its timers stay: they end with the account (Cook
+        // follows the folder), not with a session the server ended mid-roast.
+        if (cook.active())
+            cook.close();
         catalog.clear();
         home.clear();
         recipes.clear();

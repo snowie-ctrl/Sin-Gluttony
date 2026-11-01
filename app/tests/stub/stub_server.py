@@ -6,13 +6,14 @@ the four in fixture/recipes.json. Filters, the profile and the safety rule follo
 include and exclude match only the ingredient itself, not its children.
 
 Sign in as stub / stub-password (UID 7, token "stub"). Sign up with the key "stub-key" (any other key is 403
-invalid_key); the username "taken" is 409. Signing out makes /device/identify say "new" until the next /auth.
+invalid_key); the username "taken" is 409. Signing out makes /device/identify say "new" until the next /auth,
+and ends that session's token (the stub reader's own token returns at its next sign-in).
 
 Every reader starts with an empty Cravings list. Lists, items, Devoured marks, stars and notes follow docs/api.md and
 refuse what the server refuses, in its words; they last until the stub stops.
 
 What the app did offline arrives with /sync/batch: marks once per clientId, the newest star or note wins (/rating and
-/note remember when they changed). /saved/manifest gives every recipe the snapshot's takenAt as its updatedAt.
+/note remember when they changed). /saved/manifest gives every recipe the snapshot's takenAt as its updatedAt, and the reader's mine as /recipes/<id> gives it.
 
 STUB_KEPT=1              the stub reader starts with two Cravings, a list "Weeknights", a mark three days ago, four
                          stars and a note, on the first recipes of the snapshot (or the fixture).
@@ -144,7 +145,8 @@ def body():
 
 @app.before_request
 def guard():
-    route = request.path[len(API):] if request.path.startswith(API) else None
+    # Only /api/gluttony/... is the API: a neighbour such as /api/gluttony-admin is not served here, as on the real host.
+    route = request.path[len(API):] if request.path.startswith(API + "/") else None
     if route is not None and route not in PUBLIC and uid() is None:
         return fail("error", 401, "not signed in")
     return None
@@ -157,9 +159,16 @@ def ping():
     return ok()
 
 
-def signedIn(rid):
-    token = TOKEN if rid == UID else f"stub-{rid}"
+def signedIn(rid, fingerprint):
+    # The stub reader keeps its one well-known token; any other account gets one per sign-in, so signing one
+    # device out (its session ends, docs/api.md) leaves the other's.
+    if rid == UID:
+        token = TOKEN
+    else:
+        state["nextToken"] = state.get("nextToken", 0) + 1
+        token = f"stub-{rid}-{state['nextToken']}"
     state["tokens"][token] = rid
+    state.setdefault("tokenDevice", {})[token] = fingerprint
     state["deviceUid"] = rid
     return ok(UID=rid, username=state["readers"][rid]["username"], token=token)
 
@@ -170,7 +179,7 @@ def identify():
         return fail("error", 400, "missing fingerprint")
     with lock:
         rid = state["deviceUid"]
-        return signedIn(rid) if rid else ok(status="new")
+        return signedIn(rid, body()["fingerprint"]) if rid else ok(status="new")
 
 
 @app.route(API + "/auth", methods=["POST"])
@@ -194,10 +203,10 @@ def auth():
             rid = state["nextUid"]
             state["nextUid"] += 1
             state["readers"][rid] = newReader(username, password)
-            return signedIn(rid)
+            return signedIn(rid, data["fingerprint"])
         for rid, reader in state["readers"].items():
             if reader["username"] == username and reader["password"] == password:
-                return signedIn(rid)
+                return signedIn(rid, data["fingerprint"])
     return fail("invalid_credentials", 401)
 
 
@@ -205,6 +214,11 @@ def auth():
 def logout():
     with lock:
         state["deviceUid"] = None
+        # This device is forgotten and its sessions end (docs/api.md): the caller's, and any other the device holds.
+        ended = {request.headers.get("X-Session-Token") or ""}
+        ended |= {t for t, fp in state.get("tokenDevice", {}).items() if fp == body().get("fingerprint")}
+        for token in ended:
+            state["tokens"].pop(token, None)
     return ok()
 
 
@@ -982,7 +996,8 @@ def savedManifest():
     for rid in sorted(listed | {int(p) for p in parts}):
         if rid not in state["recipes"] or (rid not in listed and not visible(rid, reader)):
             continue
-        recipes.append({"id": rid, "updatedAt": state["takenAt"], "removed": rid in state["removed"]})
+        recipes.append({"id": rid, "updatedAt": state["takenAt"], "removed": rid in state["removed"],
+                        "mine": mineOf(reader, rid)})
     return ok({"lists": lists, "recipes": recipes})
 
 

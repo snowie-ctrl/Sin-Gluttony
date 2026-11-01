@@ -62,6 +62,9 @@ int main(int argc, char *argv[])
     SyncQueue queue(api);
     Cook cook;
     Chime chime;
+    // Dev affordance for release.ps1: say whether the timers' sound loaded in this build. Does nothing unless set.
+    if (const QString chimeCheck = qEnvironmentVariable("GLUTTONY_CHIME_CHECK"); !chimeCheck.isEmpty())
+        chime.reportTo(chimeCheck);
     // Pictures load as plain Images through managers this makes, so they carry the session token.
     AuthNetworkFactory networkFactory;
 

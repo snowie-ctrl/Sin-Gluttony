@@ -196,6 +196,22 @@ private slots:
         QCOMPARE(recipes->recipe().value("title").toString(), QStringLiteral("Stub Spinach Eggs (kept)"));
     }
 
+    void reopeningTheSameRecipeAfterReconnectAsksTheServer()
+    {
+        api->setSessionToken("tok");
+        keepEggs();
+        goOffline();
+        recipes->open(4);
+        QVERIFY(recipes->fromCopy());
+        api->setBases(QString(), QStringLiteral("http://127.0.0.1:%1/api/gluttony").arg(server->serverPort()));
+        api->checkNow();
+        QTRY_VERIFY(api->online());
+        server->responses["/api/gluttony/recipes/4"] = eggs;
+        recipes->open(4);
+        QTRY_VERIFY(!recipes->fromCopy() && !recipes->loading());
+        QCOMPARE(requestsTo("/api/gluttony/recipes/4"), 1);
+    }
+
     void withNoCopyAnOutageSaysSo()
     {
         api->setSessionToken("tok");
