@@ -91,7 +91,8 @@ void SyncQueue::add(QJsonObject change)
     m_changes << change;
     save();
     emit changed();
-    flush();
+    // Not flush(): what was refused is tried again on a reconnect (spec §8), not whenever another change is added.
+    send();
 }
 
 bool SyncQueue::dropMark(const QString &clientId)
@@ -133,7 +134,9 @@ void SyncQueue::retry(const QString &id)
     m_changes[at].insert("message", QString());
     save();
     emit changed();
-    flush();
+    // Only this change is tried again; the others refused since the last reconnect keep waiting for the next.
+    m_refusedNow.remove(id);
+    send();
 }
 
 void SyncQueue::discard(const QString &id)

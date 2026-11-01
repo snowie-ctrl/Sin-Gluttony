@@ -219,6 +219,53 @@ private slots:
         QCOMPARE(queue->count(), 1);
     }
 
+    // Spec §8: a refused change is tried again on each reconnect, not whenever something else is added.
+    void aRefusedChangeIsNotSentAgainByNewChangesButByAReconnect()
+    {
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "refused"}, {"message", "no such recipe"}}});
+        queue->add(stars(99, 4));
+        QTRY_COMPARE(batches().size(), 1);
+        QTRY_VERIFY(!queue->sending());
+        QCOMPARE(queue->changes().first().value("failures").toInt(), 1);
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 1}, {"stars", 4}}});
+        for (int recipe = 1; recipe <= 3; ++recipe) {
+            queue->add(stars(recipe, 4));
+            QTRY_COMPARE(batches().size(), 1 + recipe);
+            QTRY_COMPARE(queue->count(), 1);
+            const QJsonArray ops = batches().last().value("ops").toArray();
+            QCOMPARE(ops.size(), 1);
+            QCOMPARE(ops.first().toObject().value("recipeId").toInt(), recipe);
+        }
+        // Nothing counted against the refused change.
+        QCOMPARE(queue->changes().first().value("recipeId").toInt(), 99);
+        QCOMPARE(queue->changes().first().value("failures").toInt(), 1);
+        // A reconnect (flush) is what sends it again.
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "refused"}, {"message", "no such recipe"}}});
+        queue->flush();
+        QTRY_COMPARE(batches().size(), 5);
+        QCOMPARE(batches().last().value("ops").toArray().first().toObject().value("recipeId").toInt(), 99);
+        QTRY_COMPARE(queue->changes().first().value("failures").toInt(), 2);
+    }
+
+    void tryingAStuckChangeAgainDoesNotRetryAnotherRefusedOne()
+    {
+        queue->add(stars(99, 4));
+        refuseUntilStuck();
+        // Another change, refused once: it waits for the next reconnect.
+        queue->add(stars(98, 2));
+        QTRY_COMPARE(queue->changes().last().value("failures").toInt(), 1);
+        QTRY_VERIFY(!queue->sending());
+        const int sent = batches().size();
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 99}, {"stars", 4}}});
+        queue->retry(queue->stuck().first().toMap().value("id").toString());
+        QTRY_COMPARE(batches().size(), sent + 1);
+        const QJsonArray ops = batches().last().value("ops").toArray();
+        QCOMPARE(ops.size(), 1);
+        QCOMPARE(ops.first().toObject().value("recipeId").toInt(), 99);
+        QTRY_COMPARE(queue->count(), 1);
+        QCOMPARE(queue->changes().first().value("failures").toInt(), 1);
+    }
+
     void aStuckChangeIsTriedAgainOrDiscarded()
     {
         queue->add(stars(99, 4));
