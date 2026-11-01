@@ -160,6 +160,9 @@ signals:
     void failed(const QString &what, const QString &message);
     // Cravings or the Devoured marks changed, so what Home shows of them is out of date.
     void keptChanged();
+    // The server took a change to the lists or their recipes (a ♥ or + List, a list made, renamed, deleted or moved),
+    // so the copies kept for use offline (RecipeStore) are out of date.
+    void listsKept();
 
 private:
     bool offline() const;

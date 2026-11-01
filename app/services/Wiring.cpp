@@ -1,5 +1,7 @@
 #include "services/Wiring.h"
 
+#include <QTimer>
+
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
 #include "services/Cook.h"
@@ -65,6 +67,15 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     QObject::connect(&cook, &Cook::opened, &copies, [&copies](const QVariantMap &recipe) {
         copies.keepForCooking(recipe);
     });
+
+    // The copies follow the manifest, which is otherwise asked for only at sign-in and on reconnect: a recipe hearted
+    // at lunch must be on the device when the Wi-Fi drops at dinner. A short single-shot wait, restarted by each
+    // change, so a run of hearts costs one manifest.
+    auto *refreshSoon = new QTimer(&copies);
+    refreshSoon->setSingleShot(true);
+    refreshSoon->setInterval(2000);
+    QObject::connect(refreshSoon, &QTimer::timeout, &copies, &RecipeStore::refresh);
+    QObject::connect(&saved, &Saved::listsKept, refreshSoon, qOverload<>(&QTimer::start));
 
     // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
     // on its next visit.

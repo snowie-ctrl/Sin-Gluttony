@@ -2194,6 +2194,33 @@ private slots:
         click(findVisible("settingsSignOut"));
         QTRY_VERIFY(!session->authenticated());
     }
+
+    // A long session: the copies follow the lists, not only the sign-in and the reconnect. A run of hearts asks the
+    // manifest once, a moment after the last, and the new recipes can then be opened with no server.
+    void recipesSavedWhileOnlineAreKeptForTheNextOutage()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_VERIFY(saved->listsLoaded());
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        QTRY_VERIFY(!copies->refreshing());
+        keepTwoCopies();
+        server->responses[path("/lists/items/add")] = R"({"status":"ok","data":{"listId":3,"recipeId":5,"count":1}})";
+        saved->setCraving(5, true);
+        saved->setCraving(6, true);
+        QTRY_COMPARE(requestsTo("/lists/items/add").size(), 2);
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 2);
+        QTRY_VERIFY(copies->has(5) && copies->has(6));
+        QTRY_VERIFY(!copies->refreshing());
+        // One ask for the two hearts, not one each.
+        QTest::qWait(300);
+        QCOMPARE(requestsTo("/saved/manifest").size(), 2);
+        goOffline();
+        recipes->open(5);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        QCOMPARE(findVisible("recipeTitle")->property("text").toString(), QStringLiteral("Kept Coq au Vin"));
+    }
 };
 
 QTEST_MAIN(TestPages)

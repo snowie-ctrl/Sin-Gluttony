@@ -572,6 +572,7 @@ void Saved::createList(const QString &title, int addRecipeId)
         const int listId = made.value("id").toInt();
         emit listCreated(listId);
         emit done(QStringLiteral("list"));
+        emit listsKept();
         if (addRecipeId > 0)
             setInList(listId, addRecipeId, true);
     });
@@ -602,6 +603,7 @@ void Saved::renameList(int listId, const QString &title)
             m_lists[at] = result.object.value("data").toObject().toVariantMap();
         emit listsChanged();
         emit done(QStringLiteral("list"));
+        emit listsKept();
     });
 }
 
@@ -634,6 +636,7 @@ void Saved::deleteList(int listId)
         }
         emit listsChanged();
         emit done(QStringLiteral("list"));
+        emit listsKept();
     });
 }
 
@@ -743,6 +746,7 @@ void Saved::setInList(int listId, int recipeId, bool in)
         }
         if (cravings)
             emit keptChanged();
+        emit listsKept();
     });
 }
 
@@ -808,6 +812,7 @@ void Saved::sendNextMove()
             sendNextMove();
             return;
         }
+        emit listsKept();
         sendNextMove();
     });
 }
