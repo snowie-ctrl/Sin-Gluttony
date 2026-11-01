@@ -58,6 +58,9 @@ public:
     bool dropMark(const QString &clientId);
     // The marks waiting for one recipe, oldest first: [{clientId, on}].
     QVariantList pendingMarks(int recipeId) const;
+    // Whether a change for this recipe is still waiting (sending, refused or stuck included): the recipe's copy
+    // shows what was queued until the server has answered it (RecipeStore::setWaiting).
+    bool waits(int recipeId) const;
 
     // Sends what waits (not what is stuck), at most 500 a batch, when the server answers and there is a session.
     Q_INVOKABLE void flush();

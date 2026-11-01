@@ -154,6 +154,18 @@ private slots:
         QCOMPARE(AccountStore::readJson(dir->path() + "/accounts/7/sync-queue.json").value("changes").toArray().size(), 0);
     }
 
+    void waitsNamesTheRecipesWithAChangeWaiting()
+    {
+        goOffline();
+        queue->add(stars(1, 4));
+        QVERIFY(queue->waits(1));
+        QVERIFY(!queue->waits(2));
+        server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 1}, {"stars", 4}}});
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        QVERIFY(!queue->waits(1));
+    }
+
     void addingWhileTheServerAnswersSendsAtOnce()
     {
         server->responses[path("/sync/batch")] = answer({QJsonObject{{"result", "applied"}, {"recipeId", 1}, {"stars", 4}}});

@@ -119,6 +119,14 @@ QVariantList SyncQueue::pendingMarks(int recipeId) const
     return out;
 }
 
+bool SyncQueue::waits(int recipeId) const
+{
+    for (const QJsonObject &change : m_changes)
+        if (change.value("recipeId").toInt() == recipeId)
+            return true;
+    return false;
+}
+
 void SyncQueue::flush()
 {
     m_refusedNow.clear();

@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QSaveFile>
@@ -16,6 +17,13 @@
 #include "api/AuthNetworkFactory.h"
 #include "services/AccountStore.h"
 
+// Compared as JSON text: a copy read back from disk and one Saved patched hold the same values in different types
+// (a whole number or a double, no value or a null).
+static bool sameMine(const QVariantMap &a, const QVariantMap &b)
+{
+    return QJsonDocument(QJsonObject::fromVariantMap(a)).toJson(QJsonDocument::Compact)
+        == QJsonDocument(QJsonObject::fromVariantMap(b)).toJson(QJsonDocument::Compact);
+}
 
 RecipeStore::RecipeStore(Api &api, QObject *parent)
     : QObject(parent)
@@ -73,6 +81,7 @@ RecipeStore::Entry RecipeStore::entryOf(int recipeId, const QVariantMap &recipe,
     entry.tile = tileOf(recipe);
     entry.updatedAt = updatedAt;
     entry.cookedAt = cookedAt;
+    entry.mine = recipe.value("mine").toMap();
     entry.picture = QFile::exists(pictureFile(recipeId));
     for (const QVariant &mark : recipe.value("mine").toMap().value("devoured").toList())
         entry.lastMadeOn = qMax(entry.lastMadeOn, mark.toMap().value("on").toString());
@@ -297,20 +306,36 @@ void RecipeStore::refresh()
         AccountStore::writeJson(m_store->file(QStringLiteral("manifest.json")),
                                 QJsonObject{{"lists", data.value("lists")}});
         QHash<int, QString> wanted;
-        for (const QJsonValue &value : data.value("recipes").toArray())
-            wanted.insert(value.toObject().value("id").toInt(), value.toObject().value("updatedAt").toString());
+        QHash<int, QVariantMap> mines;
+        for (const QJsonValue &value : data.value("recipes").toArray()) {
+            const QJsonObject entry = value.toObject();
+            const int id = entry.value("id").toInt();
+            wanted.insert(id, entry.value("updatedAt").toString());
+            if (entry.value("mine").isObject())
+                mines.insert(id, entry.value("mine").toObject().toVariantMap());
+        }
         // A recipe cooked since the manifest was asked for is not named in it yet: it stays.
         for (const int id : m_index.keys())
             if (!wanted.contains(id) && m_index.value(id).cookedAt < askedAt)
                 remove(id);
         m_toFetch.clear();
+        QList<int> minesToPatch;
         for (auto it = wanted.cbegin(); it != wanted.cend(); ++it) {
             const auto known = m_index.constFind(it.key());
             const bool stale = known == m_index.cend() || known->updatedAt != it.value();
             const bool pictureMissing = known != m_index.cend() && known->tile.value("hasImage").toBool() && !known->picture;
             if (stale || pictureMissing)
                 m_toFetch << qMakePair(it.key(), it.value());
+            // Stars, a note, a mark or a list changed on another device: the copy takes the server's `mine` without
+            // fetching the recipe again (a stale one is fetched whole, `mine` and all). Not while a change of this
+            // device's own still waits for the recipe: the queue's answer asks for the manifest again.
+            if (!stale && mines.contains(it.key()) && !(m_waiting && m_waiting(it.key()))
+                && !sameMine(known->mine, mines.value(it.key())))
+                minesToPatch << it.key();
         }
+        // Patched after the walk: writing a copy changes the index the walk reads.
+        for (const int id : minesToPatch)
+            patchMine(id, mines.value(id));
         // Lowest id first, so a refresh fetches in a repeatable order.
         std::sort(m_toFetch.begin(), m_toFetch.end());
         bump();

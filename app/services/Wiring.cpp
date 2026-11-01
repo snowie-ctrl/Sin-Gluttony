@@ -26,6 +26,7 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     recipes.setStore(&copies);
     saved.setStore(&copies);
     saved.setQueue(&queue);
+    copies.setWaiting([&queue](int recipeId) { return queue.waits(recipeId); });
 
     const auto signedIn = [&diet, &catalog, &home, &saved]() {
         diet.load();
@@ -81,6 +82,9 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     refreshSoon->setInterval(2000);
     QObject::connect(refreshSoon, &QTimer::timeout, &copies, &RecipeStore::refresh);
     QObject::connect(&saved, &Saved::listsKept, refreshSoon, qOverload<>(&QTimer::start));
+    // What the queue's answer settled reaches every copy, not only the open recipe's: the manifest, which carries
+    // each recipe's `mine`, is asked again once the server has taken the changes.
+    QObject::connect(&queue, &SyncQueue::taken, refreshSoon, qOverload<>(&QTimer::start));
 
     // A ♥ or a Devoured mark changes Home's own rows (and a mark changes today's temptation): Home asks again
     // on its next visit.

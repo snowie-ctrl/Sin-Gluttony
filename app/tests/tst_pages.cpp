@@ -489,6 +489,26 @@ private slots:
         QCOMPARE(queue->changes().first().value("title").toString(), QStringLiteral("Stub Coq au Vin"));
     }
 
+    void aSyncedChangeAsksForTheManifestAgain()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 1);
+        // With the recipe open, Saved can queue a change made on it.
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        goOffline();
+        saved->setStars(1, 4);
+        QCOMPARE(queue->count(), 1);
+        server->responses[path("/sync/batch")] =
+            R"({"status":"ok","data":{"results":[{"result":"applied","recipeId":1,"stars":4}]}})";
+        comeBack();
+        QTRY_COMPARE(queue->count(), 0);
+        const int asked = int(requestsTo("/saved/manifest").size());
+        // Two seconds after the queue's answer, every copy is brought up to what the server kept.
+        QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > asked, 6000);
+    }
+
     void signingOutClosesCookModeAndStopsTheTimers()
     {
         start();
