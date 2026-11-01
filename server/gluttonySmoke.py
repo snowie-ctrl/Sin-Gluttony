@@ -13,6 +13,7 @@ import re
 import secrets
 import sys
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,6 +49,15 @@ def scratchConnections(database, connect):
 def check(condition, message):
     if not condition:
         raise SmokeFailed(message)
+
+
+def moment(at):
+    """A UTC instant as the app stamps a queued change (YYYY-MM-DDTHH:MM:SS.sssZ)."""
+    return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
+
+
+# How many devices the together step sends a batch from at the same moment.
+TOGETHER = 4
 
 
 def insertKey():
@@ -243,9 +253,6 @@ def steps(media):
         rid = state["recipeId"]
         now = datetime.now(timezone.utc)
 
-        def moment(at):
-            return at.strftime("%Y-%m-%dT%H:%M:%S.") + f"{at.microsecond // 1000:03d}Z"
-
         hourAgo = moment(now - timedelta(hours=1))
         ops = [{"op": "devoured", "recipeId": rid, "on": now.date().isoformat(), "clientId": str(uuid.uuid4()),
                 "at": hourAgo},
@@ -289,6 +296,39 @@ def steps(media):
                   f"recipe {rid}'s mine in the manifest: {str(recipes[rid].get('mine'))[:200]} vs {str(shown)[:200]}")
         call(client, "GET", f"{R}/saved/manifest?extra=x", expect=400)
         return "every list with its recipes, each recipe's UpdatedAt and mine, the cook-mode extras"
+
+    def together(client, state):
+        """Four devices reconnecting at the same moment with changes for one recipe nobody has starred or noted:
+        on real MySQL the missing rows' gap locks can deadlock, and every batch must still land, newest kept."""
+        rid = state["secondId"]
+        token = client.environ_base["HTTP_X_SESSION_TOKEN"]
+        now = datetime.now(timezone.utc)
+        before = user.lockRetries
+        start = threading.Barrier(TOGETHER)
+        answers = [None] * TOGETHER
+
+        def device(index):
+            own = client.application.test_client()
+            own.environ_base["HTTP_X_SESSION_TOKEN"] = token
+            # A higher index is a later change, so the last device's must win.
+            at = moment(now - timedelta(minutes=TOGETHER - index))
+            ops = [{"op": "stars", "recipeId": rid, "stars": index + 1, "at": at},
+                   {"op": "note", "recipeId": rid, "text": f"smoke device {index}", "at": at}]
+            start.wait()
+            answers[index] = own.post(f"{R}/sync/batch", json={"ops": ops})
+
+        threads = [threading.Thread(target=device, args=(index,)) for index in range(TOGETHER)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        statuses = [answer.status_code if answer is not None else None for answer in answers]
+        check(statuses == [200] * TOGETHER, f"batches sent together answered {statuses}")
+        mine = call(client, "GET", f"{R}/recipes/{rid}")["data"]["mine"]
+        check(mine["stars"] == TOGETHER and mine["note"] == f"smoke device {TOGETHER - 1}",
+              f"after batches sent together: stars {mine['stars']}, note {mine['note']!r}")
+        return (f"{TOGETHER} batches at once all landed, the newest kept; "
+                f"{user.lockRetries - before} tried again after a lock conflict")
 
     def strangers(client, state):
         own = client.environ_base["HTTP_X_SESSION_TOKEN"]
@@ -338,7 +378,7 @@ def steps(media):
 
     return [("seed", seed), ("store", store), ("unknown", unknown), ("account", account), ("browse", browse),
             ("diet", diet), ("home", home), ("lists", lists), ("yours", yours), ("sync", sync), ("manifest", manifest),
-            ("strangers", strangers), ("remove", remove), ("signout", signout)]
+            ("together", together), ("strangers", strangers), ("remove", remove), ("signout", signout)]
 
 
 def runSteps(client, media):

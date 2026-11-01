@@ -1,3 +1,4 @@
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 from conftest import UID
@@ -139,3 +140,58 @@ def test_theBatchIsOneToFiveHundredChanges(userClient):
 
 def test_syncNeedsASession(anonUserClient):
     assert anonUserClient.post(f"{A}/sync/batch", json={"ops": [stars(4)]}).status_code == 401
+
+
+class LockConflict(Exception):
+    """What mysql.connector raises for a deadlock (1213) or a lock wait that ran out (1205)."""
+    def __init__(self, errno):
+        super().__init__(f"lock conflict {errno}")
+        self.errno = errno
+
+
+def conflictOnce(errno, times=1):
+    """A failOn that raises a lock conflict on the first `times` reads of the stars row, then lets them through."""
+    left = [times]
+
+    def failOn(sql, params):
+        if sql.startswith("SELECT Stars, UpdatedAt FROM Ratings") and left[0] > 0:
+            left[0] -= 1
+            raise LockConflict(errno)
+        return False
+    return failOn
+
+
+def userRoutes():
+    return sys.modules["gluttony_server.gluttonyUserRoutes"]
+
+
+def test_aBatchCaughtInADeadlockIsTriedAgainWhole(userClient, useDb):
+    before = userRoutes().lockRetries
+    # The first try reads the recipe, then dies on the stars row; the second reads both again.
+    conn = useDb(fetchone=[VISIBLE, VISIBLE, None], failOn=conflictOnce(1213))
+    assert results(sync(userClient, [stars(4)])) == [{"result": "applied", "recipeId": 7, "stars": 4}]
+    assert len(conn.cur.statements("SELECT Stars, UpdatedAt FROM Ratings")) == 2
+    assert len(conn.cur.statements("INSERT INTO Ratings")) == 1
+    assert conn.commits == 1
+    assert userRoutes().lockRetries == before + 1
+
+
+def test_aLockWaitTimeoutIsTriedAgainToo(userClient, useDb):
+    conn = useDb(fetchone=[VISIBLE, VISIBLE, None], failOn=conflictOnce(1205))
+    assert results(sync(userClient, [stars(4)])) == [{"result": "applied", "recipeId": 7, "stars": 4}]
+    assert conn.commits == 1
+
+
+def test_aBatchStillDeadlockedAfterThreeTriesIsAServerError(userClient, useDb):
+    conn = useDb(fetchone=[VISIBLE] * 3, failOn=conflictOnce(1213, times=3))
+    answer = sync(userClient, [stars(4)])
+    assert answer.status_code == 500
+    assert len(conn.cur.statements("SELECT Stars, UpdatedAt FROM Ratings")) == 3
+    assert conn.commits == 0
+
+
+def test_anyOtherFailureIsNotTriedAgain(userClient, useDb):
+    conn = useDb(fetchone=[VISIBLE], failOn="SELECT Stars, UpdatedAt FROM Ratings")
+    assert sync(userClient, [stars(4)]).status_code == 500
+    assert len(conn.cur.statements("SELECT Stars, UpdatedAt FROM Ratings")) == 1
+    assert conn.commits == 0

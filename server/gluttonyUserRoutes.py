@@ -27,6 +27,13 @@ USERNAME_MIN, USERNAME_MAX = 3, 32
 PASSWORD_MIN, PASSWORD_MAX = 8, 256
 # MySQL's error number for a duplicate key.
 DUPLICATE_ENTRY = 1062
+# MySQL's error numbers when two transactions want each other's locks: a deadlock (MySQL rolls one back) and a lock
+# wait that ran out of time. Both leave nothing applied, so the transaction can simply be tried again.
+LOCK_CONFLICTS = (1213, 1205)
+# How many times /sync/batch tries a batch that met a lock conflict.
+SYNC_ATTEMPTS = 3
+# Batches tried again after a lock conflict since the server started; the smoke test reports it.
+lockRetries = 0
 # The one list every account has from sign-up. The app shows it in its own words; this is what the row holds.
 CRAVINGS_TITLE = "Cravings"
 
@@ -741,7 +748,8 @@ def syncBatch():
     """What the app did while it couldn't reach the server (Devoured marks, stars, notes), up to 500 changes,
     applied oldest first and answered one by one in the order sent. A mark is stored once per clientId; stars and
     notes keep whichever change is newest, so a queue that arrives late never undoes something done since. A change
-    that can't be made is refused with its reason, and never stops the others."""
+    that can't be made is refused with its reason, and never stops the others; a batch that meets a lock conflict is
+    tried again whole, and a server error applies nothing."""
     ops, problem = rules.syncOps(body().get("ops"))
     if problem:
         return fail(problem, 400)
@@ -753,12 +761,21 @@ def syncBatch():
         at, _ = rules.syncAt(ops[index].get("at"), now)
         return at or datetime.min
 
-    results = [None] * len(ops)
-    with database() as (conn, cur):
-        for index in sorted(range(len(ops)), key=oldestFirst):
-            results[index] = applyChange(cur, uid, ops[index], now)
-        conn.commit()
-    return ok({"results": results})
+    global lockRetries
+    # Two devices sending changes for the same recipe at once can deadlock on the gap locks storeNewer's FOR UPDATE
+    # takes on a row that does not exist yet. MySQL rolls one batch back whole, so it is tried again whole.
+    for attempt in range(SYNC_ATTEMPTS):
+        try:
+            results = [None] * len(ops)
+            with database() as (conn, cur):
+                for index in sorted(range(len(ops)), key=oldestFirst):
+                    results[index] = applyChange(cur, uid, ops[index], now)
+                conn.commit()
+            return ok({"results": results})
+        except Exception as error:
+            if getattr(error, "errno", None) not in LOCK_CONFLICTS or attempt == SYNC_ATTEMPTS - 1:
+                raise
+            lockRetries += 1
 
 
 def stamp(moment):

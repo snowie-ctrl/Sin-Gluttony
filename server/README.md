@@ -82,6 +82,11 @@ Written in part 2's milestones, deployed together in milestone 4; nothing here i
   than the stored one kept out, a newer note applied, a cleared rating not brought back, an unknown recipe refused)
   and `manifest` (every list with its recipes in order, each recipe's `UpdatedAt`, the cook-mode extras). Both need
   `schema-part2.sql` as this milestone leaves it: `Ratings` and `Notes` with `UpdatedAt DATETIME(3)` and nullable stars.
+
+  Milestone 4 adds `mine` to the `manifest` step (the manifest's `mine` must equal the recipe page's) and a
+  `together` step: four batches for one unrated recipe sent at the same moment, as two devices reconnecting would.
+  Every batch must answer 200 and the newest change must stand. Its PASS line says how many batches met a MySQL lock
+  conflict and were tried again; a few is fine, a FAIL is not.
 - **Cut-over:** `sudo mysql gluttonyDB < schema-part2.sql`, then in `Caduceus.py`, inside the existing Gluttony
   block, beside `gluttonyBP`:
 
