@@ -12,7 +12,10 @@ void Recipes::open(int recipeId)
 {
     if (recipeId <= 0)
         return;
-    if (recipeId == m_recipeId && (m_loading || (!m_recipe.isEmpty() && m_error.isEmpty())))
+    // A copy opened while the server was away is not kept once it answers again: the same recipe asked for now
+    // comes from the server.
+    const bool copyOutlived = m_fromCopy && !offline();
+    if (recipeId == m_recipeId && !copyOutlived && (m_loading || (!m_recipe.isEmpty() && m_error.isEmpty())))
         return;
     m_recipeId = recipeId;
     m_recipe.clear();

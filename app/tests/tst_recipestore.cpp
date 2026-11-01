@@ -1,5 +1,7 @@
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -21,6 +23,18 @@ static QString path(const QString &route)
 }
 
 static const qint64 day = 24LL * 60 * 60 * 1000;
+
+// A real 2x2 PNG, a different colour per seed, so the store can tell it is a picture.
+static QByteArray picture(int seed)
+{
+    QImage pixels(2, 2, QImage::Format_RGB32);
+    pixels.fill(QColor::fromRgb(seed * 40 % 256, 80, 120));
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    pixels.save(&buffer, "PNG");
+    return bytes;
+}
 
 // A recipe's detail as GET /recipes/<id> answers it.
 static QByteArray detail(int id, const QString &title, bool hasImage = true, const QJsonObject &mine = {})
@@ -110,7 +124,7 @@ class TestRecipeStore : public QObject
     void serve(int id, const QString &title, bool hasImage = true)
     {
         server->responses[path(QStringLiteral("/recipes/%1").arg(id))] = detail(id, title, hasImage);
-        server->responses[path(QStringLiteral("/images/%1").arg(id))] = "JPEG-" + QByteArray::number(id);
+        server->responses[path(QStringLiteral("/images/%1").arg(id))] = picture(id);
     }
 
     // Refreshes and waits until it has finished.
@@ -147,7 +161,7 @@ private slots:
     {
         server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
         server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", true, mineWith(QJsonValue(), QJsonValue()));
-        server->responses[path("/images/5")] = "JPEG-" + QByteArray::number(5);
+        server->responses[path("/images/5")] = picture(5);
         refreshed();
         QCOMPARE(requestsTo("/recipes/5").size(), 1);
         QCOMPARE(requestsTo("/images/5").size(), 1);
@@ -242,12 +256,27 @@ private slots:
         QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 5);
     }
 
+    void aPageThatIsNotAPictureIsNotKept()
+    {
+        // A hotel's Wi-Fi answers every request with its own sign-in page, with a 200.
+        server->responses[path("/saved/manifest")] = manifest({5});
+        serve(5, "Stub Coq au Vin");
+        server->responses[path("/images/5")] = "<html><body>Sign in to the Wi-Fi</body></html>";
+        refreshed();
+        QVERIFY(store->has(5));
+        QVERIFY(!QFile::exists(copyFile(5, ".jpg")));
+        // On a real connection, the next refresh fetches the picture it is missing.
+        server->responses[path("/images/5")] = picture(5);
+        refreshed();
+        QTRY_VERIFY(QFile::exists(copyFile(5, ".jpg")));
+    }
+
     void aDetailFetchedWhileAChangeWaitsKeepsTheCopysMine()
     {
         // A copy whose picture is missing is fetched whole again at the next refresh.
         server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
         server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", true, mineWith(QJsonValue(), QJsonValue()));
-        server->responses[path("/images/5")] = "JPEG-" + QByteArray::number(5);
+        server->responses[path("/images/5")] = picture(5);
         server->statuses[path("/images/5")] = 500;
         refreshed();
         QVERIFY(store->has(5));
@@ -282,9 +311,9 @@ private slots:
         refreshed();
         QVERIFY(store->has(5));
         QVERIFY(QFile::exists(copyFile(5)));
-        QFile picture(copyFile(5, ".jpg"));
-        QVERIFY(picture.open(QIODevice::ReadOnly));
-        QCOMPARE(picture.readAll(), QByteArray("JPEG-5"));
+        QFile kept(copyFile(5, ".jpg"));
+        QVERIFY(kept.open(QIODevice::ReadOnly));
+        QCOMPARE(kept.readAll(), ::picture(5));
         QCOMPARE(store->recipe(5).value("title").toString(), QStringLiteral("Stub Coq au Vin"));
         // Thumbnails come from the large picture (spec §6), on disk, online or not.
         QVERIFY(store->pictureUrl(5, false).startsWith("file:"));

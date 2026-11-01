@@ -334,6 +334,16 @@ private slots:
                  QStringLiteral("ops must be a list of 1 to 500 changes"));
     }
 
+    void aBatchTooBigForTheServerCountsAFailureForEach()
+    {
+        // nginx refuses a body over its limit with its own page, before Flask sees it.
+        server->statuses[path("/sync/batch")] = 413;
+        server->responses[path("/sync/batch")] = "<html><center><h1>413 Request Entity Too Large</h1></center></html>";
+        queue->add(stars(1, 4));
+        QTRY_COMPARE(queue->changes().first().value("failures").toInt(), 1);
+        QCOMPARE(queue->changes().first().value("message").toString(), QStringLiteral("Too much to send at once."));
+    }
+
     void anotherAccountNeverSendsTheLastOnesChanges()
     {
         goOffline();

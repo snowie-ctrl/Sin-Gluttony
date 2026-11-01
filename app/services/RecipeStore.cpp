@@ -1,8 +1,10 @@
 #include "services/RecipeStore.h"
 
+#include <QBuffer>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -414,12 +416,20 @@ void RecipeStore::fetchPicture(int recipeId, bool counted)
             return;
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError && status == 200 && m_index.contains(recipeId)) {
-            QSaveFile out(file);
-            if (out.open(QIODevice::WriteOnly)) {
-                out.write(reply->readAll());
-                if (out.commit()) {
-                    m_index[recipeId].picture = true;
-                    bump();
+            QByteArray body = reply->readAll();
+            // A captive portal answers every request with its own page and a 200: kept as the picture, it would
+            // stand for good (the stamp hasn't moved, so nothing asks again). Only bytes an image reader recognises
+            // are kept; anything else leaves the picture missing, and the next refresh asks for it.
+            QBuffer probe(&body);
+            probe.open(QIODevice::ReadOnly);
+            if (!QImageReader::imageFormat(&probe).isEmpty()) {
+                QSaveFile out(file);
+                if (out.open(QIODevice::WriteOnly)) {
+                    out.write(body);
+                    if (out.commit()) {
+                        m_index[recipeId].picture = true;
+                        bump();
+                    }
                 }
             }
         }
