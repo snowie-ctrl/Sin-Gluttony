@@ -10,7 +10,9 @@ Everything a person keeps is looked up together with their id, so someone else's
 one.
 """
 import hashlib
+import random
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -743,6 +745,13 @@ def applyChange(cur, uid, change, now):
     return {"result": "applied" if applied else "already", "recipeId": recipeId, "note": held or None}
 
 
+def retryPause(attempt):
+    """A short, jittered wait before a batch that lost a lock conflict is tried again. A deadlock victim that retried
+    at once would re-take its gap lock while the other devices' batches still hold theirs and be the victim again; the
+    jitter spreads the devices out, and the wait grows a little with each try."""
+    time.sleep(random.uniform(0.02, 0.1) * (attempt + 1))
+
+
 @gluttonyUserBP.route("/sync/batch", methods=["POST"])
 def syncBatch():
     """What the app did while it couldn't reach the server (Devoured marks, stars, notes), up to 500 changes,
@@ -776,6 +785,7 @@ def syncBatch():
             if getattr(error, "errno", None) not in LOCK_CONFLICTS or attempt == SYNC_ATTEMPTS - 1:
                 raise
             lockRetries += 1
+            retryPause(attempt)
 
 
 def stamp(moment):

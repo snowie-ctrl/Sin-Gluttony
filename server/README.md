@@ -108,12 +108,15 @@ steps are typed by the owner on plutus.
 1. **Check what is there (Claude, read only).** The four part 1 files in `util/` (`gluttonyAdminRoutes.py`,
    `gluttonyRoutes.py`, `gluttonyRules.py`, `gluttonySmoke.py`) match the commit last deployed
    (`git show <commit>:server/<file> | md5sum` against `md5sum` on plutus; `diff --strip-trailing-cr` if only line
-   endings differ). `DBUtils.py` maps `"gluttony"`. `Caduceus.py` sets no `MAX_CONTENT_LENGTH`.
+   endings differ). `DBUtils.py` maps `"gluttony"`, and how it hands out connections: if it pools, the pool must allow
+   four concurrent requests plus their session checks, or the smoke test's `together` step fails with a pool error.
+   `Caduceus.py` sets no `MAX_CONTENT_LENGTH`. Read `/etc/nginx/sites-available/forculus.conf` too: the `listen` port and
+   the upstream its existing server blocks use, and whether one of them is the `default_server`.
 2. **Copy the files (Claude).** Back up the four part 1 files in `util/` (`gluttonyAdminRoutes.py`, `gluttonyRoutes.py`,
    `gluttonyRules.py`, `gluttonySmoke.py`) as `<file>.bak-<date>` in `/database/API/util/`. From `main`, make a tar of
    the server files and unpack it on plutus: `git archive -o gluttony-m4.tar main:server gluttonyAdminRoutes.py gluttonyRoutes.py gluttonyRules.py gluttonySession.py gluttonyKept.py gluttonyUserRoutes.py gluttonySmoke.py schema.sql schema-part2.sql`,
-   copy it to plutus, unpack it in `/tmp/gluttony-m4/`, copy the seven `.py` files into `/database/API/util/`, and
-   `python3 -m py_compile` each `.py`. Caduceus keeps running the old ones until it restarts.
+   copy it to plutus, unpack it with `mkdir -p /tmp/gluttony-m4 && tar -xf gluttony-m4.tar -C /tmp/gluttony-m4`, copy the seven `.py` files
+   into `/database/API/util/`, and `/database/venv/bin/python -m py_compile` each `.py`. Caduceus keeps running the old ones until it restarts.
 3. **Scratch database (owner).** `gluttony_smoke` as in "The smoke test" above, with `/tmp/gluttony-m4/schema.sql` then
    `/tmp/gluttony-m4/schema-part2.sql` loaded (`sudo mysql gluttony_smoke < /tmp/gluttony-m4/schema.sql`, then
    `sudo mysql gluttony_smoke < /tmp/gluttony-m4/schema-part2.sql`).
@@ -135,12 +138,15 @@ steps are typed by the owner on plutus.
        app.register_blueprint(gluttonyUserBP, url_prefix="/api/gluttony")
    ```
 
-   Check it imports: `cd /database/API && /database/venv/bin/python -c "import Caduceus"` must print no
-   `gluttony routes not loaded`.
-7. **Restart (owner).** `sudo systemctl restart Caduceus.service`. LAN check: `/api/gluttony/ping` answers ok,
-   `/api/gluttony/recipes` without a session answers 401.
+   Check it compiles (importing `Caduceus` would run its module-level code on the live box):
+   `cd /database/API && /database/venv/bin/python -m py_compile Caduceus.py`.
+7. **Restart (owner).** `sudo systemctl restart Caduceus.service`. Then
+   `journalctl -u Caduceus.service -n 100 --no-pager | grep -i "gluttony routes not loaded"` must print nothing. LAN
+   check: `/api/gluttony/ping` answers ok; `/api/gluttony/lists` without a session answers 401 (a 404 means the user
+   routes did not load: that route lives only in `gluttonyUserRoutes`).
 8. **nginx (Claude).** Back up `/etc/nginx/sites-available/forculus.conf`, add this block beside the others, then
-   `sudo nginx -t` and `sudo systemctl reload nginx`:
+   `sudo nginx -t` and `sudo systemctl reload nginx`. The block's `listen` port and `proxy_pass` upstream must be the
+   same as the existing blocks' (step 1); change those two lines if they are not port 80 and `127.0.0.1:5000`:
 
    ```nginx
    # Gluttony's app API: only its own prefix through the tunnel. The admin prefix
@@ -151,6 +157,8 @@ steps are typed by the owner on plutus.
        server_name gluttony.forculus.net;
        location /api/gluttony/ {
            client_max_body_size 8m;
+           # A zone-wide cache rule must never cache session-protected answers.
+           add_header Cache-Control "private, no-store" always;
            proxy_pass http://127.0.0.1:5000;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
@@ -163,7 +171,9 @@ steps are typed by the owner on plutus.
    }
    ```
 9. **From outside (Claude).** `https://gluttony.forculus.net/api/gluttony/ping` answers ok; `/api/gluttony/recipes`
-   answers 401; `/api/gluttony-admin/state` and `/` answer 404.
+   answers 401; `/api/gluttony-admin/state` and `/` answer 404. On each other public hostname in `forculus.conf`,
+   `/api/gluttony/ping` and `/api/gluttony-admin/state` answer 404. The `cf-cache-status` header on a signed
+   `/api/gluttony/images/<id>` (from the live check, or `curl -I` with a token) is not `HIT`.
 10. **Login keys (owner).** One for the owner, one for the live check:
     `sudo mysql gluttonyDB -e "INSERT INTO LoginKeys (KeyValue) VALUES ('<a long random key>')"`.
 11. **Live check (Claude).** `server/liveCheck.py` on the LAN base with `--sign-up`, then on the public base with

@@ -1,6 +1,8 @@
 import sys
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from conftest import UID
 from test_yours import CID, VISIBLE, duplicateOnInsert
 
@@ -165,7 +167,15 @@ def userRoutes():
     return sys.modules["gluttony_server.gluttonyUserRoutes"]
 
 
-def test_aBatchCaughtInADeadlockIsTriedAgainWhole(userClient, useDb):
+@pytest.fixture(autouse=True)
+def pauses(monkeypatch, anonUserClient):
+    """The wait before a retry is recorded, not slept, so the retry tests stay fast."""
+    waited = []
+    monkeypatch.setattr(userRoutes(), "retryPause", waited.append)
+    return waited
+
+
+def test_aBatchCaughtInADeadlockIsTriedAgainWhole(userClient, useDb, pauses):
     before = userRoutes().lockRetries
     # The first try reads the recipe, then dies on the stars row; the second reads both again.
     conn = useDb(fetchone=[VISIBLE, VISIBLE, None], failOn=conflictOnce(1213))
@@ -174,24 +184,29 @@ def test_aBatchCaughtInADeadlockIsTriedAgainWhole(userClient, useDb):
     assert len(conn.cur.statements("INSERT INTO Ratings")) == 1
     assert conn.commits == 1
     assert userRoutes().lockRetries == before + 1
+    assert pauses == [0]
 
 
-def test_aLockWaitTimeoutIsTriedAgainToo(userClient, useDb):
+def test_aLockWaitTimeoutIsTriedAgainToo(userClient, useDb, pauses):
     conn = useDb(fetchone=[VISIBLE, VISIBLE, None], failOn=conflictOnce(1205))
     assert results(sync(userClient, [stars(4)])) == [{"result": "applied", "recipeId": 7, "stars": 4}]
     assert conn.commits == 1
+    assert pauses == [0]
 
 
-def test_aBatchStillDeadlockedAfterThreeTriesIsAServerError(userClient, useDb):
+def test_aBatchStillDeadlockedAfterThreeTriesIsAServerError(userClient, useDb, pauses):
     conn = useDb(fetchone=[VISIBLE] * 3, failOn=conflictOnce(1213, times=3))
     answer = sync(userClient, [stars(4)])
     assert answer.status_code == 500
     assert len(conn.cur.statements("SELECT Stars, UpdatedAt FROM Ratings")) == 3
     assert conn.commits == 0
+    # One pause between each pair of tries, none after the last.
+    assert pauses == [0, 1]
 
 
-def test_anyOtherFailureIsNotTriedAgain(userClient, useDb):
+def test_anyOtherFailureIsNotTriedAgain(userClient, useDb, pauses):
     conn = useDb(fetchone=[VISIBLE], failOn="SELECT Stars, UpdatedAt FROM Ratings")
     assert sync(userClient, [stars(4)]).status_code == 500
     assert len(conn.cur.statements("SELECT Stars, UpdatedAt FROM Ratings")) == 1
     assert conn.commits == 0
+    assert pauses == []

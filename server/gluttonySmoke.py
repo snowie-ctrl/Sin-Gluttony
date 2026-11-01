@@ -304,8 +304,11 @@ def steps(media):
         token = client.environ_base["HTTP_X_SESSION_TOKEN"]
         now = datetime.now(timezone.utc)
         before = user.lockRetries
-        start = threading.Barrier(TOGETHER)
+        # A thread that dies or a barrier that breaks must end the step with a FAIL, never hang the process: the
+        # barrier times out, the threads are daemons, and each keeps its own exception to name in the message.
+        start = threading.Barrier(TOGETHER, timeout=30)
         answers = [None] * TOGETHER
+        errors = [None] * TOGETHER
 
         def device(index):
             own = client.application.test_client()
@@ -317,11 +320,20 @@ def steps(media):
             start.wait()
             answers[index] = own.post(f"{R}/sync/batch", json={"ops": ops})
 
-        threads = [threading.Thread(target=device, args=(index,)) for index in range(TOGETHER)]
+        def guarded(index):
+            try:
+                device(index)
+            except BaseException as error:
+                errors[index] = f"{type(error).__name__}: {error}"[:200]
+                start.abort()
+
+        threads = [threading.Thread(target=guarded, args=(index,), daemon=True) for index in range(TOGETHER)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(60)
+        failed = [f"device {index}: {error}" for index, error in enumerate(errors) if error]
+        check(not failed, "batches sent together: " + "; ".join(failed))
         statuses = [answer.status_code if answer is not None else None for answer in answers]
         check(statuses == [200] * TOGETHER, f"batches sent together answered {statuses}")
         mine = call(client, "GET", f"{R}/recipes/{rid}")["data"]["mine"]

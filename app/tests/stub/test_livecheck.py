@@ -131,3 +131,18 @@ def test_failureTextIsAsciiWhateverTheServerSays(stubBase, secrets, capsys):
         stub.app.view_functions[recipes] = original
     out = capsys.readouterr().out
     assert out.isascii() and "FAIL  catalog" in out
+
+
+def test_aMalformedAnswerDuringCleanUpStillEndsTheSession():
+    sent = []
+
+    def call(method, route, body=None, **options):
+        sent.append(route)
+        if route == "/lists":
+            return {"data": [{"kind": "custom", "title": "claude-check x"}, "not an entry", {"kind": "cravings"}]}
+        if route.startswith("/recipes/"):
+            return {"data": {"mine": {"devoured": [{"on": "no id"}, 7]}}}
+        return {}
+    session = type("Fake", (), {"token": "t", "fingerprint": "f", "call": staticmethod(call)})()
+    liveCheck.cleanUp(session, {"recipeId": 5})
+    assert sent[-1] == "/auth/logout" and session.token is None

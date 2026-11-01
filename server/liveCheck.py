@@ -92,11 +92,13 @@ class Server:
 def tidyLists(s):
     """Delete every custom list this check made (their titles start with claude-check); returns Cravings' id."""
     cravings = None
-    for entry in attempt(lambda: s.call("GET", "/lists")["data"]) or []:
-        if entry.get("kind") == "cravings":
-            cravings = entry["id"]
-        elif str(entry.get("title", "")).startswith("claude-check"):
-            attempt(s.call, "POST", "/lists/delete", {"id": entry["id"]})
+    for entry in attempt(lambda: list(s.call("GET", "/lists")["data"])) or []:
+        # Every read of an entry sits inside attempt: a malformed answer must not raise out of the clean-up and skip
+        # the logout.
+        if attempt(lambda: entry.get("kind") == "cravings"):
+            cravings = attempt(lambda: entry["id"]) or cravings
+        elif attempt(lambda: str(entry.get("title", "")).startswith("claude-check")):
+            attempt(lambda: s.call("POST", "/lists/delete", {"id": entry["id"]}))
     return cravings
 
 
@@ -109,8 +111,8 @@ def cleanUp(s, state):
     rid = state.get("recipeId")
     if rid:
         mine = attempt(lambda: s.call("GET", f"/recipes/{rid}")["data"]["mine"]) or {}
-        for mark in mine.get("devoured", []):
-            attempt(s.call, "POST", "/devoured/remove", {"id": mark["id"]})
+        for mark in attempt(lambda: list(mine.get("devoured", []))) or []:
+            attempt(lambda: s.call("POST", "/devoured/remove", {"id": mark["id"]}))
         if cravings:
             attempt(s.call, "POST", "/lists/items/remove", {"listId": cravings, "recipeId": rid})
         attempt(s.call, "POST", "/rating", {"recipeId": rid, "stars": None})
