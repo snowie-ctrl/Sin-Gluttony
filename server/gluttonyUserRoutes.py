@@ -343,6 +343,8 @@ def createList():
     with database() as (conn, cur):
         # The person's row is locked, so two creates racing cannot both be the fiftieth.
         cur.execute("SELECT UserID FROM Users WHERE UserID = %s FOR UPDATE", (uid,))
+        # Read, or the real (unbuffered) cursor refuses the next statement with "Unread result found".
+        cur.fetchone()
         cur.execute("SELECT COUNT(*) AS n, COALESCE(MAX(OrderIndex), 0) AS top FROM Lists WHERE UserID = %s", (uid,))
         found = cur.fetchone() or {}
         if int(found.get("n") or 0) >= rules.MAX_LISTS:

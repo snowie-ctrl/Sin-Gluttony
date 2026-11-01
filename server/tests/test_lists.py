@@ -4,6 +4,9 @@ import pytest
 
 from conftest import UID
 
+# The person's row, read under FOR UPDATE before a list is made (so two creates can't both be the fiftieth).
+LOCKED = {"UserID": UID}
+
 A = "/api/gluttony"
 CUSTOM = {"ListID": 11, "Title": "Weeknights", "Kind": "custom", "OrderIndex": 3}
 CRAVINGS = {"ListID": 3, "Title": "Cravings", "Kind": "cravings", "OrderIndex": 0}
@@ -28,7 +31,7 @@ def test_theListsComeCravingsFirst(userClient, useDb):
 
 
 def test_aNewListGoesLastAndIsTrimmed(userClient, useDb):
-    conn = useDb(fetchone=[{"n": 3, "top": 2}], lastrowids={"Lists": [12]})
+    conn = useDb(fetchone=[LOCKED, {"n": 3, "top": 2}], lastrowids={"Lists": [12]})
     answer = post(userClient, "/lists/create", {"title": "  Weeknights  "}).get_json()
     assert answer == {"status": "ok", "data": {"id": 12, "title": "Weeknights", "kind": "custom", "count": 0}}
     assert conn.cur.executed[0] == ("SELECT UserID FROM Users WHERE UserID = %s FOR UPDATE", (UID,))
@@ -38,14 +41,14 @@ def test_aNewListGoesLastAndIsTrimmed(userClient, useDb):
 
 def test_aCustomListLeavesCravingsOfNull(userClient, useDb):
     # CravingsOf is the user's id only on Cravings; the unique key then allows any number of custom lists.
-    conn = useDb(fetchone=[{"n": 1, "top": 0}], lastrowids={"Lists": [12]})
+    conn = useDb(fetchone=[LOCKED, {"n": 1, "top": 0}], lastrowids={"Lists": [12]})
     post(userClient, "/lists/create", {"title": "Weeknights"})
     sql = conn.cur.statements("INSERT INTO Lists")[0][0]
     assert "CravingsOf" not in sql and "'custom'" in sql
 
 
 def test_aTitleOfSixtyIsFine(userClient, useDb):
-    useDb(fetchone=[{"n": 1, "top": 0}], lastrowids={"Lists": [12]})
+    useDb(fetchone=[LOCKED, {"n": 1, "top": 0}], lastrowids={"Lists": [12]})
     assert post(userClient, "/lists/create", {"title": "x" * 60}).status_code == 200
 
 
@@ -57,7 +60,7 @@ def test_aBadTitleIs400BeforeAnyQuery(userClient, title):
 
 
 def test_theFiftyFirstListIsRefused(userClient, useDb):
-    conn = useDb(fetchone=[{"n": 50, "top": 49}])
+    conn = useDb(fetchone=[LOCKED, {"n": 50, "top": 49}])
     answer = post(userClient, "/lists/create", {"title": "One more"})
     assert answer.status_code == 400 and answer.get_json()["message"] == "you can have at most 50 lists"
     assert not conn.cur.statements("INSERT INTO Lists") and conn.commits == 0
