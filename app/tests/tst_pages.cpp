@@ -504,6 +504,10 @@ private slots:
             R"({"status":"ok","data":{"results":[{"result":"applied","recipeId":1,"stars":4}]}})";
         comeBack();
         QTRY_COMPARE(queue->count(), 0);
+        // The reconnect's own manifest is done with before counting, so only the queue's answer can ask again.
+        QTRY_VERIFY(!copies->refreshing());
+        QTest::qWait(300);
+        QVERIFY(!copies->refreshing());
         const int asked = int(requestsTo("/saved/manifest").size());
         // Two seconds after the queue's answer, every copy is brought up to what the server kept.
         QTRY_VERIFY_WITH_TIMEOUT(requestsTo("/saved/manifest").size() > asked, 6000);

@@ -95,6 +95,7 @@ void RecipeStore::load()
     m_index.clear();
     m_lists.clear();
     m_toFetch.clear();
+    m_waitedAtAsk.clear();
     m_inFlight = 0;
     m_refreshAgain = false;
     const bool wasRefreshing = std::exchange(m_refreshing, false);
@@ -260,6 +261,11 @@ void RecipeStore::patchMine(int recipeId, const QVariantMap &mine)
     write(recipeId, copy, known.updatedAt, known.cookedAt);
 }
 
+bool RecipeStore::keepsOwnMine(int recipeId) const
+{
+    return m_waitedAtAsk.contains(recipeId) || (m_waiting && m_waiting(recipeId));
+}
+
 void RecipeStore::refresh()
 {
     if (!m_store || m_store->uid() <= 0 || offline())
@@ -285,6 +291,14 @@ void RecipeStore::refresh()
     if (!extra.isEmpty())
         query.addQueryItem(QStringLiteral("extra"), extra.join(QLatin1Char(',')));
 
+    // The recipes with a change of this device's own waiting as the manifest is asked for: the batch and the manifest
+    // leave together, so the manifest may have been read before the batch was applied even when the batch's answer
+    // arrives first and the queue no longer holds the change. Those copies keep their `mine` through this refresh.
+    m_waitedAtAsk.clear();
+    if (m_waiting)
+        for (auto it = m_index.cbegin(); it != m_index.cend(); ++it)
+            if (m_waiting(it.key()))
+                m_waitedAtAsk.insert(it.key());
     const int generation = m_generation;
     const qint64 askedAt = now;
     m_api.get(QStringLiteral("/saved/manifest"), query, [this, generation, askedAt](const Api::Result &result) {
@@ -311,7 +325,8 @@ void RecipeStore::refresh()
             const QJsonObject entry = value.toObject();
             const int id = entry.value("id").toInt();
             wanted.insert(id, entry.value("updatedAt").toString());
-            if (entry.value("mine").isObject())
+            // An empty block is not a `mine` (the server always names every key): it must not wipe a copy's stars.
+            if (entry.value("mine").isObject() && !entry.value("mine").toObject().isEmpty())
                 mines.insert(id, entry.value("mine").toObject().toVariantMap());
         }
         // A recipe cooked since the manifest was asked for is not named in it yet: it stays.
@@ -329,7 +344,7 @@ void RecipeStore::refresh()
             // Stars, a note, a mark or a list changed on another device: the copy takes the server's `mine` without
             // fetching the recipe again (a stale one is fetched whole, `mine` and all). Not while a change of this
             // device's own still waits for the recipe: the queue's answer asks for the manifest again.
-            if (!stale && mines.contains(it.key()) && !(m_waiting && m_waiting(it.key()))
+            if (!stale && mines.contains(it.key()) && !keepsOwnMine(it.key())
                 && !sameMine(known->mine, mines.value(it.key())))
                 minesToPatch << it.key();
         }
@@ -362,7 +377,11 @@ void RecipeStore::fetchDetail(int recipeId, const QString &updatedAt)
         if (generation != m_generation)
             return;
         if (result.ok) {
-            const QVariantMap recipe = result.object.value("data").toObject().toVariantMap();
+            QVariantMap recipe = result.object.value("data").toObject().toVariantMap();
+            // A change of this device's own still waiting for the recipe: the detail may have been read before it
+            // reached the server, so the copy keeps the `mine` it shows.
+            if (keepsOwnMine(recipeId) && m_index.contains(recipeId))
+                recipe.insert("mine", m_index.value(recipeId).mine);
             write(recipeId, recipe, updatedAt, m_index.value(recipeId).cookedAt);
             if (recipe.value("hasImage").toBool()) {
                 // The slot stays counted until the picture has landed too.

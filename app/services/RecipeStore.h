@@ -3,6 +3,7 @@
 #include <QList>
 #include <QObject>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -116,6 +117,8 @@ private:
     void finishRefresh();
     void bump();
     bool offline() const;
+    // A change of this device's own waits for the recipe, now or when this refresh asked: its copy's `mine` stands.
+    bool keepsOwnMine(int recipeId) const;
     QString pictureFile(int recipeId) const;
     static QVariantMap tileOf(const QVariantMap &recipe);
 
@@ -123,6 +126,8 @@ private:
     AccountStore *m_store = nullptr;
     std::function<qint64()> m_clock;
     std::function<bool(int)> m_waiting;
+    // The recipes that had a change waiting when the running refresh asked for the manifest.
+    QSet<int> m_waitedAtAsk;
     // Pictures go through a manager that adds the session token, as every Image's does (AuthNetworkFactory).
     QNetworkAccessManager *m_network;
     QHash<int, Entry> m_index;

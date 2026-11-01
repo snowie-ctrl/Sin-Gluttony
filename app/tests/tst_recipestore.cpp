@@ -216,6 +216,65 @@ private slots:
         QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 3);
     }
 
+    void aManifestReadBeforeTheQueuesBatchDoesNotRollTheCopyBack()
+    {
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false, mineWith(QJsonValue(), QJsonValue()));
+        refreshed();
+        bool waiting = true;
+        store->setWaiting([&waiting](int recipeId) { return waiting && recipeId == 5; });
+        store->patchMine(5, mineWith(2, QJsonValue()).toVariantMap());
+
+        // The manifest is asked for while the change waits, and its answer (read before the batch was applied, so
+        // stars still none) is held back.
+        server->holdNext[path("/saved/manifest")] = 1;
+        store->refresh();
+        QTRY_COMPARE(requestsTo("/saved/manifest").size(), 2);
+        // The batch's answer comes first: the queue has nothing for the recipe by the time the manifest arrives.
+        waiting = false;
+        server->releaseHeld();
+        QTRY_VERIFY(!store->refreshing());
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+
+        // A refresh asked for with nothing waiting takes the server's word.
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(5, QJsonValue()));
+        refreshed();
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 5);
+    }
+
+    void aDetailFetchedWhileAChangeWaitsKeepsTheCopysMine()
+    {
+        // A copy whose picture is missing is fetched whole again at the next refresh.
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", true, mineWith(QJsonValue(), QJsonValue()));
+        server->responses[path("/images/5")] = "JPEG-" + QByteArray::number(5);
+        server->statuses[path("/images/5")] = 500;
+        refreshed();
+        QVERIFY(store->has(5));
+        QVERIFY(!QFile::exists(copyFile(5, ".jpg")));
+        store->setWaiting([](int recipeId) { return recipeId == 5; });
+        store->patchMine(5, mineWith(2, QJsonValue()).toVariantMap());
+
+        server->statuses.remove(path("/images/5"));
+        refreshed();
+        QCOMPARE(requestsTo("/recipes/5").size(), 2);
+        QCOMPARE(store->recipe(5).value("mine").toMap().value("stars").toInt(), 2);
+        QTRY_VERIFY(QFile::exists(copyFile(5, ".jpg")));
+    }
+
+    void anEmptyMineInTheManifestLeavesTheCopysMineAlone()
+    {
+        server->responses[path("/saved/manifest")] = manifest({5});
+        server->responses[path("/recipes/5")] = detail(5, "Stub Coq au Vin", false);
+        refreshed();
+        store->patchMine(5, mineWith(3, "keep it").toVariantMap());
+        server->responses[path("/saved/manifest")] = withMine(manifest({5}), 5, QJsonObject());
+        refreshed();
+        const QVariantMap mine = store->recipe(5).value("mine").toMap();
+        QCOMPARE(mine.value("stars").toInt(), 3);
+        QCOMPARE(mine.value("note").toString(), QStringLiteral("keep it"));
+    }
+
     void aSavedRecipeIsKeptWithItsPicture()
     {
         server->responses[path("/saved/manifest")] = manifest({5});
