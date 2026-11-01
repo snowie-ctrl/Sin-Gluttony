@@ -2221,6 +2221,29 @@ private slots:
         QTRY_VERIFY(findVisible("fromCopyNote"));
         QCOMPARE(findVisible("recipeTitle")->property("text").toString(), QStringLiteral("Kept Coq au Vin"));
     }
+
+    // Cook mode opens with the recipe as the page loaded it; a note written since (offline, queued) must survive the
+    // copy cook mode makes.
+    void cookModeKeepsTheNoteWrittenSinceTheRecipeLoaded()
+    {
+        startOfflineWithCopies();
+        recipes->open(6);
+        nav->navigateTo("recipe-page");
+        QTRY_VERIFY(findVisible("fromCopyNote"));
+        saved->setNote(6, QStringLiteral("Less salt next time"));
+        QTRY_COMPARE(copies->recipe(6).value("mine").toMap().value("note").toString(),
+                     QStringLiteral("Less salt next time"));
+        QTRY_VERIFY(findVisible("actionCook"));
+        click(findVisible("actionCook"));
+        QTRY_VERIFY(findVisible("cookPage"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
+        QCOMPARE(copies->recipe(6).value("mine").toMap().value("note").toString(), QStringLiteral("Less salt next time"));
+        // The stars and the mark the copy already had are still there beside it.
+        QCOMPARE(copies->recipe(6).value("mine").toMap().value("stars").toInt(), 4);
+        recipes->open(6);
+        QTRY_COMPARE(saved->mine().value("note").toString(), QStringLiteral("Less salt next time"));
+    }
 };
 
 QTEST_MAIN(TestPages)

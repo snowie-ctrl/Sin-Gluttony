@@ -63,9 +63,14 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
             copies.patchMine(saved.mineId(), saved.mine());
     });
 
-    // Spec §5: opening cook mode stores the recipe on the device.
-    QObject::connect(&cook, &Cook::opened, &copies, [&copies](const QVariantMap &recipe) {
-        copies.keepForCooking(recipe);
+    // Spec §5: opening cook mode stores the recipe on the device. The recipe is as the page loaded it, so its `mine`
+    // is out of date by whatever was kept since (a note queued offline, a star): Saved's is the live one, and the
+    // copy must not go back to the old.
+    QObject::connect(&cook, &Cook::opened, &copies, [&copies, &saved](const QVariantMap &recipe) {
+        QVariantMap kept = recipe;
+        if (saved.mineId() == recipe.value("id").toInt() && !saved.mine().isEmpty())
+            kept.insert("mine", saved.mine());
+        copies.keepForCooking(kept);
     });
 
     // The copies follow the manifest, which is otherwise asked for only at sign-in and on reconnect: a recipe hearted
