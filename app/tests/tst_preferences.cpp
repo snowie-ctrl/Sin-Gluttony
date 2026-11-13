@@ -78,6 +78,7 @@ private slots:
             settings.setValue("tileWidth", 5000);
             settings.setValue("units", "imperial-ish");
             settings.setValue("accentColor", "#00ff00");
+            settings.setValue("paletteVersion", 2);
             settings.sync();
         }
         Preferences p;
@@ -113,6 +114,67 @@ private slots:
         QCOMPARE(p.surfaceArt, QColor(0x1c1c1f));
         QCOMPARE(p.units, QStringLiteral("us"));
         QCOMPARE(p.tileWidth, 260);
+    }
+
+    void gulaColoursAreClearedOnceAndTheRestKept()
+    {
+        {
+            QSettings settings = file();   // an ini from part 2: no paletteVersion
+            settings.setValue("accentColor", "#3a1a0d");
+            settings.setValue("backgroundPrimary", "#140c08");
+            settings.setValue("units", "us");
+            settings.setValue("tileWidth", 260);
+            settings.setValue("filterPanelCollapsed", true);
+            settings.sync();
+        }
+        Preferences p;
+        QCOMPARE(p.accentColor, QColor(0xf27620));
+        QCOMPARE(p.backgroundPrimary, QColor(0x0f0f11));
+        QCOMPARE(p.units, QStringLiteral("us"));
+        QCOMPARE(p.tileWidth, 260);
+        QCOMPARE(p.filterPanelCollapsed, true);
+        QSettings after = file();
+        QCOMPARE(after.value("paletteVersion").toInt(), 2);
+        QVERIFY(!after.contains("accentColor"));
+        QVERIFY(!after.contains("backgroundPrimary"));
+        QCOMPARE(after.value("units").toString(), QStringLiteral("us"));
+    }
+
+    void aColourChangedAfterTheBumpSurvivesARestart()
+    {
+        {
+            Preferences p;                 // a fresh ini: the bump happens here
+            p.setProperty("accentRose", QColor(0x00ff00));
+        }   // the destructor saves at once
+        {
+            Preferences p;
+            QCOMPARE(p.property("accentRose").value<QColor>(), QColor(0x00ff00));
+        }
+        Preferences p;                     // and on every start after
+        QCOMPARE(p.property("accentRose").value<QColor>(), QColor(0x00ff00));
+        QCOMPARE(file().value("paletteVersion").toInt(), 2);
+    }
+
+    void aNewerPaletteVersionIsLeftAlone()
+    {
+        {
+            QSettings settings = file();
+            settings.setValue("paletteVersion", 3);
+            settings.setValue("accentColor", "#123456");
+            settings.sync();
+        }
+        Preferences p;
+        QCOMPARE(p.accentColor, QColor(0x123456));
+        QCOMPARE(file().value("paletteVersion").toInt(), 3);
+    }
+
+    void resetAllLeavesThePaletteVersion()
+    {
+        Preferences p;
+        p.resetAll();
+        p.setProperty("units", QStringLiteral("us"));
+        p.reset("units");
+        QCOMPARE(file().value("paletteVersion").toInt(), 2);
     }
 };
 

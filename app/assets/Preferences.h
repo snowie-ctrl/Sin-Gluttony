@@ -65,6 +65,9 @@ public:
     Q_INVOKABLE void resetAll();
     // Settings › Colours: every colour token back to Ember's, everything else as it is.
     Q_INVOKABLE void resetColours();
+    // Stored colours older than this are dropped once on start (version 2: Gula → Ember), so nobody keeps a
+    // leftover from an old palette. Saved as "paletteVersion" beside the preferences, never reset.
+    static constexpr int kPaletteVersion = 2;
 
         // Type: Tahoma for reading, Playfair Display (bundled) for headings, mood names and page titles.
     QString appFont =           QStringLiteral("Tahoma");

@@ -1,5 +1,5 @@
 // Copied from Pageturner Pageturner/assets/Preferences.cpp at ad9342e; Gluttony's limits and choices, its own ini
-// name, the bundled Playfair Display; no per-series settings; resetColours is new.
+// name, the bundled Playfair Display; no per-series settings; resetColours and the palette version are new.
 #include "Preferences.h"
 
 #include <QDebug>
@@ -45,6 +45,16 @@ QList<QMetaProperty> preferenceProperties(const QMetaObject *meta)
             result.append(property);
     }
     return result;
+}
+
+// The colour tokens, found rather than listed, so one added later is reset and migrated too.
+QStringList colourKeys(const QMetaObject *meta)
+{
+    QStringList keys;
+    for (const QMetaProperty &property : preferenceProperties(meta))
+        if (property.metaType().id() == QMetaType::QColor)
+            keys.append(QString::fromLatin1(property.name()));
+    return keys;
 }
 
 // Colours are stored as text, so the file stays readable and editable
@@ -157,10 +167,8 @@ void Preferences::resetAll()
 
 void Preferences::resetColours()
 {
-    // Found rather than listed, so a colour token added later is reset too.
-    for (const QMetaProperty &property : preferenceProperties(metaObject()))
-        if (property.metaType().id() == QMetaType::QColor)
-            reset(QString::fromLatin1(property.name()));
+    for (const QString &key : colourKeys(metaObject()))
+        reset(key);
 }
 
 void Preferences::scheduleSave()
@@ -171,6 +179,15 @@ void Preferences::scheduleSave()
 void Preferences::load()
 {
     QSettings settings = openSettings();
+
+    // A palette change drops the colours stored under the old one, once. A newer version (a downgrade) is left alone.
+    const QString versionKey = QStringLiteral("paletteVersion");
+    if (settings.value(versionKey, 0).toInt() < kPaletteVersion) {
+        for (const QString &key : colourKeys(metaObject()))
+            settings.remove(key);
+        settings.setValue(versionKey, kPaletteVersion);
+        settings.sync();
+    }
 
     for (const QMetaProperty &property : preferenceProperties(metaObject())) {
         const QString key = QString::fromLatin1(property.name());
