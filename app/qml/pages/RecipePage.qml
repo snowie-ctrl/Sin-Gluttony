@@ -154,7 +154,7 @@ Item {
                     radius: Preferences.cornerRadius
                     gradient: Gradient {
                         GradientStop { position: 0.4; color: "transparent" }
-                        GradientStop { position: 1; color: "#e6140c08" }
+                        GradientStop { position: 1; color: Qt.rgba(Preferences.backgroundPrimary.r, Preferences.backgroundPrimary.g, Preferences.backgroundPrimary.b, 0.9) }
                     }
                 }
                 Chip {

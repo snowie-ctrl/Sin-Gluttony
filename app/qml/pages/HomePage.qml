@@ -104,7 +104,7 @@ Flickable {
                     radius: Preferences.cornerRadius
                     gradient: Gradient {
                         GradientStop { position: 0.45; color: "transparent" }
-                        GradientStop { position: 1; color: "#e6140c08" }
+                        GradientStop { position: 1; color: Qt.rgba(Preferences.backgroundPrimary.r, Preferences.backgroundPrimary.g, Preferences.backgroundPrimary.b, 0.9) }
                     }
                 }
 
@@ -262,7 +262,7 @@ Flickable {
                             }
 
                             // Light text on the gradient's deep end, where both lines sit: textPrimary on accentDeep is
-                            // about 4.9:1, and each tile only gets deeper.
+                            // about 4.0:1, and each tile only gets deeper.
                             Column {
                                 anchors { left: parent.left; bottom: parent.bottom; margins: Preferences.spacingMedium }
                                 spacing: 2

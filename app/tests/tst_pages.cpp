@@ -1834,7 +1834,7 @@ private slots:
         QTRY_COMPARE(preferences->units, QStringLiteral("us"));
         preferences->setProperty("accentColor", QColor(0x00ff00));
         click(findVisible("resetColours"));
-        QTRY_COMPARE(preferences->accentColor, QColor(0xff7a1a));
+        QTRY_COMPARE(preferences->accentColor, QColor(0xf27620));
         QCOMPARE(preferences->units, QStringLiteral("us"));
     }
 

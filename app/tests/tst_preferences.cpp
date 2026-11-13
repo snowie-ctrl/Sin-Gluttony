@@ -33,22 +33,22 @@ private slots:
         settings.sync();
     }
 
-    void theDefaultsAreGula()
+    void theDefaultsAreEmber()
     {
         Preferences p;
-        QCOMPARE(p.backgroundPrimary, QColor(0x140c08));
-        QCOMPARE(p.backgroundSecondary, QColor(0x22140d));
-        QCOMPARE(p.backgroundTertiary, QColor(0x2e1b12));
-        QCOMPARE(p.surfaceArt, QColor(0x161312));
-        QCOMPARE(p.accentColor, QColor(0xff7a1a));
-        QCOMPARE(p.accentDeep, QColor(0xc8212f));
-        QCOMPARE(p.accentSubtle, QColor(0x3a1a0d));
-        QCOMPARE(p.borderColor, QColor(0x3a2418));
-        QCOMPARE(p.textPrimary, QColor(0xfbeee2));
-        QCOMPARE(p.textSecondary, QColor(0xd8b9a0));
-        QCOMPARE(p.textMuted, QColor(0x9a7a64));
-        QCOMPARE(p.dangerColor, QColor(0xe23d3d));
-        QCOMPARE(p.successColor, QColor(0x6fbf73));
+        QCOMPARE(p.backgroundPrimary, QColor(0x0f0f11));
+        QCOMPARE(p.backgroundSecondary, QColor(0x17171a));
+        QCOMPARE(p.backgroundTertiary, QColor(0x222226));
+        QCOMPARE(p.surfaceArt, QColor(0x1c1c1f));
+        QCOMPARE(p.borderColor, QColor(0x2c2c31));
+        QCOMPARE(p.textPrimary, QColor(0xf4f4f5));
+        QCOMPARE(p.textSecondary, QColor(0xb4b4bb));
+        QCOMPARE(p.textMuted, QColor(0x7d7d86));
+        QCOMPARE(p.accentColor, QColor(0xf27620));
+        QCOMPARE(p.accentDeep, QColor(0xe8263f));
+        QCOMPARE(p.accentSubtle, QColor(0x2b1d16));
+        QCOMPARE(p.dangerColor, QColor(0xf04444));
+        QCOMPARE(p.successColor, QColor(0x4fd18b));
         QCOMPARE(p.appFont, QStringLiteral("Tahoma"));
         QCOMPARE(p.headingFont, QStringLiteral("Playfair Display"));
         QCOMPARE(p.cornerRadius, 12);
@@ -57,6 +57,18 @@ private slots:
         QCOMPARE(p.fontSizeCaption, 12);
         QCOMPARE(p.spacingLarge, 24);
         QCOMPARE(p.units, QStringLiteral("metric"));
+    }
+
+    void amberAndRoseAreColoursLikeTheRest()
+    {
+        Preferences p;
+        QCOMPARE(p.property("accentAmber").value<QColor>(), QColor(0xffc24b));
+        QCOMPARE(p.property("accentRose").value<QColor>(), QColor(0xff5470));
+        QVERIFY(p.defaults().contains("accentAmber"));
+        QVERIFY(p.defaults().contains("accentRose"));
+        p.setProperty("accentRose", QColor(0x00ff00));
+        p.resetColours();
+        QCOMPARE(p.property("accentRose").value<QColor>(), QColor(0xff5470));
     }
 
     void savedValuesAreClampedAndChoicesChecked()
@@ -89,7 +101,7 @@ private slots:
         QCOMPARE(p.choices("units"), (QStringList{"metric", "us"}));
     }
 
-    void resettingColoursPutsGulaBackAndLeavesTheRest()
+    void resettingColoursPutsEmberBackAndLeavesTheRest()
     {
         Preferences p;
         p.setProperty("accentColor", QColor(0x00ff00));
@@ -97,8 +109,8 @@ private slots:
         p.setProperty("units", QStringLiteral("us"));
         p.setProperty("tileWidth", 260);
         p.resetColours();
-        QCOMPARE(p.accentColor, QColor(0xff7a1a));
-        QCOMPARE(p.surfaceArt, QColor(0x161312));
+        QCOMPARE(p.accentColor, QColor(0xf27620));
+        QCOMPARE(p.surfaceArt, QColor(0x1c1c1f));
         QCOMPARE(p.units, QStringLiteral("us"));
         QCOMPARE(p.tileWidth, 260);
     }
