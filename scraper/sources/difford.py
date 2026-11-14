@@ -157,8 +157,8 @@ def extractDifford(html, url, site, units, rules):
     timeFrom = "source" if total else None
     if not total and method in methods["minutes"]:
         total, timeFrom = methods["minutes"][method], "rule"
-    servings = schemaOrg.servingsOf(data.get("recipeYield"))
-    servingsFrom = "source" if servings else "rule"
+    servings, pieces = schemaOrg.yieldOf(data.get("recipeYield"))
+    servingsFrom = ("yield" if pieces else "source") if servings else "rule"
     image = schemaOrg.bestImage(html, data)
     return Recipe(
         source=site["site"], sourceId=schemaSite.sourceIdFor(url), kind=site["kind"], title=title,

@@ -141,3 +141,31 @@ def test_bestImageOnABbcShapedPageReturnsTheOriginal():
                  f'<meta property="og:image" content="{BBC}?quality=90&amp;resize=1200,630">')
     assert _best(html) == BBC + "?quality=90"
     assert _best(_page([BBC + "?quality=90&resize=440,400", BBC])) in (BBC, BBC + "?quality=90")
+
+
+def test_yield_prefers_stated_servings_over_piece_count():
+    assert schemaOrg.yieldOf(["12", "Makes 12 cookies", "Serves 6"]) == (6, False)
+    assert schemaOrg.yieldOf("Serves 4-6") == (4, False)
+    assert schemaOrg.yieldOf(["4", "4 servings"]) == (4, False)
+    assert schemaOrg.yieldOf("4") == (4, False)          # a bare number is servings, as before
+
+
+def test_yield_piece_count_is_marked():
+    assert schemaOrg.yieldOf("Makes 12") == (12, True)
+    assert schemaOrg.yieldOf("24 cookies") == (24, True)
+    assert schemaOrg.yieldOf("1 loaf") == (1, True)
+    assert schemaOrg.yieldOf(None) == (None, False)
+
+
+def test_calories_kj_and_kcal():
+    assert schemaOrg.caloriesOf("1,250 kJ / 300 kcal") == 300
+    assert schemaOrg.caloriesOf("300 kcal (1255 kJ)") == 300
+    assert schemaOrg.caloriesOf("1255kJ") == 300.0
+    assert schemaOrg.caloriesOf("300 calories") == 300
+    assert schemaOrg.caloriesOf(450) == 450
+    assert schemaOrg.caloriesOf("none") is None
+
+
+def test_nutrition_uses_kcal_reader():
+    found = schemaOrg.nutritionOf({"calories": "1255 kJ", "fatContent": "10 g"})
+    assert found["calories"] == 300.0 and found["fatG"] == 10.0
