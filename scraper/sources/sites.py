@@ -136,10 +136,11 @@ def _iso(when):
     return when.astimezone(timezone.utc).isoformat() if when else None
 
 
-def sitemapEntries(site, robots, log=print):
+def sitemapEntries(site, robots, log=print, failures=None):
     """
     Every recipe page the site's sitemaps list (indexes followed) and robots.txt
-    allows, as (url, lastmod or None): newest first, pages without lastmod last.
+    allows, as (url, lastmod or None): newest first, pages without lastmod last. A sitemap that could not be
+    read is appended to `failures` (when given), so the caller knows the listing is incomplete.
     """
     pattern = re.compile(site["recipeUrl"])
     childFilter = re.compile(site["sitemapFilter"]) if site.get("sitemapFilter") else None
@@ -161,9 +162,13 @@ def sitemapEntries(site, robots, log=print):
             if e.status in (403, 429):
                 raise refusal(e)
             log(f"{site['site']}: sitemap {url} skipped ({e})")
+            if failures is not None:
+                failures.append(url)
             continue
         except (ET.ParseError, OSError, EOFError, zlib.error) as e:
             log(f"{site['site']}: sitemap {url} unreadable ({type(e).__name__})")
+            if failures is not None:
+                failures.append(url)
             continue
         if kind == "sitemapindex":
             queue += [loc for loc, _ in entries if childFilter is None or childFilter.search(loc)]
@@ -227,8 +232,13 @@ def _plan(site, siteState, pages, priority, log, now):
     delay = robots.crawl_delay(AGENT)
     if delay and float(delay) > net.CRAWL_INTERVAL:
         net.MIN_INTERVAL[site["host"]] = float(delay)       # robots.txt asks for more room than 5 s: it gets it
-    entries = sitemapEntries(site, robots, log)
-    pagecache.saveListing(site["site"], entries)
+    failures = []
+    entries = sitemapEntries(site, robots, log, failures)
+    if failures:
+        # a partial listing must never replace a complete one (basics and M3's "left the sitemap" depend on it)
+        log(f"{site['site']}: {len(failures)} sitemap(s) not read; previous listing kept")
+    else:
+        pagecache.saveListing(site["site"], entries)
     passes = siteState.get("passes", 0)
     siteState["passes"] = passes + 1
     recheck = not any(lastmod for _, lastmod in entries) and passes % RECHECK_EVERY == 0

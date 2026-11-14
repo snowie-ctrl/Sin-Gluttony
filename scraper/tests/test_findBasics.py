@@ -85,3 +85,16 @@ def test_chooseBasicsKeepsTheTopThreeRankedUrlsAndTheFirstAsUrl():
                             "https://www.recipetineats.com/pancakes/",
                             "https://www.bbcgoodfood.com/recipes/best-pancakes"]
     assert item["url"] == item["urls"][0]
+
+
+def test_noveltyVariantsAreNotTakenForTheBasic():
+    listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/mac-n-cheese-bites", None),
+                                ("https://www.bbcgoodfood.com/recipes/christmas-baked-salmon", None),
+                                ("https://www.bbcgoodfood.com/recipes/baked-salmon-fajita-spread", None),
+                                ("https://www.bbcgoodfood.com/recipes/keto-vanilla-cake", None)]}
+    wanted = [b for b in findBasics.BASICS if b[0] in ("macaroni cheese", "salmon", "sponge cake")]
+    assert [item["urls"] for item in findBasics.chooseBasics(listings, wanted)] == [[], [], []]
+    plain = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/mac-and-cheese", None),
+                             ("https://www.bbcgoodfood.com/recipes/baked-salmon", None),
+                             ("https://www.bbcgoodfood.com/recipes/victoria-sponge-cake", None)]}
+    assert all(len(item["urls"]) == 1 for item in findBasics.chooseBasics(plain, wanted))
