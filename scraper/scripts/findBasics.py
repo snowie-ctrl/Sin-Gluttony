@@ -21,7 +21,7 @@ import config  # noqa: E402
 import pagecache  # noqa: E402
 import store  # noqa: E402
 
-SITE_ORDER = ("bbcgoodfood", "recipetineats", "budgetbytes", "pinchofyum")
+SITE_ORDER = ("bbcgoodfood", "recipetineats", "budgetbytes", "pinchofyum", "loveandlemons")
 MAX_EXTRA_WORDS = 3     # "perfect-scrambled-eggs" is a basic; "scrambled-eggs-with-smoked-salmon-and-chives" is not
 
 # (name, a pattern for the slug's words). Matched as whole hyphen-separated words; a pattern
@@ -34,7 +34,7 @@ BASICS = [
     ("omelette", r"omelet(?:te)?s?"),
     ("toast", r"^(?:buttered-|cinnamon-)?toast$"),
     ("porridge", r"^(?:perfect-|classic-|simple-|basic-)?(?:porridge|oatmeal)$"),
-    ("pancakes", r"^(?:classic-|easy-|fluffy-|perfect-|basic-)?pancakes?$"),
+    ("pancakes", r"^(?:classic-|easy-|fluffy-|perfect-|basic-)?pancakes?(?:-recipe)?$"),
     ("french toast", r"french-toast"),
     ("overnight oats", r"overnight-oats"),
     ("granola", r"^(?:homemade-|easy-|simple-)?granola$"),
@@ -61,7 +61,7 @@ BASICS = [
     ("burgers", r"^(?:beef-|classic-|perfect-)?burgers?$"),
     ("meatballs", r"^(?:baked-|homemade-|oven-baked-|classic-|easy-|beef-)?meatballs$"),
     ("chilli con carne", r"chil(?:l)?i-con-carne"),
-    ("stir fry", r"^(?:simple-|quick-|easy-)?stir-fry$"),
+    ("stir fry", r"^(?:simple-|quick-|easy-)?stir-fry(?:-recipe)?$"),
     ("chicken curry", r"chicken-curry"),
     ("shepherd's pie", r"shepherds?-pie|cottage-pie"),
     ("lasagne", r"lasagn(?:e|a)"),
@@ -75,11 +75,11 @@ BASICS = [
     ("hummus", r"hummus|houmous"),
     ("garlic bread", r"garlic-bread"),
     ("gravy", r"gravy"),
-    ("vinaigrette", r"^(?:classic-|simple-|easy-|basic-)?vinaigrette$"),
+    ("vinaigrette", r"^(?:classic-|simple-|easy-|basic-|balsamic-|red-wine-)?vinaigrette(?:-recipe)?$"),
     ("banana bread", r"^(?:homemade-|easy-|classic-|best-|simple-)?banana-bread$"),
     ("chocolate chip cookies", r"chocolate-chip-cookies"),
     ("sponge cake", r"^(?:classic-|easy-|best-|simple-|ultimate-)?(?:victoria-sponge(?:-cake)?|vanilla-cake|sponge-cake)$"),
-    ("smoothie", r"^(?:banana-|berry-|fruit-|breakfast-)?smoothie$"),
+    ("smoothie", r"^(?:banana-|berry-|fruit-|breakfast-|green-|best-green-)?smoothie(?:-recipe)?$"),
     ("bacon sandwich", r"^(?:classic-|best-|ultimate-)?bacon-(?:sandwich|sarnie|butty)$"),
 ]
 

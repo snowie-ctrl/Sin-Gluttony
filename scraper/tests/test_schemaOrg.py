@@ -143,6 +143,22 @@ def test_bestImageOnABbcShapedPageReturnsTheOriginal():
     assert _best(_page([BBC + "?quality=90&resize=440,400", BBC])) in (BBC, BBC + "?quality=90")
 
 
+@pytest.mark.parametrize("opening", ['<script type="application/ld+json">', "<script type='application/ld+json'>",
+                                     "<script type=application/ld+json class=made-up-graph>"])
+def test_theRecipeIsFoundWhateverTheScriptTagsQuoting(opening):
+    """A minified page (Love and Lemons) leaves the type and class attributes unquoted."""
+    html = f'<html><head>{opening}{{"@graph": [{{"@type": "WebPage"}}, {{"@type": "Recipe", "name": "Made-up"}}]}}</script></head></html>'
+    assert schemaOrg.hasRecipe(html)
+    assert schemaOrg.recipeJsonLd(html)["name"] == "Made-up"
+
+
+@pytest.mark.parametrize("opening", ["<script type=application/ld+jsonx>", '<script type="application/ld+json-seq">',
+                                     '<script type="text/javascript">'])
+def test_aScriptOfAnotherTypeIsNotReadAsJsonLd(opening):
+    html = f'<html><head>{opening}{{"@type": "Recipe", "name": "Made-up"}}</script></head></html>'
+    assert not schemaOrg.hasRecipe(html)
+
+
 def test_yield_prefers_stated_servings_over_piece_count():
     assert schemaOrg.yieldOf(["12", "Makes 12 cookies", "Serves 6"]) == (6, False)
     assert schemaOrg.yieldOf("Serves 4-6") == (4, False)

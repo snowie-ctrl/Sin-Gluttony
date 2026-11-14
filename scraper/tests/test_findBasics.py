@@ -97,3 +97,15 @@ def test_noveltyVariantsAreNotTakenForTheBasic():
                              ("https://www.bbcgoodfood.com/recipes/baked-salmon", None),
                              ("https://www.bbcgoodfood.com/recipes/victoria-sponge-cake", None)]}
     assert all(len(item["urls"]) == 1 for item in findBasics.chooseBasics(plain, wanted))
+
+
+def test_aRecipeSuffixOnAPancakeStirFryVinaigretteOrSmoothieSlugStillMakesItTheBasic():
+    for name, slug in (("pancakes", "pancakes-recipe"), ("stir fry", "stir-fry-recipe"),
+                       ("vinaigrette", "balsamic-vinaigrette"), ("smoothie", "best-green-smoothie-recipe")):
+        basic = [b for b in findBasics.BASICS if b[0] == name]
+        listings = {"loveandlemons": [(f"https://www.loveandlemons.com/{slug}/", None)]}
+        assert findBasics.chooseBasics(listings, basic)[0]["url"].endswith(f"/{slug}/"), name
+    pancakes = [b for b in findBasics.BASICS if b[0] == "pancakes"]
+    listings = {"loveandlemons": [("https://www.loveandlemons.com/mashed-potato-pancakes/", None),
+                                  ("https://www.loveandlemons.com/made-up-pancakes-recipe-ideas/", None)]}
+    assert findBasics.chooseBasics(listings, pancakes)[0]["url"] is None

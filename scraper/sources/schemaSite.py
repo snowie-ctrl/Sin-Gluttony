@@ -18,6 +18,9 @@ LICENCE = "personal use"
 _HEADING = re.compile(r"^[^\d½¼¾⅓⅔]{1,50}:$")    # "For the dressing:" written as an ingredient line
 
 
+_CHECKBOX = re.compile(r"^[\s▢☐□]+")      # a recipe card's tick-box glyph in front of a line (Love and Lemons)
+
+
 def _safe(read):
     """recipe-scrapers raises for a field a page lacks: that is None here."""
     try:
@@ -35,7 +38,7 @@ def linesFrom(texts, units, group=None):
     """Ingredient lines; a line that is only a heading ("For the dressing:") heads the lines after it."""
     lines = []
     for text in texts:
-        text = schemaOrg.clean(text)
+        text = _CHECKBOX.sub("", schemaOrg.clean(text))
         if not text:
             continue
         if _HEADING.match(text):

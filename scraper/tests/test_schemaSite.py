@@ -101,6 +101,7 @@ def test_aRecipeWithoutIngredientsIsSkipped():
     ("https://www.budgetbytes.com/made-up-lemon-test-chicken/", WPRM),
     ("https://www.recipetineats.com/made-up-lemon-test-chicken/", WPRM),
     ("https://pinchofyum.com/made-up-lemon-test-chicken", WPRM),
+    ("https://www.loveandlemons.com/made-up-lemon-test-chicken/", WPRM),
 ])
 def test_eachMealSiteReadsAPageInItsShape(url, page):
     """recipe-scrapers has its own class for each of these hosts; the shaped fixture must satisfy it too."""
@@ -113,5 +114,12 @@ def test_everySiteFixtureIsMadeUp():
     for path in SITES_DIR.glob("*.html"):
         text = path.read_text(encoding="utf-8")
         assert "Made-up" in text, path.name
-        for host in ("bbcgoodfood.com", "budgetbytes.com", "recipetineats.com", "pinchofyum.com", "diffordsguide.com"):
+        for host in ("bbcgoodfood.com", "budgetbytes.com", "recipetineats.com", "pinchofyum.com", "loveandlemons.com", "diffordsguide.com"):
             assert host not in text, path.name
+
+
+def test_aTickBoxGlyphInFrontOfAnIngredientLineIsDropped():
+    lines = schemaSite.linesFrom(["▢ 2 cups made-up flour", "☐ 1 tablespoon made-up oil, melted"], UNITS)
+    assert [l.quantity for l in lines] == [2, 1]
+    assert all("▢" not in l.name and "☐" not in l.name for l in lines)
+    assert [l.name for l in lines][0].startswith("made-up flour")
