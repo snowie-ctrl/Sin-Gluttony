@@ -12,6 +12,7 @@ _SIZES = ("extra large", "small", "medium", "large")        # "extra large" firs
 _PORTION_WORDS = {"cup": ("cup",), "tbsp": ("tbsp", "tablespoon"), "tsp": ("tsp", "teaspoon"),
                   "fl oz": ("fl oz",)}
 _VOLUME_WORDS = ("cup", "tbsp", "tablespoon", "tsp", "teaspoon", "fl oz", "ml", "l", "pint", "quart", "gallon")
+_NOT_A_COUNT = ("oz", "lb", "ounce", "pound", "serving")      # amount-1 portions that are not one piece
 _NOTE_WEIGHT = re.compile(r"(\d+(?:\.\d+)?)\s*(g|kg|oz|lb|ml)\b")
 
 
@@ -24,13 +25,18 @@ def amountOf(line):
     return line.quantity
 
 
-def _isVolumePortion(portion):
+def _isNotACount(portion, weightUnits):
     unit = portion["unit"]
-    return any(unit == word or unit.startswith((word + " ", word + ",")) for word in _VOLUME_WORDS)
+    return any(unit == word or unit.startswith((word + " ", word + ",")) for word in _VOLUME_WORDS + _NOT_A_COUNT + tuple(weightUnits))
 
 
 def _portionStarting(food, words):
-    for portion in (food or {}).get("portions", []):
+    """A portion named exactly by the word (or "word (...)") wins over a modified one like "cup, sifted"."""
+    portions = (food or {}).get("portions", [])
+    for portion in portions:
+        if any(portion["unit"] == word or portion["unit"].startswith(word + " (") for word in words):
+            return portion
+    for portion in portions:
         if any(portion["unit"].startswith(word) for word in words):
             return portion
     return None
@@ -97,7 +103,7 @@ def gramsOf(line, food, densities, measures=None, ingredientName=None):
             chosen = _portionStarting(food, (word,))
         if not chosen:
             chosen = next((p for p in (food or {}).get("portions", [])
-                           if p["amount"] == 1 and not _isVolumePortion(p)), None)
+                           if p["amount"] == 1 and not _isNotACount(p, densities["weight"])), None)
         if chosen and chosen["amount"]:
             return _round(amount * chosen["grams"] / chosen["amount"])
 

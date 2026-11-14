@@ -85,3 +85,23 @@ def test_named_and_vague_units(dens, ONION):
 def test_refusals(dens, ONION, COOKED_NO_PORTIONS):
     assert grams.gramsOf(L(line="", name="onion", quantity=None, unit=None), ONION, dens) == (None, "no-amount")
     assert grams.gramsOf(L(line="", name="x", quantity=1, unit=None), COOKED_NO_PORTIONS, dens) == (None, "no-gram-rule")
+
+
+def test_exact_portion_beats_a_modified_one(dens, FLOUR):
+    food = dict(FLOUR, portions=[{"amount": 1.0, "unit": "cup, sifted", "grams": 110.0},
+                                 {"amount": 1.0, "unit": "cup", "grams": 125.0}])
+    assert grams.gramsOf(L(line="", name="flour", quantity=1, unit="cup"), food, dens)[0] == 125
+    only = dict(FLOUR, portions=[{"amount": 1.0, "unit": "cup, sifted", "grams": 110.0}])
+    assert grams.gramsOf(L(line="", name="flour", quantity=1, unit="cup"), only, dens)[0] == 110
+
+
+def test_a_weight_portion_is_not_a_piece(dens, ONION):
+    food = dict(ONION, portions=[{"amount": 1.0, "unit": "oz", "grams": 28.35}])
+    assert grams.gramsOf(L(line="", name="shallot", quantity=2, unit=None), food, dens) == (None, "no-gram-rule")
+    serving = dict(ONION, portions=[{"amount": 1.0, "unit": "serving", "grams": 50.0}])
+    assert grams.gramsOf(L(line="", name="shallot", quantity=2, unit=None), serving, dens) == (None, "no-gram-rule")
+
+
+def test_named_unit_through_a_portion(dens, ONION):
+    garlic = dict(ONION, portions=[{"amount": 3.0, "unit": "cloves", "grams": 9.0}])
+    assert grams.gramsOf(L(line="", name="garlic", quantity=2, unit="clove"), garlic, dens) == (6.0, None)
