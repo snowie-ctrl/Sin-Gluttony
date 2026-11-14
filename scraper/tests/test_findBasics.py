@@ -48,3 +48,17 @@ def test_frenchToastIsNotToast():
 def test_thereAreAboutFiftyBasics():
     assert 45 <= len(findBasics.BASICS) <= 60
     assert len({name for name, _ in findBasics.BASICS}) == len(findBasics.BASICS)
+
+
+def test_aWholeSlugPatternIsNotMatchedInsideAnotherDish():
+    listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/avocado-toast", None),
+                                ("https://www.bbcgoodfood.com/recipes/fried-egg-milanese", None)]}
+    chosen = findBasics.chooseBasics(listings, [b for b in findBasics.BASICS if b[0] in ("toast", "fried eggs")])
+    assert [item["url"] for item in chosen] == [None, None]
+
+
+def test_aHomemadePrefixIsAllowedAndAnEarlierSiteDoesNotBeatAnEqualSlug():
+    listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/vegan-banana-bread", None)],
+                "budgetbytes": [("https://www.budgetbytes.com/homemade-banana-bread/", None)]}
+    banana = [b for b in findBasics.BASICS if b[0] == "banana bread"]
+    assert findBasics.chooseBasics(listings, banana)[0]["url"] == "https://www.budgetbytes.com/homemade-banana-bread/"

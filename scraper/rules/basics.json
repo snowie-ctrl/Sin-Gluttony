@@ -81,7 +81,7 @@
  },
  {
   "name": "chips",
-  "url": "https://www.bbcgoodfood.com/recipes/french-fries"
+  "url": null
  },
  {
   "name": "roast chicken",
@@ -129,7 +129,7 @@
  },
  {
   "name": "meatballs",
-  "url": null
+  "url": "https://www.budgetbytes.com/homemade-meatballs/"
  },
  {
   "name": "chilli con carne",
@@ -137,7 +137,7 @@
  },
  {
   "name": "stir fry",
-  "url": "https://www.bbcgoodfood.com/recipes/beef-stir-fry"
+  "url": "https://www.bbcgoodfood.com/recipes/quick-stir-fry"
  },
  {
   "name": "chicken curry",
@@ -169,7 +169,7 @@
  },
  {
   "name": "pork chops",
-  "url": null
+  "url": "https://www.bbcgoodfood.com/recipes/oven-baked-pork-chops"
  },
  {
   "name": "sausage and mash",
@@ -193,11 +193,11 @@
  },
  {
   "name": "vinaigrette",
-  "url": "https://www.recipetineats.com/salad-dressing/"
+  "url": "https://www.bbcgoodfood.com/recipes/classic-vinaigrette"
  },
  {
   "name": "banana bread",
-  "url": "https://www.bbcgoodfood.com/recipes/healthy-banana-bread"
+  "url": "https://www.budgetbytes.com/homemade-banana-bread/"
  },
  {
   "name": "chocolate chip cookies",
