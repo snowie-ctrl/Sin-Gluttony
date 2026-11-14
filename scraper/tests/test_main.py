@@ -50,3 +50,13 @@ def test_aRetagLeavesTheScheduleAlone(monkeypatch):
 def test_onceRunsOnePassAndSaysHowItWent(monkeypatch):
     fakePass(monkeypatch, "failed")
     assert main.main(["--once", "full", "--no-images"]) == 1
+
+
+def test_dryRunRunsOnlyTheDryRun(monkeypatch):
+    import dryrun
+    seen = []
+    monkeypatch.setattr(dryrun, "run", lambda pages=200, log=print, today=None, crawl=True: seen.append((pages, crawl)))
+    monkeypatch.setattr(pipeline, "runPass", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a pass ran")))
+    assert main.main(["--dry-run", "--pages", "5"]) == 0
+    assert main.main(["--dry-run", "--no-fetch"]) == 0
+    assert seen == [(5, True), (200, False)]

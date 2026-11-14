@@ -1,0 +1,182 @@
+"""
+The dry run's report, for the owner to read before any full crawl. In
+reports/dryrun-<date>/:
+
+  summary.md            pass rate per site and per gate reason, crawl stops, basics found or missing
+  summary.json          the same, as data
+  samples/<site>.json   ten recipes per site, listed ones first
+  unparsed.json         the ingredient lines the gate calls unparsed, grouped by their shape
+  skipped.json          pages that gave no recipe, with the reason
+
+It holds the sites' recipe text, so it stays in reports/, which git ignores.
+"""
+import re
+import time
+
+import gate
+import quantity
+import store
+
+SAMPLES = 10
+EXAMPLES = 5
+PATTERN_LENGTH = 8
+SHOWN_PATTERNS = 20
+_KEEP = {"x", "of", "or", "and", "to", "a", "an", "top", "juice", "zest"}
+_TOKEN = re.compile(r"\d+(?:[.,/⁄]\d+)*[^\W\d_]*|[^\W\d_]+|[^\w\s]")
+_NUMBER_WORD = re.compile(r"(\d+(?:[.,/⁄]\d+)*)([^\W\d_]*)")
+_FRACTION = re.compile(f"[{''.join(quantity.FRACTIONS)}]")
+_ORDER = ("listed", *gate.REASONS)
+
+
+def linePattern(text, units):
+    """
+    The shape of an ingredient line, so lines that fail the same way group
+    together: N a number, U a unit, NU a number glued to a unit, w words.
+    "2 x 400g cans tomatoes" -> "N x NU U w"; "200g/7oz flour" -> "NU / NU w".
+    """
+    symbols = []
+    for token in _TOKEN.findall(_FRACTION.sub(" 1 ", text)):
+        number = _NUMBER_WORD.fullmatch(token)
+        if number:
+            unit = number.group(2).lower()
+            symbol = "N" + ("" if not unit else "U" if unit in units else "w")
+        elif token.lower() in units:
+            symbol = "U"
+        elif token.lower() in _KEEP:
+            symbol = token.lower()
+        elif re.fullmatch(r"[^\W\d_]+", token):
+            symbol = "w"
+        else:
+            symbol = token
+        if not (symbol == "w" and symbols and symbols[-1] == "w"):
+            symbols.append(symbol)
+    return " ".join(symbols[:PATTERN_LENGTH])
+
+
+def _share(part, whole):
+    return round(part / whole, 3) if whole else None
+
+
+def siteSummary(site, crawl, recipes, skipped):
+    mine = [r for r in recipes if r.source == site["site"]]
+    lost = [s for s in skipped if s["site"] == site["site"]]
+    counts = {reason: 0 for reason in _ORDER}
+    for recipe in mine:
+        counts[recipe.hiddenReason or "listed"] += 1
+    lostBy = {}
+    for entry in lost:
+        lostBy[entry["reason"]] = lostBy.get(entry["reason"], 0) + 1
+    pages = len(mine) + len(lost)
+    summary = {"site": site["site"], "name": site["name"], "crawl": crawl, "pages": pages, "recipes": len(mine),
+               "notRead": len(lost), "notReadByReason": lostBy, "listed": counts["listed"],
+               "passRate": _share(counts["listed"], pages), "gate": counts,
+               "siteNutrition": sum(1 for r in mine if gate.hasNutrition(r))}
+    if site["kind"] == "drink":
+        summary["drinks"] = {"withGlass": sum(1 for r in mine if r.glass),
+                             "withGarnish": sum(1 for r in mine if any(l.group == "Garnish" for l in r.ingredients)),
+                             "withMethod": sum(1 for r in mine if r.hints.get("method"))}
+    return summary
+
+
+def samples(recipes, siteName, count=SAMPLES):
+    mine = sorted((r for r in recipes if r.source == siteName),
+                  key=lambda r: (r.hiddenReason is not None, r.sourceUrl or ""))
+    return [r.toDict() for r in mine[:count]]
+
+
+def unparsedGroups(recipes, units):
+    groups = {}
+    for recipe in recipes:
+        for line in recipe.ingredients:
+            if gate.lineParsed(line, units):
+                continue
+            key = linePattern(line.line, units)
+            group = groups.setdefault(key, {"pattern": key, "count": 0, "sites": {}, "examples": []})
+            group["count"] += 1
+            group["sites"][recipe.source] = group["sites"].get(recipe.source, 0) + 1
+            if len(group["examples"]) < EXAMPLES:
+                group["examples"].append(line.line)
+    return sorted(groups.values(), key=lambda g: (-g["count"], g["pattern"]))
+
+
+def basicsStatus(rules, recipes, skipped):
+    byUrl = {r.sourceUrl: r for r in recipes}
+    notRead = {s["url"]: s["reason"] for s in skipped}
+    rows = []
+    for basic in rules.get("basics", []):
+        url = basic.get("url")
+        if not url:
+            status = "missing: no site has it"
+        elif url in byUrl:
+            reason = byUrl[url].hiddenReason
+            status = f"hidden: {reason}" if reason else "listed"
+        elif url in notRead:
+            status = f"not read: {notRead[url]}"
+        else:
+            status = "not fetched"
+        rows.append({"name": basic["name"], "url": url, "status": status})
+    return rows
+
+
+def _pct(value):
+    return "-" if value is None else f"{value:.0%}"
+
+
+def _cell(text):
+    return str(text).replace("|", "/")
+
+
+def renderMarkdown(summary, groups):
+    out = [f"# Dry run {summary['date']}", "",
+           f"{summary['recipes']} recipes from {summary['pages']} cached pages; {summary['listed']} would be listed "
+           f"({_pct(summary['passRate'])}). Milestone 1 has no nutrition estimate, so `no-nutrition` counts every "
+           "recipe whose site gives no per-serving nutrition; milestone 2's estimate brings those in.", "",
+           "## Sites", "",
+           "| Site | Pages | Not read | " + " | ".join(_ORDER) + " | Pass rate | Site nutrition | Crawl |",
+           "|" + "---|" * (len(_ORDER) + 6)]
+    for s in summary["sites"]:
+        crawl = s["crawl"]
+        if not crawl:
+            state = "not crawled this run"
+        elif crawl.get("stopReason"):
+            state = f"stopped: {crawl['stopReason']}"
+        else:
+            state = f"{crawl.get('fetched', 0)} fetched, {crawl.get('listed', 0)} listed in sitemaps"
+        out.append(f"| {s['name']} | {s['pages']} | {s['notRead']} | "
+                   + " | ".join(str(s["gate"][r]) for r in _ORDER)
+                   + f" | {_pct(s['passRate'])} | {s['siteNutrition']} | {_cell(state)} |")
+    out += ["", "## Gate reasons, all sites", "", "| Reason | Recipes |", "|---|---|"]
+    out += [f"| {r} | {summary['reasons'][r]} |" for r in _ORDER]
+    drinks = [s for s in summary["sites"] if "drinks" in s]
+    if drinks:
+        out += ["", "## Drinks", ""]
+        out += [f"- {s['name']}: glass {s['drinks']['withGlass']}, garnish {s['drinks']['withGarnish']}, "
+                f"method {s['drinks']['withMethod']} of {s['recipes']}" for s in drinks]
+    out += ["", "## Unparsed ingredient lines by shape", "",
+            f"{summary['unparsedLines']} lines in all. N a number, U a unit, NU both glued, w words.", "",
+            "| Shape | Lines | Example |", "|---|---|---|"]
+    out += [f"| `{g['pattern']}` | {g['count']} | {_cell(g['examples'][0])} |" for g in groups[:SHOWN_PATTERNS]]
+    out += ["", "## Basics", "", "| Basic | Status | URL |", "|---|---|---|"]
+    out += [f"| {b['name']} | {b['status']} | {b['url'] or '-'} |" for b in summary["basics"]]
+    missing = [b["name"] for b in summary["basics"] if not b["url"]]
+    out += ["", "No site provides: " + (", ".join(missing) if missing else "none") + "."]
+    return "\n".join(out) + "\n"
+
+
+def write(folder, siteList, crawled, recipes, skipped, rules, today):
+    units = rules["unitMap"]
+    perSite = [siteSummary(site, crawled.get(site["site"]), recipes, skipped) for site in siteList]
+    reasons = {reason: sum(s["gate"][reason] for s in perSite) for reason in _ORDER}
+    groups = unparsedGroups(recipes, units)
+    pages = sum(s["pages"] for s in perSite)
+    summary = {"date": today.isoformat(), "generatedAt": time.time(), "pages": pages, "recipes": len(recipes),
+               "listed": reasons["listed"], "passRate": _share(reasons["listed"], pages), "sites": perSite,
+               "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
+               "basics": basicsStatus(rules, recipes, skipped)}
+    store.writeJson(folder / "summary.json", summary)
+    store.writeJson(folder / "unparsed.json", groups)
+    store.writeJson(folder / "skipped.json", skipped)
+    for site in siteList:
+        store.writeJson(folder / "samples" / f"{site['site']}.json", samples(recipes, site["site"]))
+    (folder / "summary.md").write_text(renderMarkdown(summary, groups), encoding="utf-8")
+    return summary
