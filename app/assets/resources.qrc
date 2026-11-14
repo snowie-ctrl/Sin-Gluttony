@@ -2,7 +2,7 @@
     <qresource prefix="/">
         <file>qtquickcontrols2.conf</file>
         <file>fonts/PlayfairDisplay/PlayfairDisplay.ttf</file>
-        <file>images/gluttony.svg</file>
+        <file>images/gluttonyAppIcon.png</file>
         <file>images/plate.svg</file>
         <file>images/glass.svg</file>
         <file>images/home.svg</file>

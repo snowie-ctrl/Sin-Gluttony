@@ -54,10 +54,16 @@ Rectangle {
             anchors { top: parent.top; topMargin: 16; horizontalCenter: parent.horizontalCenter }
             spacing: 10
 
+            // The premade Gluttony icon, a full-colour picture (not a TintedIcon), scaled down smoothly.
             Image {
+                objectName: "railMark"
                 anchors.horizontalCenter: parent.horizontalCenter
-                source: "qrc:/images/gluttony.svg"
-                sourceSize: Qt.size(36, 36)
+                width: 36
+                height: 36
+                source: "qrc:/images/gluttonyAppIcon.png"
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
             }
             Item { width: 1; height: 12 }
             RailButton {

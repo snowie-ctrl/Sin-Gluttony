@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("Gluttony"));
-    app.setWindowIcon(QIcon(QStringLiteral(":/images/gluttony.svg")));
+    app.setWindowIcon(QIcon(QStringLiteral(":/images/gluttonyAppIcon.png")));
 
     // Screenshot runs (tests/stub/grab.ps1) keep their own preferences and account folders, so trying a page never
     // changes the owner's.

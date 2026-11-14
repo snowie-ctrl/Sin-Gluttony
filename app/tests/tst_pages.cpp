@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QColor>
+#include <QIcon>
 #include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -681,6 +682,29 @@ private slots:
         QTRY_VERIFY(findVisible("usernameField"));
         session->login("stub", "wrong", QString());
         QTRY_VERIFY(findVisible("loginError"));
+    }
+
+    void thePigIsTheMarkEverywhere()
+    {
+        QVERIFY(!QIcon(QStringLiteral(":/images/gluttonyAppIcon.png")).isNull());
+        QVERIFY(!QFile::exists(QStringLiteral(":/images/gluttony.svg")));
+
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
+        start();
+        QTRY_VERIFY(findVisible("loginMark"));
+        QQuickItem *login = find("loginMark");
+        QVERIFY(login->property("source").toUrl().toString().endsWith("gluttonyAppIcon.png"));
+        QTRY_COMPARE(login->property("status").toInt(), 1);   // Image.Ready
+        QVERIFY(login->property("mipmap").toBool());
+        QCOMPARE(login->height(), 56.0);
+
+        server->responses[path("/device/identify")] = signedIn;
+        session->identifyDevice();
+        QTRY_VERIFY(findVisible("railMark"));
+        QQuickItem *rail = find("railMark");
+        QTRY_COMPARE(rail->property("status").toInt(), 1);
+        QVERIFY(rail->property("mipmap").toBool());
+        QCOMPARE(rail->height(), 36.0);
     }
 
     void signingOutGoesBackToTheForm()
