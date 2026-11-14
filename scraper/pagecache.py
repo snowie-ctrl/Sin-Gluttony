@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import os
 import time
+import zlib
 
 import config
 import store
@@ -41,7 +42,7 @@ def load(site, url):
     page, _ = _paths(site, url)
     try:
         return gzip.decompress(page.read_bytes()).decode("utf-8", errors="replace")
-    except (OSError, EOFError):     # missing, or cut short by a killed run
+    except (OSError, EOFError, zlib.error):     # missing, cut short by a killed run, or damaged
         return None
 
 
@@ -49,7 +50,7 @@ def pages(site):
     """(meta, html) for every whole cached page of a site, in URL order, one at a time (a full site is gigabytes)."""
     folder = config.RAW_DIR / site
     metas = [store.readJson(path) for path in folder.glob("*.json") if path.name != LISTING]
-    for info in sorted((m for m in metas if m and m.get("url")), key=lambda m: m["url"]):
+    for info in sorted((m for m in metas if isinstance(m, dict) and m.get("url")), key=lambda m: m["url"]):
         html = load(site, info["url"])
         if html is not None:
             yield info, html

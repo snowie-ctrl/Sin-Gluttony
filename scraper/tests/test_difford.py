@@ -90,3 +90,23 @@ def test_entitiesInTheTitleAreDecoded():
 def test_aPageWithoutRecipeMarkupIsSkipped():
     with pytest.raises(Skipped, match="no recipe"):
         difford.extractDifford("<html><body>Made-up</body></html>", URL, SITE, UNITS, RULES)
+
+
+@pytest.mark.parametrize("steps, method", [
+    ("SHAKE with ice, then STIR gently.", "shaken"),      # order: blended, shaken, thrown, stirred, built
+    ("STIR with ice, then BLEND.", "blended"),
+    ("BUILD in the glass and TOP WITH soda.", "built"),
+    ("BLEND with ice, then SHAKE.", "blended"),
+])
+def test_whenSeveralMethodsAppearTheEarlierOneInTheOrderWins(steps, method):
+    assert difford.extractDifford(drinkPage(steps), URL, SITE, UNITS, RULES).hints["method"] == method
+
+
+def test_aBareGlassLabelBeforeUnrelatedTextSetsNoGlass():
+    body = "<div>Glass</div><div>Made-up unrelated text</div>"
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None
+
+
+def test_aServeInValueWithoutTheWordGlassSetsNoGlass():
+    body = "<h3>Serve in a made-up jug</h3>"
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None

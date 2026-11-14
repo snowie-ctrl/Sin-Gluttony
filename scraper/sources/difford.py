@@ -14,7 +14,8 @@ from models import Recipe, Skipped
 from sources import schemaOrg, schemaSite
 
 _SERVE_IN = re.compile(r"^serve\s+in\s+(?:an?\s+)?", re.IGNORECASE)
-_LABEL = re.compile(r"^(glass|garnish)\s*(?::\s*(.*))?$", re.IGNORECASE)
+# a bare "Glass" with no colon is just a word on the page; only "Garnish" may take the next block as its value
+_LABEL = re.compile(r"^(glass\s*:|garnish\s*:|garnish(?=$))\s*(.*)$", re.IGNORECASE)
 
 
 class _Blocks(HTMLParser):
@@ -72,13 +73,14 @@ def glassAndGarnish(html):
     blocks = textBlocks(html)
     for n, block in enumerate(blocks):
         if _SERVE_IN.match(block):
-            glass = glass or _value(block)
+            value = _value(block)
+            glass = glass or (value if value and "glass" in value.lower() else None)
             continue
         label = _LABEL.match(block)
         if not label:
             continue
         value = _value(label.group(2) or (blocks[n + 1] if n + 1 < len(blocks) else ""))
-        if label.group(1).lower() == "glass":
+        if label.group(1).lower().startswith("glass"):
             glass = glass or value
         else:
             garnish = garnish or value

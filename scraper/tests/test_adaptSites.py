@@ -43,3 +43,19 @@ def test_anUnexpectedErrorSkipsOnlyThatPage(monkeypatch):
     recipes, skipped = adaptSites.adaptCached([FOOD], RULES)
     assert len(recipes) == 1
     assert skipped[0]["reason"] == "could not be read" and "KeyError" in skipped[0]["detail"]
+
+
+def test_corruptCacheEntriesAreSkippedAndTheRestStillAdapt():
+    import gzip, zlib
+    import config
+    pagecache.save("testsite", "https://www.example-recipes.test/good/", WPRM, None)
+    folder = config.RAW_DIR / "testsite"
+    # a gzip whose deflate stream is damaged raises zlib.error, not OSError
+    pagecache.save("testsite", "https://www.example-recipes.test/zbad/", "<html>made-up</html>", None)
+    page, _ = pagecache._paths("testsite", "https://www.example-recipes.test/zbad/")
+    raw = bytearray(gzip.compress(b"made-up " * 500))
+    raw[12:20] = b"\xff" * 8
+    page.write_bytes(bytes(raw))
+    (folder / "listy.json").write_text('["not", "an", "object"]', encoding="utf-8")
+    recipes, skipped = adaptSites.adaptCached([FOOD], RULES)
+    assert [r.title for r in recipes] == ["Made-up Lemon Test Chicken"]
