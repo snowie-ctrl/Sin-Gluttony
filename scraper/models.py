@@ -73,6 +73,10 @@ class Recipe:
     # The recipe sites (the new catalog). Publishing them is milestone 3; publish.payloadFor ignores them until then.
     description: str | None = None
     nutrition: dict | None = None    # per serving: calories, proteinG, carbsG, fatG, satFatG, fibreG, sugarG, sodiumMg
+    nutritionFrom: str | None = None     # "source" (the site's own) | "estimate" | None
+    nutritionFlagged: bool = False       # the chosen calories fall outside the range for this kind of recipe
+    estimate: dict | None = None         # the computed per-serving nutrition, kept even when the site's wins
+    estimateBlocker: dict | None = None  # why there is no estimate: the first failing line
     imageWidth: int | None = None    # the original picture's width, for the gate's 800 px
     hiddenReason: str | None = None  # the gate's first failing check; None means listed
 
