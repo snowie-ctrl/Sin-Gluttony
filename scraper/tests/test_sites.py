@@ -227,9 +227,9 @@ def test_aSiteEntryMissingAFieldIsRefused():
         sites.loadSites({"sites": [entry]})
 
 
-def test_theSitesFileNamesTheFiveSitesWithDiscoveredValues():
+def test_theSitesFileNamesTheSixSitesWithDiscoveredValues():
     entries = rulesData.load()["sites"]
-    assert [e["site"] for e in entries] == ["bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "difford"]
+    assert [e["site"] for e in entries] == ["bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "loveandlemons", "difford"]
     for entry in entries:
         assert set(entry) == set(sites.FIELDS) | {"sitemapFilter"}, entry["site"]
         re.compile(entry["sitemapFilter"])
@@ -544,3 +544,15 @@ def test_aPassWithAFailedChildSitemapDoesNotShrinkTheSavedListing(monkeypatch):
     fakeCrawl(monkeypatch, answers)
     sites.crawl([site], pages=0, log=QUIET)
     assert len(pagecache.listing("sitea")) == 2
+
+
+def test_loveAndLemonsTakesPostPagesAndLeavesItsSectionPagesOut():
+    entry = [e for e in rulesData.load()["sites"] if e["site"] == "loveandlemons"][0]
+    pattern = re.compile(entry["recipeUrl"])
+    assert pattern.match("https://www.loveandlemons.com/made-up-lemon-test-soup/")
+    assert pattern.match("https://www.loveandlemons.com/made-up-test-recipe/")
+    for url in ("https://www.loveandlemons.com/weekend/", "https://www.loveandlemons.com/instagram/",
+                "https://www.loveandlemons.com/category/made-up/", "https://www.loveandlemons.com/made-up/page/2/"):
+        assert not pattern.match(url), url
+    assert re.search(entry["sitemapFilter"], "https://www.loveandlemons.com/post-sitemap2.xml")
+    assert not re.search(entry["sitemapFilter"], "https://www.loveandlemons.com/page-sitemap.xml")

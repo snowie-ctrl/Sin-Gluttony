@@ -21,7 +21,7 @@ import config  # noqa: E402
 import pagecache  # noqa: E402
 import store  # noqa: E402
 
-SITE_ORDER = ("bbcgoodfood", "recipetineats", "budgetbytes", "pinchofyum")
+SITE_ORDER = ("bbcgoodfood", "recipetineats", "budgetbytes", "pinchofyum", "loveandlemons")
 MAX_EXTRA_WORDS = 3     # "perfect-scrambled-eggs" is a basic; "scrambled-eggs-with-smoked-salmon-and-chives" is not
 
 # (name, a pattern for the slug's words). Matched as whole hyphen-separated words; a pattern

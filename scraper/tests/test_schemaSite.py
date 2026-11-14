@@ -101,6 +101,7 @@ def test_aRecipeWithoutIngredientsIsSkipped():
     ("https://www.budgetbytes.com/made-up-lemon-test-chicken/", WPRM),
     ("https://www.recipetineats.com/made-up-lemon-test-chicken/", WPRM),
     ("https://pinchofyum.com/made-up-lemon-test-chicken", WPRM),
+    ("https://www.loveandlemons.com/made-up-lemon-test-chicken/", WPRM),
 ])
 def test_eachMealSiteReadsAPageInItsShape(url, page):
     """recipe-scrapers has its own class for each of these hosts; the shaped fixture must satisfy it too."""
@@ -113,5 +114,5 @@ def test_everySiteFixtureIsMadeUp():
     for path in SITES_DIR.glob("*.html"):
         text = path.read_text(encoding="utf-8")
         assert "Made-up" in text, path.name
-        for host in ("bbcgoodfood.com", "budgetbytes.com", "recipetineats.com", "pinchofyum.com", "diffordsguide.com"):
+        for host in ("bbcgoodfood.com", "budgetbytes.com", "recipetineats.com", "pinchofyum.com", "loveandlemons.com", "diffordsguide.com"):
             assert host not in text, path.name
