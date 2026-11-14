@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit, parse_qsl, urlencode
 
 from models import Step
 
-_LD = re.compile(r"<script[^>]*type\s*=\s*[\"']?application/ld\+json[\"']?[^>]*>(.*?)</script>", re.I | re.S)
+_LD = re.compile(r"<script[^>]*type\s*=\s*[\"']?application/ld\+json(?=[\s>\"'/])[\"']?[^>]*>(.*?)</script>", re.I | re.S)
 
 
 def _isRecipe(node):

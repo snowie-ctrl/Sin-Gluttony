@@ -150,3 +150,10 @@ def test_theRecipeIsFoundWhateverTheScriptTagsQuoting(opening):
     html = f'<html><head>{opening}{{"@graph": [{{"@type": "WebPage"}}, {{"@type": "Recipe", "name": "Made-up"}}]}}</script></head></html>'
     assert schemaOrg.hasRecipe(html)
     assert schemaOrg.recipeJsonLd(html)["name"] == "Made-up"
+
+
+@pytest.mark.parametrize("opening", ["<script type=application/ld+jsonx>", '<script type="application/ld+json-seq">',
+                                     '<script type="text/javascript">'])
+def test_aScriptOfAnotherTypeIsNotReadAsJsonLd(opening):
+    html = f'<html><head>{opening}{{"@type": "Recipe", "name": "Made-up"}}</script></head></html>'
+    assert not schemaOrg.hasRecipe(html)
