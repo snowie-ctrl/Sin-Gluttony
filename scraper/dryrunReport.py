@@ -7,6 +7,7 @@ reports/dryrun-<date>/:
   samples/<site>.json   ten recipes per site, listed ones first
   unparsed.json         the ingredient lines the gate calls unparsed, grouped by their shape
   skipped.json          pages that gave no recipe, with the reason
+  unknown-queue.json    unknown ingredient names blocking hidden recipes
 
 It holds the sites' recipe text, so it stays in reports/, which git ignores.
 """
@@ -22,6 +23,7 @@ EXAMPLES = 5
 PATTERN_LENGTH = 8
 SHOWN_PATTERNS = 20
 SHOWN_QUEUE = 20
+SHOWN_UNKNOWN = 20
 _KEEP = {"x", "of", "or", "and", "to", "a", "an", "top", "juice", "zest"}
 _TOKEN = re.compile(r"\d+(?:[.,/⁄]\d+)*[^\W\d_]*|[^\W\d_]+|[^\w\s]")
 _NUMBER_WORD = re.compile(r"(\d+(?:[.,/⁄]\d+)*)([^\W\d_]*)")
@@ -61,13 +63,18 @@ def _share(part, whole):
 def nutritionSummary(recipes):
     """How many recipes show the site's nutrition, an estimate, a flagged value, and why estimates failed."""
     blockers = {}
+    hidden = {}
     for recipe in recipes:
         if recipe.estimateBlocker:
             reason = recipe.estimateBlocker["reason"]
             blockers[reason] = blockers.get(reason, 0) + 1
+        if recipe.hiddenReason == "no-nutrition":
+            for reason in {b["reason"] for b in recipe.hints.get("blockers") or []}:
+                hidden[reason] = hidden.get(reason, 0) + 1
     return {"source": sum(1 for r in recipes if r.nutritionFrom == "source"),
             "estimate": sum(1 for r in recipes if r.nutritionFrom == "estimate"),
-            "flagged": sum(1 for r in recipes if r.nutritionFlagged), "blockers": blockers}
+            "flagged": sum(1 for r in recipes if r.nutritionFlagged), "blockers": blockers,
+            "hiddenBlockers": hidden}
 
 
 def siteSummary(site, crawl, recipes, skipped):
@@ -149,9 +156,24 @@ def _ratio(value):
     return "-" if value is None else f"{value:.2f}"
 
 
-def _nutritionSection(summary, queue):
+def _blockerTable(summary):
+    """Blocker counts two ways: every blocker of the hidden recipes, and the first blocker of all recipes."""
+    nutrition = summary.get("nutrition") or {}
+    hidden = nutrition.get("hiddenBlockers") or {}
+    first = nutrition.get("blockers") or {}
+    reasons = sorted(set(hidden) | set(first), key=lambda r: (-hidden.get(r, 0), -first.get(r, 0), r))
+    if not reasons:
+        return ["", "No recipe is blocked from an estimate."]
+    out = ["", "Why recipes have no estimate. Hidden recipes (no-nutrition) counts every blocker of each recipe; "
+           "all recipes counts only each recipe's first blocker.", "",
+           "| Blocker | Hidden recipes (every blocker) | All recipes (first blocker) |", "|---|---|---|"]
+    return out + [f"| {r} | {hidden.get(r, 0)} | {first.get(r, 0)} |" for r in reasons]
+
+
+def _nutritionSection(summary, queue, unknown=None):
     out = ["", "## Nutrition", "",
-           "Calibration is the estimate's calories over the site's own, for recipes that have both. "
+           "Calibration is the estimate's calories over the site's own, for recipes that have both; "
+           "recipes whose servings are a piece count are left out. "
            "no-nutrition is what the gate still hides.", "",
            "| Site | Site nutrition | Estimated | Flagged | no-nutrition | Calibration n | Median | p25-p75 | Within 20% |",
            "|---|---|---|---|---|---|---|---|---|"]
@@ -161,19 +183,25 @@ def _nutritionSection(summary, queue):
         c = calibration.get(s["site"]) or {"n": 0, "median": None, "p25": None, "p75": None, "within20": None}
         out.append(f"| {s['name']} | {n['source']} | {n['estimate']} | {n['flagged']} | {s['gate']['no-nutrition']} | "
                    f"{c['n']} | {_ratio(c['median'])} | {_ratio(c['p25'])}-{_ratio(c['p75'])} | {_pct(c['within20'])} |")
-    blockers = (summary.get("nutrition") or {}).get("blockers") or {}
-    out += ["", "Why recipes have no estimate: "
-            + (", ".join(f"{r} {n}" for r, n in sorted(blockers.items(), key=lambda kv: (-kv[1], kv[0]))) or "none") + "."]
+    out += _blockerTable(summary)
     if queue:
         out += ["", f"### FDC mapping queue (top {min(len(queue), SHOWN_QUEUE)})", "",
+                "Blocks counts the hidden recipes with this ingredient among their blockers; unlocks is exact: "
+                "the hidden recipes whose only blockers are this ingredient, so mapping it completes their estimate.", "",
                 "| Ingredient | Unlocks | Blocks | Best candidate |", "|---|---|---|---|"]
         for row in queue[:SHOWN_QUEUE]:
             best = row["candidates"][0]["description"] if row["candidates"] else "-"
             out.append(f"| {_cell(row['ingredient'])} | {row['unlocks']} | {row['blocks']} | {_cell(best)} |")
+    if unknown:
+        out += ["", f"### Unknown ingredients blocking hidden recipes (top {min(len(unknown), SHOWN_UNKNOWN)})", "",
+                "These names are not in the ingredient table. They are mapped on Surrogate's existing ingredient "
+                "mapping page. Unlocks counts the hidden recipes where the name is the only blocker.", "",
+                "| Name | Unlocks | Blocks |", "|---|---|---|"]
+        out += [f"| {_cell(row['name'])} | {row['unlocks']} | {row['blocks']} |" for row in unknown[:SHOWN_UNKNOWN]]
     return out
 
 
-def renderMarkdown(summary, groups, queue=None):
+def renderMarkdown(summary, groups, queue=None, unknown=None):
     out = [f"# Dry run {summary['date']}", "",
            f"{summary['recipes']} recipes from {summary['pages']} cached pages; {summary['listed']} would be listed "
            f"({_pct(summary['passRate'])}). These counts cover every cached page, not only this run's. Nutrition estimates from USDA foods are included: `no-nutrition` "
@@ -201,7 +229,7 @@ def renderMarkdown(summary, groups, queue=None):
         out += ["", "## Drinks", ""]
         out += [f"- {s['name']}: glass {s['drinks']['withGlass']}, garnish {s['drinks']['withGarnish']}, "
                 f"method {s['drinks']['withMethod']} of {s['recipes']}" for s in drinks]
-    out += _nutritionSection(summary, queue)
+    out += _nutritionSection(summary, queue, unknown)
     out += ["", "## Unparsed ingredient lines by shape", "",
             f"{summary['unparsedLines']} lines in all. N a number, U a unit, NU both glued, w words.", "",
             "| Shape | Lines | Example |", "|---|---|---|"]
@@ -213,7 +241,7 @@ def renderMarkdown(summary, groups, queue=None):
     return "\n".join(out) + "\n"
 
 
-def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=None, calibration=None, queue=None):
+def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=None, calibration=None, queue=None, unknown=None):
     units = rules["unitMap"]
     perSite = [siteSummary(site, crawled.get(site["site"]), recipes, skipped) for site in siteList]
     reasons = {reason: sum(s["gate"][reason] for s in perSite) for reason in _ORDER}
@@ -227,7 +255,8 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=N
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)
     store.writeJson(folder / "skipped.json", skipped)
+    store.writeJson(folder / "unknown-queue.json", unknown or [])
     for site in siteList:
         store.writeJson(folder / "samples" / f"{site['site']}.json", samples(recipes, site["site"]))
-    (folder / "summary.md").write_text(renderMarkdown(summary, groups, queue), encoding="utf-8")
+    (folder / "summary.md").write_text(renderMarkdown(summary, groups, queue, unknown), encoding="utf-8")
     return summary

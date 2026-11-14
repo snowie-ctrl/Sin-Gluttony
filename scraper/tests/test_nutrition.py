@@ -158,3 +158,35 @@ def test_estimate_records_every_ingredient_with_no_fdc_but_keeps_the_first_block
     r.hints["noFdc"] = ["salt"]
     nutrition.estimate(r, table, mapping, foods, rules)
     assert "noFdc" not in r.hints
+
+
+def test_a_skip_note_wins_over_an_amount(setup):
+    r = recipe(servings=1, lines=[line("100 g flour", "flour", 100, "g"),
+                                  line("2 tsp olive oil, for brushing", "olive oil", 2, "tsp", note="for brushing"),
+                                  line("1 tbsp flour, for dusting", "flour", 1, "tbsp", note="for dusting"),
+                                  line("3 cups olive oil", "olive oil", 3, "cup", note="for deep frying"),
+                                  line("flour", "flour", 1, "tbsp", note="for the work surface")])
+    assert nutrition.estimate(r, *setup)[0]["calories"] == 364
+
+
+def test_every_failing_line_is_a_blocker_once_in_line_order(setup):
+    table, mapping, foods, rules = setup
+    unknown = line("1 sumac", None, 1, None)
+    unknown.unknownName = "sumac"
+    r = recipe(servings=None, lines=[unknown, line("2 tbsp salt", "salt", 2, "tbsp"), line("1 egg", "egg", 1, None),
+                                     line("some flour", "flour", None, None), line("1 tbsp salt", "salt", 1, "tbsp"),
+                                     line("1 sumac", None, 1, None)])
+    unknown2 = r.ingredients[-1]
+    unknown2.unknownName = "sumac"
+    est, first = nutrition.estimate(r, table, {"onion": 900001, "flour": 900002}, foods, rules)
+    assert est is None and first["reason"] == "unknown-ingredient"
+    assert r.hints["blockers"] == [{"reason": "unknown-ingredient", "ingredient": "sumac"},
+                                   {"reason": "no-fdc", "ingredient": "salt"},
+                                   {"reason": "no-fdc", "ingredient": "egg"},
+                                   {"reason": "no-amount", "ingredient": "flour"},
+                                   {"reason": "no-servings", "ingredient": None}]
+    assert r.hints["noFdc"] == ["egg", "salt"]
+    ok = recipe(lines=[line("100 g flour", "flour", 100, "g")])
+    ok.hints["blockers"] = [{"reason": "x", "ingredient": None}]
+    nutrition.estimate(ok, table, mapping, foods, rules)
+    assert "blockers" not in ok.hints

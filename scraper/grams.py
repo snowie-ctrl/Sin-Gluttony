@@ -6,6 +6,8 @@ guess. No rule fits: the line has no grams and the reason says why.
 """
 import re
 
+import quantity
+
 _CONTAINERS = ("can", "jar", "package", "bottle")
 _NAMED = ("clove", "slice", "stick", "head", "stalk", "sheet", "piece", "wedge")
 _SIZES = ("extra large", "small", "medium", "large")        # "extra large" first: "large" is inside it
@@ -14,6 +16,25 @@ _PORTION_WORDS = {"cup": ("cup",), "tbsp": ("tbsp", "tablespoon"), "tsp": ("tsp"
 _VOLUME_WORDS = ("cup", "tbsp", "tablespoon", "tsp", "teaspoon", "fl oz", "ml", "l", "pint", "quart", "gallon")
 _NOT_A_COUNT = ("oz", "lb", "ounce", "pound", "serving")      # amount-1 portions that are not one piece
 _NOTE_WEIGHT = re.compile(r"(\d+(?:\.\d+)?)\s*(g|kg|oz|lb|ml)\b")
+_NUMBER = r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)"
+_COUNT_WEIGHT = re.compile(rf"({_NUMBER})(?:\s*(?:-|–|to)\s*({_NUMBER}))?\s*(kg|lbs|lb|oz|g)\b")
+_EACH = re.compile(r"\W{0,3}each\b")
+_WEIGHT_UNITS = {"lbs": "lb"}
+
+
+def _statedWeight(line, weights):
+    """Grams a count's note states: "200g each" times the count, any other weight ("~1.2kg") once."""
+    note = (line.note or "").lower()
+    found = _COUNT_WEIGHT.search(note)
+    if not found:
+        return None
+    low = quantity.toNumber(found.group(1))
+    high = quantity.toNumber(found.group(2)) if found.group(2) else None
+    if low is None or (found.group(2) and high is None):
+        return None
+    number = low if high is None else (low + high) / 2
+    grams = number * weights[_WEIGHT_UNITS.get(found.group(3), found.group(3))]
+    return grams * amountOf(line) if _EACH.match(note, found.end()) else grams
 
 
 def amountOf(line):
@@ -95,6 +116,9 @@ def gramsOf(line, food, densities, measures=None, ingredientName=None):
         return _round(amount * densities["vagueGrams"][unit])
 
     if not unit:
+        stated = _statedWeight(line, densities["weight"])
+        if stated is not None:
+            return _round(stated)
         size = _sizeIn(line.note)
         chosen = _portionStarting(food, (size,)) if size else None
         for word in ("medium", "large", "whole"):

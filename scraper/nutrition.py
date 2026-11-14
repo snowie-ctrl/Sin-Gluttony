@@ -14,13 +14,13 @@ _ABSURD = 3         # an estimate over this many times the range's top counts as
 
 
 def _skipped(line, densities):
+    """Optional, Garnish, "to taste" and cooking-medium lines; a skip note wins even over an amount."""
     note = (line.note or "").lower()
-    noQuantity = line.quantity is None
     if line.optional or line.group == "Garnish":
         return True
-    if noQuantity and any(text in note for text in _NO_QUANTITY_NOTES):
+    if line.quantity is None and any(text in note for text in _NO_QUANTITY_NOTES):
         return True
-    return noQuantity and any(text in note for text in densities.get("skipNotes", []))
+    return any(text in note for text in densities.get("skipNotes", []))
 
 
 def _blocker(line, reason, name=None):
@@ -37,29 +37,27 @@ def _drinkMl(line, category, densities, measures):
 def estimate(recipe, table, mapping, foods, rules, measures=None):
     """
     (per-serving dict, None), or (None, {"line", "reason", "ingredient"}) for the first failing line.
-    Every line is still read after a failure, only to record in recipe.hints["noFdc"] the sorted names
-    that have no FDC food, so the mapping queue knows what one more mapping would unlock.
+    Every line is still read after a failure: recipe.hints["blockers"] lists each failing required line as
+    {"reason", "ingredient"} (deduplicated, in line order, plus no-servings), and recipe.hints["noFdc"] the
+    sorted names that have no FDC food, so the queues know what one more mapping would unlock.
     """
     densities = rules["densities"]
     drinks = rules["drinkNutrition"]
     totals = dict.fromkeys(FIELDS, 0.0)
-    first = None
-    noFdc = set()
+    failures = []
     for line in recipe.ingredients:
         if _skipped(line, densities):
             continue
         if line.ingredientId is None:
-            first = first or _blocker(line, "unknown-ingredient")
+            failures.append((_blocker(line, "unknown-ingredient"), line.unknownName or line.name))
             continue
         name = table.rows[line.ingredientId]["name"]
         categoryName = drinks["ingredients"].get(name)
         if categoryName:
-            if first:
-                continue
             category = drinks["categories"][categoryName]
             ml, reason = _drinkMl(line, category, densities, measures)
             if ml is None:
-                first = _blocker(line, reason, name)
+                failures.append((_blocker(line, reason, name), name))
                 continue
             for field in FIELDS:
                 totals[field] += (category.get(field) or 0) * ml / 100
@@ -67,26 +65,35 @@ def estimate(recipe, table, mapping, foods, rules, measures=None):
         fdcId = mapping.get(name)
         food = foods.get(fdcId) if fdcId is not None else None
         if food is None:
-            noFdc.add(name)
-            first = first or _blocker(line, "no-fdc", name)
-            continue
-        if first:
+            failures.append((_blocker(line, "no-fdc", name), name))
             continue
         grams, reason = gramsOf(line, food, densities, measures, name)
         if grams is None:
-            first = _blocker(line, reason, name)
+            failures.append((_blocker(line, reason, name), name))
             continue
         for field in FIELDS:
             totals[field] += (food["per100g"].get(field) or 0) * grams / 100
-    if noFdc:
-        recipe.hints["noFdc"] = sorted(noFdc)
-    else:
-        recipe.hints.pop("noFdc", None)
-    if first:
-        return None, first
-    if not recipe.servings or recipe.servings < 1:
+    noServings = not recipe.servings or recipe.servings < 1
+    named = [(blocker["reason"], hint) for blocker, hint in failures]     # hint: the ingredient's name
+    blockers = []
+    for reason, ingredient in named + ([("no-servings", None)] if noServings else []):
+        entry = {"reason": reason, "ingredient": ingredient}
+        if entry not in blockers:
+            blockers.append(entry)
+    _record(recipe, "blockers", blockers)
+    _record(recipe, "noFdc", sorted({hint for reason, hint in named if reason == "no-fdc"}))
+    if failures:
+        return None, failures[0][0]
+    if noServings:
         return None, {"line": None, "reason": "no-servings", "ingredient": None}
     return {field: round(total / recipe.servings, 1) for field, total in totals.items()}, None
+
+
+def _record(recipe, key, values):
+    if values:
+        recipe.hints[key] = values
+    else:
+        recipe.hints.pop(key, None)
 
 
 def rangeOf(recipe, rules):

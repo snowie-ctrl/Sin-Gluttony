@@ -105,3 +105,14 @@ def test_a_weight_portion_is_not_a_piece(dens, ONION):
 def test_named_unit_through_a_portion(dens, ONION):
     garlic = dict(ONION, portions=[{"amount": 3.0, "unit": "cloves", "grams": 9.0}])
     assert grams.gramsOf(L(line="", name="garlic", quantity=2, unit="clove"), garlic, dens) == (6.0, None)
+
+
+def test_a_count_whose_note_states_the_weight(dens, ONION):
+    thighs = L(line="", name="chicken", quantity=5, unit=None, note="~1.2kg/2.4lb; skin-on")
+    assert grams.gramsOf(thighs, ONION, dens) == (1200, None)
+    breasts = L(line="", name="chicken", quantity=4, unit=None, note="200g each")
+    assert grams.gramsOf(breasts, ONION, dens) == (800, None)
+    potatoes = L(line="", name="potato", quantity=4, unit=None, note="2 1/2 lbs")
+    assert grams.gramsOf(potatoes, ONION, dens) == (1134, None)
+    ranged = L(line="", name="potato", quantity=2, unit=None, note="1-2 lb")
+    assert grams.gramsOf(ranged, None, dens) == (680.4, None)

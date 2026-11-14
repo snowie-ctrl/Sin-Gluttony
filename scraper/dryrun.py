@@ -62,7 +62,8 @@ def run(pages=200, log=print, today=None, crawl=True):
     folder = config.REPORT_DIR / f"dryrun-{today.isoformat()}"
     summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today,
                                     store.readJson(config.SITE_STATE_FILE, {}),
-                                    calibration=nutritionReport.calibrate(recipes), queue=queue["queue"])
+                                    calibration=nutritionReport.calibrate(recipes), queue=queue["queue"],
+                                    unknown=nutritionReport.unknownQueue(recipes))
     store.writeJson(folder / "fdc-queue.json", queue)
     log(f"dry run: {summary['listed']} of {summary['pages']} pages would be listed; report in {folder}")
     return folder
