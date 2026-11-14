@@ -14,6 +14,10 @@ from models import Recipe, Skipped
 from sources import schemaOrg, schemaSite
 
 _SERVE_IN = re.compile(r"^serve\s+in\s+(?:an?\s+)?", re.IGNORECASE)
+# The real pages put "Glass" as a heading whose next block is only a photo caption ("Photographed in a ... Coupe"),
+# and name the glass in the method's first step, upper-cased and sometimes with a size: "Select and pre-chill a
+# HIGHBALL (MAX 10OZ/300ML) GLASS."
+_PRE_CHILL = re.compile(r"^select\s+and\s+pre-?chill\s+(?:an?\s+)?(.+?)\.?$", re.IGNORECASE)
 # a bare "Glass" with no colon is just a word on the page; only "Garnish" may take the next block as its value
 _LABEL = re.compile(r"^(glass\s*:|garnish\s*:|garnish(?=$))\s*(.*)$", re.IGNORECASE)
 
@@ -67,10 +71,23 @@ def _value(text):
     return text if 0 < len(text) <= 80 else None
 
 
+def _preChilled(block):
+    """'Select and pre-chill a HIGHBALL (MAX 10OZ/300ML) GLASS.' -> 'Highball glass'; None for any other block."""
+    match = _PRE_CHILL.match(block)
+    if not match:
+        return None
+    value = " ".join(re.sub(r"\([^)]*\)", " ", match.group(1)).split())
+    if not value or len(value) > 40:
+        return None
+    return value[0].upper() + value[1:].lower() if value.isupper() else value
+
+
 def glassAndGarnish(html):
-    """(glass, garnish) from "Serve in a Coupe glass" and "Garnish:" / "Glass:" labels, the value beside or after."""
+    """(glass, garnish) from "Serve in a Coupe glass" and "Garnish:" / "Glass:" labels, the value beside or after.
+    Without those, the glass is the one the first method step pre-chills."""
     glass = garnish = None
     blocks = textBlocks(html)
+    preChilled = next(filter(None, map(_preChilled, blocks)), None)
     for n, block in enumerate(blocks):
         if _SERVE_IN.match(block):
             value = _value(block)
@@ -84,7 +101,7 @@ def glassAndGarnish(html):
             glass = glass or value
         else:
             garnish = garnish or value
-    return glass, garnish
+    return glass or preChilled, garnish
 
 
 def methodFor(steps, methods):

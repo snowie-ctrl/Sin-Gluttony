@@ -110,3 +110,21 @@ def test_aBareGlassLabelBeforeUnrelatedTextSetsNoGlass():
 def test_aServeInValueWithoutTheWordGlassSetsNoGlass():
     body = "<h3>Serve in a made-up jug</h3>"
     assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None
+
+
+def test_aGlassHeadingHasOnlyAPhotoCaptionNextAndTheGlassIsInThePreChillStep():
+    # the real pages: a "Glass" heading, a "Photographed in ..." caption (the prop, not the glass), and the glass
+    # named in the method's first step, upper-cased and sometimes with a size in brackets
+    body = ("<h3>Glass</h3><p>Photographed in a Made-up Retro Coupe</p>"
+            "<ol><li>Select and pre-chill a HIGHBALL (MAX 10OZ/300ML) GLASS.</li><li>STIR.</li></ol>")
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass == "Highball glass"
+
+
+def test_aServeInLineStillGivesTheGlass():
+    body = '<section><h3>Serve in a <a href="/made-up">Rocks glass</a></h3></section>'
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass == "Rocks glass"
+
+
+def test_aPreChillLineThatIsNotAGlassIsIgnored():
+    body = "<p>Select and pre-chill the made-up ingredients and then relax for a good long while, as the saying goes.</p>"
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None
