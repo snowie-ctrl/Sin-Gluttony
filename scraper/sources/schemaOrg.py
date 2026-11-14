@@ -6,7 +6,7 @@ pictures as text, lists or objects) into plain values.
 import html
 import json
 import re
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit, urlunsplit, parse_qsl, urlencode
 
 from models import Step
 
@@ -135,6 +135,24 @@ _HINTS = (re.compile(r"[?&](?:resize|fit)=(\d+)(?:,|;)\d+", re.I),          # ?r
           re.compile(r"(\d{3,4})px", re.I))                                   # _680px_1.jpg
 
 
+_ORIGINAL_HOST = "images.immediate.co.uk"
+_ORIGINAL_WIDTH = 4000      # nominal: an original is at least as wide as any rendition; images.py measures the real width
+
+
+def originalPicture(url):
+    """An images.immediate.co.uk address without its `resize` parameter (other parameters, such as quality, stay),
+    which asks the CDN for the original picture. Other hosts are returned untouched.
+    The owner approved this on 2026-11-14: BBC Good Food only offers 440 px renditions on its pages, and the
+    completeness gate needs a picture at least 800 px wide."""
+    if not url:
+        return url
+    parts = urlsplit(html.unescape(url))
+    if (parts.hostname or "").lower() != _ORIGINAL_HOST or not re.search(r"(?:^|&)resize=", parts.query):
+        return url
+    kept = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "resize"]
+    return urlunsplit(parts._replace(query=urlencode(kept, safe=",")))
+
+
 def _width(url, stated=None):
     """The width a picture's address or its own markup says; 0 when neither does."""
     if stated:
@@ -159,6 +177,9 @@ def bestImage(html, recipe):
     def add(url, stated=None):
         url = (url or "").strip()
         if url:
+            original = originalPicture(url)
+            if original != url:
+                url, stated = original, _ORIGINAL_WIDTH
             found[url] = max(found.get(url, 0), _width(url, stated))
 
     def walk(value):

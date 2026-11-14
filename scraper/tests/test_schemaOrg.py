@@ -114,3 +114,30 @@ def test_bestImageKeepsTheFirstWhenNoSizeIsKnown():
 
 def test_bestImageWithNoImageIsNone():
     assert _best(_page(None)) is None
+
+
+BBC = "https://images.immediate.co.uk/production/volatile/sites/30/2099/01/Made-up-abc1234.jpg"
+
+
+def test_originalPictureDropsResizeAndKeepsQuality():
+    assert schemaOrg.originalPicture(BBC + "?quality=90&resize=440,400") == BBC + "?quality=90"
+    assert schemaOrg.originalPicture(BBC + "?resize=440,400") == BBC
+    assert schemaOrg.originalPicture(BBC + "?resize=440,400&quality=90&x=1") == BBC + "?quality=90&x=1"
+
+
+def test_originalPictureHandlesHtmlEscapedAmpersands():
+    assert schemaOrg.originalPicture(BBC + "?quality=90&amp;resize=440,400") == BBC + "?quality=90"
+
+
+def test_originalPictureLeavesOtherHostsAndPlainAddressesAlone():
+    other = "https://x.test/a.jpg?quality=90&resize=440,400"
+    assert schemaOrg.originalPicture(other) == other
+    assert schemaOrg.originalPicture(BBC) == BBC
+    assert schemaOrg.originalPicture(None) is None
+
+
+def test_bestImageOnABbcShapedPageReturnsTheOriginal():
+    html = _page([BBC + "?quality=90&resize=440,400", BBC + "?quality=90&resize=768,574"],
+                 f'<meta property="og:image" content="{BBC}?quality=90&amp;resize=1200,630">')
+    assert _best(html) == BBC + "?quality=90"
+    assert _best(_page([BBC + "?quality=90&resize=440,400", BBC])) in (BBC, BBC + "?quality=90")
