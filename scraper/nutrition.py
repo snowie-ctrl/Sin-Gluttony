@@ -35,34 +35,55 @@ def _drinkMl(line, category, densities, measures):
 
 
 def estimate(recipe, table, mapping, foods, rules, measures=None):
-    """(per-serving dict, None), or (None, {"line", "reason", "ingredient"}) for the first failing line."""
+    """
+    (per-serving dict, None), or (None, {"line", "reason", "ingredient"}) for the first failing line.
+    Every line is still read after a failure, only to record in recipe.hints["noFdc"] the sorted names
+    that have no FDC food, so the mapping queue knows what one more mapping would unlock.
+    """
     densities = rules["densities"]
     drinks = rules["drinkNutrition"]
     totals = dict.fromkeys(FIELDS, 0.0)
+    first = None
+    noFdc = set()
     for line in recipe.ingredients:
         if _skipped(line, densities):
             continue
         if line.ingredientId is None:
-            return None, _blocker(line, "unknown-ingredient")
+            first = first or _blocker(line, "unknown-ingredient")
+            continue
         name = table.rows[line.ingredientId]["name"]
         categoryName = drinks["ingredients"].get(name)
         if categoryName:
+            if first:
+                continue
             category = drinks["categories"][categoryName]
             ml, reason = _drinkMl(line, category, densities, measures)
             if ml is None:
-                return None, _blocker(line, reason, name)
+                first = _blocker(line, reason, name)
+                continue
             for field in FIELDS:
                 totals[field] += (category.get(field) or 0) * ml / 100
             continue
         fdcId = mapping.get(name)
         food = foods.get(fdcId) if fdcId is not None else None
         if food is None:
-            return None, _blocker(line, "no-fdc", name)
+            noFdc.add(name)
+            first = first or _blocker(line, "no-fdc", name)
+            continue
+        if first:
+            continue
         grams, reason = gramsOf(line, food, densities, measures, name)
         if grams is None:
-            return None, _blocker(line, reason, name)
+            first = _blocker(line, reason, name)
+            continue
         for field in FIELDS:
             totals[field] += (food["per100g"].get(field) or 0) * grams / 100
+    if noFdc:
+        recipe.hints["noFdc"] = sorted(noFdc)
+    else:
+        recipe.hints.pop("noFdc", None)
+    if first:
+        return None, first
     if not recipe.servings or recipe.servings < 1:
         return None, {"line": None, "reason": "no-servings", "ingredient": None}
     return {field: round(total / recipe.servings, 1) for field, total in totals.items()}, None

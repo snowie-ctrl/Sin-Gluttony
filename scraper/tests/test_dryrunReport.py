@@ -102,3 +102,22 @@ def test_writeLeavesTheOwnersReport(tmp_path):
     assert "# Dry run 2026-11-14" in text and "| Test Site |" in text and "No site provides: toast." in text
     assert json.loads((tmp_path / "report" / "samples" / "testsite.json").read_text(encoding="utf-8"))[0]["title"]
     assert (tmp_path / "report" / "unparsed.json").exists() and (tmp_path / "report" / "skipped.json").exists()
+
+
+def test_theReportHasANutritionSectionWithCalibrationAndTheQueue(tmp_path):
+    recipes = [made(url="https://x.test/a/", nutritionFrom="source", nutrition={"calories": 100},
+                    estimate={"calories": 100}),
+               made(url="https://x.test/b/", hidden="no-nutrition", nutritionFlagged=False,
+                    estimateBlocker={"line": "x", "reason": "no-fdc", "ingredient": "saffron"})]
+    calibration = {"testsite": {"n": 1, "median": 1.0, "p25": 1.0, "p75": 1.0, "within20": 1.0, "within35": 1.0}}
+    queue = [{"ingredient": "saffron", "unlocks": 1, "blocks": 1,
+              "candidates": [{"fdcId": 1, "description": "Spices, saffron", "dataType": "sr_legacy_food", "score": 100}]}]
+    summary = dryrunReport.write(tmp_path / "report", [SITE], {}, recipes, [],
+                                 {"unitMap": UNITS, "basics": []}, date(2026, 11, 14),
+                                 calibration=calibration, queue=queue)
+    assert summary["nutrition"] == {"source": 1, "estimate": 0, "flagged": 0, "blockers": {"no-fdc": 1}}
+    assert summary["sites"][0]["nutrition"]["blockers"] == {"no-fdc": 1}
+    text = (tmp_path / "report" / "summary.md").read_text(encoding="utf-8")
+    assert "## Nutrition" in text and "| Test Site | 1 | 0 | 0 | 1 | 1 | 1.00 | 1.00-1.00 | 100% |" in text
+    assert "| saffron | 1 | 1 | Spices, saffron |" in text and "no-fdc 1" in text
+    assert "milestone 2's estimate brings" not in text

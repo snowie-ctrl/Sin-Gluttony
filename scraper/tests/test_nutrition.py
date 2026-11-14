@@ -144,3 +144,17 @@ def test_a_chosen_estimate_that_later_fails_leaves_no_nutrition(setup):
     r.ingredients.append(line("1 dragonfruit", None, 1, None))
     nutrition.choose(r, *setup)
     assert r.nutrition is None and r.nutritionFrom is None and not r.nutritionFlagged
+
+
+def test_estimate_records_every_ingredient_with_no_fdc_but_keeps_the_first_blocker(setup):
+    table, mapping, foods, rules = setup
+    r = recipe(lines=[line("1 dragonfruit", None, 1, None), line("2 tbsp salt", "salt", 2, "tbsp"),
+                      line("1 egg", "egg", 1, None), line("1 onion", "onion", 1, None),
+                      line("1 tbsp salt", "salt", 1, "tbsp")])
+    blocker = nutrition.estimate(r, table, {"onion": 900001}, foods, rules)[1]
+    assert blocker["reason"] == "unknown-ingredient"
+    assert r.hints["noFdc"] == ["egg", "salt"]
+    r = recipe(lines=[line("1 onion", "onion", 1, None)])
+    r.hints["noFdc"] = ["salt"]
+    nutrition.estimate(r, table, mapping, foods, rules)
+    assert "noFdc" not in r.hints

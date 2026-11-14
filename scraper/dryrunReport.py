@@ -2,7 +2,7 @@
 The dry run's report, for the owner to read before any full crawl. In
 reports/dryrun-<date>/:
 
-  summary.md            pass rate per site and per gate reason, crawl stops, basics found or missing
+  summary.md            pass rate per site and per gate reason, crawl stops, nutrition and its calibration, basics found or missing
   summary.json          the same, as data
   samples/<site>.json   ten recipes per site, listed ones first
   unparsed.json         the ingredient lines the gate calls unparsed, grouped by their shape
@@ -21,6 +21,7 @@ SAMPLES = 10
 EXAMPLES = 5
 PATTERN_LENGTH = 8
 SHOWN_PATTERNS = 20
+SHOWN_QUEUE = 20
 _KEEP = {"x", "of", "or", "and", "to", "a", "an", "top", "juice", "zest"}
 _TOKEN = re.compile(r"\d+(?:[.,/⁄]\d+)*[^\W\d_]*|[^\W\d_]+|[^\w\s]")
 _NUMBER_WORD = re.compile(r"(\d+(?:[.,/⁄]\d+)*)([^\W\d_]*)")
@@ -57,6 +58,18 @@ def _share(part, whole):
     return round(part / whole, 3) if whole else None
 
 
+def nutritionSummary(recipes):
+    """How many recipes show the site's nutrition, an estimate, a flagged value, and why estimates failed."""
+    blockers = {}
+    for recipe in recipes:
+        if recipe.estimateBlocker:
+            reason = recipe.estimateBlocker["reason"]
+            blockers[reason] = blockers.get(reason, 0) + 1
+    return {"source": sum(1 for r in recipes if r.nutritionFrom == "source"),
+            "estimate": sum(1 for r in recipes if r.nutritionFrom == "estimate"),
+            "flagged": sum(1 for r in recipes if r.nutritionFlagged), "blockers": blockers}
+
+
 def siteSummary(site, crawl, recipes, skipped):
     mine = [r for r in recipes if r.source == site["site"]]
     lost = [s for s in skipped if s["site"] == site["site"]]
@@ -70,7 +83,8 @@ def siteSummary(site, crawl, recipes, skipped):
     summary = {"site": site["site"], "name": site["name"], "crawl": crawl, "pages": pages, "recipes": len(mine),
                "notRead": len(lost), "notReadByReason": lostBy, "listed": counts["listed"],
                "passRate": _share(counts["listed"], pages), "gate": counts,
-               "siteNutrition": sum(1 for r in mine if gate.hasNutrition(r))}
+               "siteNutrition": sum(1 for r in mine if gate.hasNutrition(r)),
+               "nutrition": nutritionSummary(mine)}
     if site["kind"] == "drink":
         summary["drinks"] = {"withGlass": sum(1 for r in mine if r.glass),
                              "withGarnish": sum(1 for r in mine if any(l.group == "Garnish" for l in r.ingredients)),
@@ -131,11 +145,39 @@ def _cell(text):
     return str(text).replace("|", "/")
 
 
-def renderMarkdown(summary, groups):
+def _ratio(value):
+    return "-" if value is None else f"{value:.2f}"
+
+
+def _nutritionSection(summary, queue):
+    out = ["", "## Nutrition", "",
+           "Calibration is the estimate's calories over the site's own, for recipes that have both. "
+           "no-nutrition is what the gate still hides.", "",
+           "| Site | Site nutrition | Estimated | Flagged | no-nutrition | Calibration n | Median | p25-p75 | Within 20% |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    calibration = summary.get("calibration") or {}
+    for s in summary["sites"]:
+        n = s.get("nutrition") or {"source": 0, "estimate": 0, "flagged": 0}
+        c = calibration.get(s["site"]) or {"n": 0, "median": None, "p25": None, "p75": None, "within20": None}
+        out.append(f"| {s['name']} | {n['source']} | {n['estimate']} | {n['flagged']} | {s['gate']['no-nutrition']} | "
+                   f"{c['n']} | {_ratio(c['median'])} | {_ratio(c['p25'])}-{_ratio(c['p75'])} | {_pct(c['within20'])} |")
+    blockers = (summary.get("nutrition") or {}).get("blockers") or {}
+    out += ["", "Why recipes have no estimate: "
+            + (", ".join(f"{r} {n}" for r, n in sorted(blockers.items(), key=lambda kv: (-kv[1], kv[0]))) or "none") + "."]
+    if queue:
+        out += ["", f"### FDC mapping queue (top {min(len(queue), SHOWN_QUEUE)})", "",
+                "| Ingredient | Unlocks | Blocks | Best candidate |", "|---|---|---|---|"]
+        for row in queue[:SHOWN_QUEUE]:
+            best = row["candidates"][0]["description"] if row["candidates"] else "-"
+            out.append(f"| {_cell(row['ingredient'])} | {row['unlocks']} | {row['blocks']} | {_cell(best)} |")
+    return out
+
+
+def renderMarkdown(summary, groups, queue=None):
     out = [f"# Dry run {summary['date']}", "",
            f"{summary['recipes']} recipes from {summary['pages']} cached pages; {summary['listed']} would be listed "
-           f"({_pct(summary['passRate'])}). These counts cover every cached page, not only this run's. Milestone 1 has no nutrition estimate, so `no-nutrition` counts every "
-           "recipe whose site gives no per-serving nutrition; milestone 2's estimate brings those in.", "",
+           f"({_pct(summary['passRate'])}). These counts cover every cached page, not only this run's. Nutrition estimates from USDA foods are included: `no-nutrition` "
+           "counts the recipes with neither the site's own nutrition nor a complete estimate.", "",
            "## Sites", "",
            "| Site | Pages | Not read | " + " | ".join(_ORDER) + " | Pass rate | Site nutrition | Crawl |",
            "|" + "---|" * (len(_ORDER) + 6)]
@@ -159,6 +201,7 @@ def renderMarkdown(summary, groups):
         out += ["", "## Drinks", ""]
         out += [f"- {s['name']}: glass {s['drinks']['withGlass']}, garnish {s['drinks']['withGarnish']}, "
                 f"method {s['drinks']['withMethod']} of {s['recipes']}" for s in drinks]
+    out += _nutritionSection(summary, queue)
     out += ["", "## Unparsed ingredient lines by shape", "",
             f"{summary['unparsedLines']} lines in all. N a number, U a unit, NU both glued, w words.", "",
             "| Shape | Lines | Example |", "|---|---|---|"]
@@ -170,7 +213,7 @@ def renderMarkdown(summary, groups):
     return "\n".join(out) + "\n"
 
 
-def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=None):
+def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=None, calibration=None, queue=None):
     units = rules["unitMap"]
     perSite = [siteSummary(site, crawled.get(site["site"]), recipes, skipped) for site in siteList]
     reasons = {reason: sum(s["gate"][reason] for s in perSite) for reason in _ORDER}
@@ -179,11 +222,12 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=N
     summary = {"date": today.isoformat(), "generatedAt": time.time(), "pages": pages, "recipes": len(recipes),
                "listed": reasons["listed"], "passRate": _share(reasons["listed"], pages), "sites": perSite,
                "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
-               "basics": basicsStatus(rules, recipes, skipped, siteState)}
+               "basics": basicsStatus(rules, recipes, skipped, siteState),
+               "nutrition": nutritionSummary(recipes), "calibration": calibration or {}}
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)
     store.writeJson(folder / "skipped.json", skipped)
     for site in siteList:
         store.writeJson(folder / "samples" / f"{site['site']}.json", samples(recipes, site["site"]))
-    (folder / "summary.md").write_text(renderMarkdown(summary, groups), encoding="utf-8")
+    (folder / "summary.md").write_text(renderMarkdown(summary, groups, queue), encoding="utf-8")
     return summary
