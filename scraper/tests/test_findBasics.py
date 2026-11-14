@@ -62,3 +62,13 @@ def test_aHomemadePrefixIsAllowedAndAnEarlierSiteDoesNotBeatAnEqualSlug():
                 "budgetbytes": [("https://www.budgetbytes.com/homemade-banana-bread/", None)]}
     banana = [b for b in findBasics.BASICS if b[0] == "banana bread"]
     assert findBasics.chooseBasics(listings, banana)[0]["url"] == "https://www.budgetbytes.com/homemade-banana-bread/"
+
+
+def test_chunkyAndBestEverOvenChipsAreChipsButCeriacOvenChipsAreNot():
+    chips = [b for b in findBasics.BASICS if b[0] == "chips"]
+    for slug in ("chunky-oven-chips", "best-ever-oven-chips", "oven-chips"):
+        listings = {"bbcgoodfood": [(f"https://www.bbcgoodfood.com/recipes/{slug}", None)]}
+        assert findBasics.chooseBasics(listings, chips)[0]["url"].endswith(slug)
+    for slug in ("celeriac-oven-chips", "sweet-potato-chips"):
+        listings = {"bbcgoodfood": [(f"https://www.bbcgoodfood.com/recipes/{slug}", None)]}
+        assert findBasics.chooseBasics(listings, chips)[0]["url"] is None

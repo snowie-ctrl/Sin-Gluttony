@@ -47,7 +47,7 @@ BASICS = [
     ("mashed potatoes", r"mash(?:ed)?-potato(?:es)?|potato-mash"),
     ("roast potatoes", r"roast(?:ed)?-potato(?:es)?"),
     ("baked potato", r"^(?:classic-|perfect-|crisp-)?(?:baked|jacket)-potato(?:es)?$"),
-    ("chips", r"^(?:oven-|homemade-|easy-)?chips$"),
+    ("chips", r"^(?:chunky-|best-ever-|homemade-|easy-)?(?:oven-)?chips$"),
     ("roast chicken", r"(?:whole-)?roast(?:ed)?-chicken"),
     ("chicken breast", r"(?:baked|pan-fried|grilled|juicy)-chicken-breasts?"),
     ("grilled cheese", r"grilled-cheese(?:-sandwich)?|cheese-toastie"),
