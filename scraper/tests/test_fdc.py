@@ -42,7 +42,7 @@ def test_missing_nutrients_are_zero_and_listed():
     fdc.importFolders(log=lambda *_: None)
     oil = fdc.loadFoods()[900004]
     assert oil["per100g"]["proteinG"] == 0.0 and oil["per100g"]["carbsG"] == 0.0
-    assert set(oil["missing"]) == {"proteinG", "carbsG", "fiberG", "sugarG"}
+    assert set(oil["missing"]) == {"proteinG", "carbsG", "fibreG", "sugarG"}
     assert fdc.loadFoods()[900001]["missing"] == []
 
 
@@ -98,3 +98,13 @@ def test_load_imports_when_cache_missing_and_empty_without_files():
     assert fdc.loadFoods() == {}
     _install(None)
     assert len(fdc.loadFoods()) == 5 and config.FDC_FOODS_FILE.exists()
+
+
+def test_portions_with_zero_amount_or_weight_are_dropped():
+    _install(None)
+    _writeCsv(config.FDC_DIR / "sr" / "food_portion.csv",
+              ["id", "fdc_id", "amount", "measure_unit_id", "portion_description", "modifier", "gram_weight"],
+              [[1, 900001, 0, 9999, "", "none", 50], [2, 900001, 1, 9999, "", "zero grams", 0],
+               [3, 900001, 1, 9999, "", "medium", 110]])
+    fdc.importFolders(log=lambda *_: None)
+    assert fdc.loadFoods()[900001]["portions"] == [{"amount": 1.0, "unit": "medium", "grams": 110.0}]

@@ -31,7 +31,7 @@ NUTRIENTS = {
     "carbsG": (1005,),
     "fatG": (1004,),
     "satFatG": (1258,),
-    "fiberG": (1079,),
+    "fibreG": (1079,),
     "sugarG": (2000, 1063),
     "sodiumMg": (1093,),
 }
@@ -95,9 +95,11 @@ def _readFolder(folder, log):
     for row in _rows(folder / "food_portion.csv"):
         food = wanted.get(row["fdc_id"])
         grams = _number(row.get("gram_weight"))
-        if food is None or not grams:
+        if food is None or not grams or grams <= 0:
             continue
         amount = _number(row.get("amount"))
+        if amount is not None and amount <= 0:
+            continue
         food["portions"].append({"amount": 1.0 if amount is None else amount,
                                  "unit": _portionUnit(row, unitNames), "grams": grams})
     kept, dropped = {}, 0
