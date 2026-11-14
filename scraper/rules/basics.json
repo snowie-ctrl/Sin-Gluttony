@@ -64,7 +64,9 @@
   "name": "pancakes",
   "url": "https://www.bbcgoodfood.com/recipes/classic-pancakes",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/classic-pancakes"
+   "https://www.bbcgoodfood.com/recipes/classic-pancakes",
+   "https://www.recipetineats.com/pancake-recipe/",
+   "https://www.loveandlemons.com/pancakes-recipe/"
   ]
  },
  {
@@ -309,7 +311,8 @@
   "name": "stir fry",
   "url": "https://www.bbcgoodfood.com/recipes/quick-stir-fry",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/quick-stir-fry"
+   "https://www.bbcgoodfood.com/recipes/quick-stir-fry",
+   "https://www.loveandlemons.com/stir-fry-recipe/"
   ]
  },
  {
@@ -440,7 +443,8 @@
   "name": "vinaigrette",
   "url": "https://www.bbcgoodfood.com/recipes/classic-vinaigrette",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/classic-vinaigrette"
+   "https://www.bbcgoodfood.com/recipes/classic-vinaigrette",
+   "https://www.loveandlemons.com/balsamic-vinaigrette/"
   ]
  },
  {
@@ -474,7 +478,9 @@
   "name": "smoothie",
   "url": "https://www.bbcgoodfood.com/recipes/breakfast-smoothie",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/breakfast-smoothie"
+   "https://www.bbcgoodfood.com/recipes/breakfast-smoothie",
+   "https://www.budgetbytes.com/green-smoothie/",
+   "https://www.loveandlemons.com/best-green-smoothie-recipe/"
   ]
  },
  {

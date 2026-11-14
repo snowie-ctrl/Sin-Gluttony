@@ -116,3 +116,10 @@ def test_everySiteFixtureIsMadeUp():
         assert "Made-up" in text, path.name
         for host in ("bbcgoodfood.com", "budgetbytes.com", "recipetineats.com", "pinchofyum.com", "loveandlemons.com", "diffordsguide.com"):
             assert host not in text, path.name
+
+
+def test_aTickBoxGlyphInFrontOfAnIngredientLineIsDropped():
+    lines = schemaSite.linesFrom(["▢ 2 cups made-up flour", "☐ 1 tablespoon made-up oil, melted"], UNITS)
+    assert [l.quantity for l in lines] == [2, 1]
+    assert all("▢" not in l.name and "☐" not in l.name for l in lines)
+    assert [l.name for l in lines][0].startswith("made-up flour")
