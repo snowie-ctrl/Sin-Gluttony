@@ -1,218 +1,436 @@
 [
  {
   "name": "scrambled eggs",
-  "url": "https://www.recipetineats.com/scrambled-eggs/"
+  "url": "https://www.recipetineats.com/scrambled-eggs/",
+  "urls": [
+   "https://www.recipetineats.com/scrambled-eggs/",
+   "https://www.budgetbytes.com/scrambled-eggs/",
+   "https://www.bbcgoodfood.com/recipes/kimchi-scrambled-eggs"
+  ]
  },
  {
   "name": "fried eggs",
-  "url": "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg"
+  "url": "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg"
+  ]
  },
  {
   "name": "boiled eggs",
-  "url": "https://www.bbcgoodfood.com/recipes/soft-boiled-eggs"
+  "url": "https://www.bbcgoodfood.com/recipes/soft-boiled-eggs",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/soft-boiled-eggs",
+   "https://www.budgetbytes.com/make-soft-boiled-eggs/",
+   "https://www.bbcgoodfood.com/recipes/air-fryer-boiled-eggs"
+  ]
  },
  {
   "name": "poached eggs",
-  "url": "https://www.bbcgoodfood.com/recipes/poached-eggs"
+  "url": "https://www.bbcgoodfood.com/recipes/poached-eggs",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/poached-eggs",
+   "https://www.recipetineats.com/poached-eggs/",
+   "https://www.budgetbytes.com/poached-eggs/"
+  ]
  },
  {
   "name": "omelette",
-  "url": "https://www.recipetineats.com/omelette/"
+  "url": "https://www.recipetineats.com/omelette/",
+  "urls": [
+   "https://www.recipetineats.com/omelette/",
+   "https://www.bbcgoodfood.com/recipes/basic-omelette",
+   "https://www.bbcgoodfood.com/recipes/cheese-omelette"
+  ]
  },
  {
   "name": "toast",
-  "url": null
+  "url": null,
+  "urls": []
  },
  {
   "name": "porridge",
-  "url": "https://www.bbcgoodfood.com/recipes/perfect-porridge"
+  "url": "https://www.bbcgoodfood.com/recipes/perfect-porridge",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/perfect-porridge"
+  ]
  },
  {
   "name": "pancakes",
-  "url": "https://www.bbcgoodfood.com/recipes/classic-pancakes"
+  "url": "https://www.bbcgoodfood.com/recipes/easy-pancakes",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/easy-pancakes"
+  ]
  },
  {
   "name": "french toast",
-  "url": "https://www.bbcgoodfood.com/recipes/french-toast"
+  "url": "https://www.recipetineats.com/french-toast/",
+  "urls": [
+   "https://www.recipetineats.com/french-toast/",
+   "https://www.budgetbytes.com/french-toast/",
+   "https://www.bbcgoodfood.com/recipes/french-toast-casserole"
+  ]
  },
  {
   "name": "overnight oats",
-  "url": "https://www.bbcgoodfood.com/recipes/overnight-oats"
+  "url": "https://www.bbcgoodfood.com/recipes/overnight-oats",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/overnight-oats",
+   "https://www.bbcgoodfood.com/recipes/banana-overnight-oats",
+   "https://www.bbcgoodfood.com/recipes/chocolate-overnight-oats"
+  ]
  },
  {
   "name": "granola",
-  "url": "https://www.budgetbytes.com/homemade-granola/"
+  "url": "https://www.budgetbytes.com/homemade-granola/",
+  "urls": [
+   "https://www.budgetbytes.com/homemade-granola/"
+  ]
  },
  {
   "name": "boiled rice",
-  "url": "https://www.bbcgoodfood.com/recipes/steamed-white-rice"
+  "url": "https://www.recipetineats.com/how-to-cook-basmati-rice/",
+  "urls": [
+   "https://www.recipetineats.com/how-to-cook-basmati-rice/",
+   "https://www.recipetineats.com/how-to-cook-rice/",
+   "https://www.budgetbytes.com/how-to-cook-rice/"
+  ]
  },
  {
   "name": "fried rice",
-  "url": "https://www.bbcgoodfood.com/recipes/egg-fried-rice"
+  "url": "https://www.bbcgoodfood.com/recipes/egg-fried-rice",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/egg-fried-rice",
+   "https://www.recipetineats.com/egg-fried-rice/"
+  ]
  },
  {
   "name": "pasta",
-  "url": null
+  "url": null,
+  "urls": []
  },
  {
   "name": "spaghetti bolognese",
-  "url": "https://www.recipetineats.com/spaghetti-bolognese/"
+  "url": "https://www.recipetineats.com/spaghetti-bolognese/",
+  "urls": [
+   "https://www.recipetineats.com/spaghetti-bolognese/",
+   "https://www.budgetbytes.com/bolognese/",
+   "https://www.bbcgoodfood.com/recipes/mutant-spaghetti-bolognese"
+  ]
  },
  {
   "name": "macaroni cheese",
-  "url": "https://pinchofyum.com/mac-and-cheese"
+  "url": "https://pinchofyum.com/mac-and-cheese",
+  "urls": [
+   "https://pinchofyum.com/mac-and-cheese",
+   "https://www.bbcgoodfood.com/recipes/cauli-macaroni-cheese",
+   "https://www.bbcgoodfood.com/recipes/mac-n-cheese-bites"
+  ]
  },
  {
   "name": "tomato pasta",
-  "url": "https://www.bbcgoodfood.com/recipes/fresh-tomato-pasta"
+  "url": "https://www.budgetbytes.com/angel-hair-pasta-pomodoro/",
+  "urls": [
+   "https://www.budgetbytes.com/angel-hair-pasta-pomodoro/"
+  ]
  },
  {
   "name": "mashed potatoes",
-  "url": "https://www.recipetineats.com/mashed-potato/"
+  "url": "https://www.recipetineats.com/mashed-potato/",
+  "urls": [
+   "https://www.recipetineats.com/mashed-potato/",
+   "https://www.budgetbytes.com/mashed-potatoes/",
+   "https://www.bbcgoodfood.com/recipes/garlic-mashed-potatoes"
+  ]
  },
  {
   "name": "roast potatoes",
-  "url": "https://www.bbcgoodfood.com/recipes/roast-potatoes"
+  "url": "https://www.bbcgoodfood.com/recipes/roast-potatoes",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/roast-potatoes",
+   "https://www.recipetineats.com/roast-potatoes/",
+   "https://www.bbcgoodfood.com/recipes/hasselback-roast-potatoes"
+  ]
  },
  {
   "name": "baked potato",
-  "url": "https://www.bbcgoodfood.com/recipes/classic-jacket-potatoes"
+  "url": "https://www.bbcgoodfood.com/recipes/crisp-baked-potatoes",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/crisp-baked-potatoes"
+  ]
  },
  {
   "name": "chips",
-  "url": "https://www.bbcgoodfood.com/recipes/best-ever-oven-chips"
+  "url": null,
+  "urls": []
  },
  {
   "name": "roast chicken",
-  "url": "https://www.bbcgoodfood.com/recipes/roast-chicken"
+  "url": "https://www.bbcgoodfood.com/recipes/roast-chicken",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/roast-chicken",
+   "https://www.recipetineats.com/roast-chicken/",
+   "https://www.budgetbytes.com/roasted-chicken/"
+  ]
  },
  {
   "name": "chicken breast",
-  "url": "https://www.recipetineats.com/pan-fried-chicken-breast/"
+  "url": "https://www.recipetineats.com/pan-fried-chicken-breast/",
+  "urls": [
+   "https://www.recipetineats.com/pan-fried-chicken-breast/",
+   "https://www.budgetbytes.com/baked-chicken-breast/",
+   "https://www.recipetineats.com/oven-baked-chicken-breast/"
+  ]
  },
  {
   "name": "grilled cheese",
-  "url": "https://www.recipetineats.com/grilled-cheese-sandwich/"
+  "url": "https://www.recipetineats.com/grilled-cheese-sandwich/",
+  "urls": [
+   "https://www.recipetineats.com/grilled-cheese-sandwich/",
+   "https://www.bbcgoodfood.com/recipes/three-cheese-toastie",
+   "https://pinchofyum.com/caprese-grilled-cheese"
+  ]
  },
  {
   "name": "green salad",
-  "url": "https://www.bbcgoodfood.com/recipes/garden-salad"
+  "url": "https://www.recipetineats.com/garden-salad/",
+  "urls": [
+   "https://www.recipetineats.com/garden-salad/",
+   "https://www.bbcgoodfood.com/recipes/chilli-green-salad",
+   "https://www.bbcgoodfood.com/recipes/green-salad-avocado"
+  ]
  },
  {
   "name": "tomato soup",
-  "url": "https://www.bbcgoodfood.com/recipes/tomato-soup"
+  "url": "https://www.bbcgoodfood.com/recipes/orzo-tomato-soup",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/orzo-tomato-soup",
+   "https://www.bbcgoodfood.com/recipes/tomato-soup-gremolata",
+   "https://www.budgetbytes.com/roasted-tomato-soup/"
+  ]
  },
  {
   "name": "chicken soup",
-  "url": "https://www.bbcgoodfood.com/recipes/chicken-noodle-soup"
+  "url": "https://www.budgetbytes.com/chicken-noodle-soup/",
+  "urls": [
+   "https://www.budgetbytes.com/chicken-noodle-soup/",
+   "https://www.bbcgoodfood.com/recipes/cream-chicken-soup",
+   "https://www.bbcgoodfood.com/recipes/lemon-chicken-soup"
+  ]
  },
  {
   "name": "vegetable soup",
-  "url": "https://www.bbcgoodfood.com/recipes/chunky-vegetable-soup"
+  "url": "https://www.bbcgoodfood.com/recipes/chunky-vegetable-soup",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/chunky-vegetable-soup",
+   "https://www.bbcgoodfood.com/recipes/gruyere-vegetable-soup",
+   "https://www.bbcgoodfood.com/recipes/rustic-vegetable-soup"
+  ]
  },
  {
   "name": "roast vegetables",
-  "url": "https://www.bbcgoodfood.com/recipes/roasted-vegetables"
+  "url": "https://www.bbcgoodfood.com/recipes/roasted-vegetables",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/roasted-vegetables",
+   "https://www.recipetineats.com/roasted-vegetables/",
+   "https://www.bbcgoodfood.com/recipes/easy-roasted-vegetables"
+  ]
  },
  {
   "name": "broccoli",
-  "url": "https://www.bbcgoodfood.com/recipes/roasted-broccoli"
+  "url": "https://www.bbcgoodfood.com/recipes/roasted-broccoli",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/roasted-broccoli",
+   "https://www.bbcgoodfood.com/recipes/perfect-steamed-broccoli",
+   "https://pinchofyum.com/roasted-broccoli-salad"
+  ]
  },
  {
   "name": "green beans",
-  "url": "https://www.bbcgoodfood.com/recipes/simple-green-beans"
+  "url": "https://www.bbcgoodfood.com/recipes/simple-green-beans",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/simple-green-beans",
+   "https://www.budgetbytes.com/sauteed-green-beans/"
+  ]
  },
  {
   "name": "burgers",
-  "url": null
+  "url": null,
+  "urls": []
  },
  {
   "name": "meatballs",
-  "url": "https://www.budgetbytes.com/homemade-meatballs/"
+  "url": "https://www.budgetbytes.com/homemade-meatballs/",
+  "urls": [
+   "https://www.budgetbytes.com/homemade-meatballs/"
+  ]
  },
  {
   "name": "chilli con carne",
-  "url": "https://www.recipetineats.com/chilli-con-carne/"
+  "url": "https://www.recipetineats.com/chilli-con-carne/",
+  "urls": [
+   "https://www.recipetineats.com/chilli-con-carne/",
+   "https://www.bbcgoodfood.com/recipes/chicken-chilli-con-carne",
+   "https://www.bbcgoodfood.com/recipes/chilli-con-carne-recipe"
+  ]
  },
  {
   "name": "stir fry",
-  "url": "https://www.bbcgoodfood.com/recipes/quick-stir-fry"
+  "url": "https://www.bbcgoodfood.com/recipes/quick-stir-fry",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/quick-stir-fry"
+  ]
  },
  {
   "name": "chicken curry",
-  "url": "https://www.recipetineats.com/chicken-curry/"
+  "url": "https://www.recipetineats.com/chicken-curry/",
+  "urls": [
+   "https://www.recipetineats.com/chicken-curry/",
+   "https://www.bbcgoodfood.com/recipes/aromatic-chicken-curry",
+   "https://www.bbcgoodfood.com/recipes/30-minute-chicken-curry"
+  ]
  },
  {
   "name": "shepherd's pie",
-  "url": "https://www.bbcgoodfood.com/recipes/cottage-pie"
+  "url": "https://www.bbcgoodfood.com/recipes/cottage-pie",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/cottage-pie",
+   "https://www.recipetineats.com/cottage-pie/",
+   "https://www.recipetineats.com/shepherds-pie/"
+  ]
  },
  {
   "name": "lasagne",
-  "url": "https://www.bbcgoodfood.com/recipes/lasagne"
+  "url": "https://www.recipetineats.com/lasagna/",
+  "urls": [
+   "https://www.recipetineats.com/lasagna/",
+   "https://www.bbcgoodfood.com/recipes/chicken-lasagne",
+   "https://www.bbcgoodfood.com/recipes/christmas-lasagne"
+  ]
  },
  {
   "name": "tacos",
-  "url": "https://pinchofyum.com/chicken-tacos"
+  "url": "https://pinchofyum.com/chicken-tacos",
+  "urls": [
+   "https://pinchofyum.com/chicken-tacos",
+   "https://www.bbcgoodfood.com/recipes/birria-tacos",
+   "https://www.bbcgoodfood.com/recipes/goat-tacos"
+  ]
  },
  {
   "name": "quesadillas",
-  "url": "https://www.recipetineats.com/quesadilla/"
+  "url": "https://www.recipetineats.com/quesadilla/",
+  "urls": [
+   "https://www.recipetineats.com/quesadilla/",
+   "https://www.bbcgoodfood.com/recipes/chicken-quesadillas",
+   "https://www.recipetineats.com/mushroom-quesadillas/"
+  ]
  },
  {
   "name": "salmon",
-  "url": "https://www.bbcgoodfood.com/recipes/baked-salmon"
+  "url": "https://www.bbcgoodfood.com/recipes/horseradish-baked-salmon",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/horseradish-baked-salmon",
+   "https://www.recipetineats.com/christmas-baked-salmon/",
+   "https://www.bbcgoodfood.com/recipes/baked-salmon-fennel-tomatoes"
+  ]
  },
  {
   "name": "steak",
-  "url": "https://www.bbcgoodfood.com/recipes/rump-steak"
+  "url": null,
+  "urls": []
  },
  {
   "name": "pork chops",
-  "url": "https://www.bbcgoodfood.com/recipes/oven-baked-pork-chops"
+  "url": "https://www.bbcgoodfood.com/recipes/oven-baked-pork-chops",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/oven-baked-pork-chops"
+  ]
  },
  {
   "name": "sausage and mash",
-  "url": "https://www.budgetbytes.com/bangers-and-mash/"
+  "url": "https://www.budgetbytes.com/bangers-and-mash/",
+  "urls": [
+   "https://www.budgetbytes.com/bangers-and-mash/",
+   "https://www.bbcgoodfood.com/recipes/oriental-bangers-mash",
+   "https://www.bbcgoodfood.com/recipes/sausage-mash-pie"
+  ]
  },
  {
   "name": "guacamole",
-  "url": "https://www.budgetbytes.com/guacamole/"
+  "url": "https://www.budgetbytes.com/guacamole/",
+  "urls": [
+   "https://www.budgetbytes.com/guacamole/",
+   "https://www.bbcgoodfood.com/recipes/classic-guacamole",
+   "https://www.bbcgoodfood.com/recipes/deconstructed-guacamole"
+  ]
  },
  {
   "name": "hummus",
-  "url": "https://www.bbcgoodfood.com/recipes/hummus"
+  "url": "https://www.bbcgoodfood.com/recipes/hummus",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/hummus",
+   "https://www.recipetineats.com/hummus/",
+   "https://www.bbcgoodfood.com/recipes/chestnut-hummus"
+  ]
  },
  {
   "name": "garlic bread",
-  "url": "https://www.recipetineats.com/garlic-bread/"
+  "url": "https://www.recipetineats.com/garlic-bread/",
+  "urls": [
+   "https://www.recipetineats.com/garlic-bread/",
+   "https://www.budgetbytes.com/garlic-bread/",
+   "https://www.bbcgoodfood.com/recipes/garlic-bread-pizzas"
+  ]
  },
  {
   "name": "gravy",
-  "url": "https://www.recipetineats.com/gravy/"
+  "url": "https://www.recipetineats.com/gravy/",
+  "urls": [
+   "https://www.recipetineats.com/gravy/",
+   "https://www.bbcgoodfood.com/recipes/ghanaian-gravy",
+   "https://www.recipetineats.com/mushroom-gravy/"
+  ]
  },
  {
   "name": "vinaigrette",
-  "url": "https://www.bbcgoodfood.com/recipes/classic-vinaigrette"
+  "url": "https://www.bbcgoodfood.com/recipes/classic-vinaigrette",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/classic-vinaigrette"
+  ]
  },
  {
   "name": "banana bread",
-  "url": "https://www.budgetbytes.com/homemade-banana-bread/"
+  "url": "https://www.budgetbytes.com/homemade-banana-bread/",
+  "urls": [
+   "https://www.budgetbytes.com/homemade-banana-bread/"
+  ]
  },
  {
   "name": "chocolate chip cookies",
-  "url": "https://www.recipetineats.com/chocolate-chip-cookies/"
+  "url": "https://www.recipetineats.com/chocolate-chip-cookies/",
+  "urls": [
+   "https://www.recipetineats.com/chocolate-chip-cookies/",
+   "https://www.budgetbytes.com/chocolate-chip-cookies/",
+   "https://www.bbcgoodfood.com/recipes/chewy-chocolate-chip-cookies"
+  ]
  },
  {
   "name": "sponge cake",
-  "url": "https://www.bbcgoodfood.com/recipes/sponge-cake"
+  "url": "https://www.bbcgoodfood.com/recipes/blackberry-victoria-sponge",
+  "urls": [
+   "https://www.bbcgoodfood.com/recipes/blackberry-victoria-sponge",
+   "https://www.bbcgoodfood.com/recipes/keto-vanilla-cake",
+   "https://www.recipetineats.com/vanilla-sponge-cake/"
+  ]
  },
  {
   "name": "smoothie",
-  "url": "https://www.bbcgoodfood.com/recipes/breakfast-smoothie"
+  "url": null,
+  "urls": []
  },
  {
   "name": "bacon sandwich",
-  "url": null
+  "url": null,
+  "urls": []
  }
 ]

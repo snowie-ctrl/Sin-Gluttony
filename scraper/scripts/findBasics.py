@@ -84,6 +84,9 @@ BASICS = [
 ]
 
 
+CANDIDATES = 3
+
+
 def slugOf(url):
     return urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1].lower()
 
@@ -111,7 +114,8 @@ def chooseBasics(listings, basics=BASICS):
     chosen = []
     for name, pattern in basics:
         best = candidates(pattern, listings)
-        chosen.append({"name": name, "url": best[0][2] if best else None})
+        urls = [url for _, _, url in best[:CANDIDATES]]
+        chosen.append({"name": name, "url": urls[0] if urls else None, "urls": urls})
     return chosen
 
 

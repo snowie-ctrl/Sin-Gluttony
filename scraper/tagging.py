@@ -202,13 +202,6 @@ def applyTechnique(recipe):
         recipe.tags.append({"type": "technique", "tag": method, "origin": "rule"})
 
 
-def applyBasic(recipe, rules):
-    """The basics in rules/basics.json drive the app's quick mode."""
-    urls = {basic["url"] for basic in rules.get("basics", []) if basic.get("url")}
-    if recipe.sourceUrl and recipe.sourceUrl in urls:
-        recipe.tags.append({"type": "occasion", "tag": "basic", "origin": "rule"})
-
-
 def tagRecipe(recipe, table, rules):
     recipe.tags = []
     facts.applyMatching(recipe, table)
@@ -221,5 +214,4 @@ def tagRecipe(recipe, table, rules):
     applyOccasion(recipe)
     applySourceTags(recipe)
     applyTechnique(recipe)
-    applyBasic(recipe, rules)
     return recipe

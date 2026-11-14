@@ -35,14 +35,16 @@ def test_aSlugWithTooManyExtraWordsIsNotABasic():
 
 def test_aBasicNoSiteHasIsRecordedWithoutAUrl():
     chosen = findBasics.chooseBasics(LISTINGS, [("scrambled eggs", r"scrambled-eggs?"), ("toast", r"toast")])
-    assert chosen == [{"name": "scrambled eggs", "url": "https://www.recipetineats.com/scrambled-eggs/"},
-                      {"name": "toast", "url": None}]
+    assert chosen == [{"name": "scrambled eggs", "url": "https://www.recipetineats.com/scrambled-eggs/",
+                       "urls": ["https://www.recipetineats.com/scrambled-eggs/",
+                                "https://www.bbcgoodfood.com/recipes/perfect-scrambled-eggs"]},
+                      {"name": "toast", "url": None, "urls": []}]
 
 
 def test_frenchToastIsNotToast():
     listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/french-toast", None)]}
     toast = [basic for basic in findBasics.BASICS if basic[0] == "toast"]
-    assert findBasics.chooseBasics(listings, toast) == [{"name": "toast", "url": None}]
+    assert findBasics.chooseBasics(listings, toast) == [{"name": "toast", "url": None, "urls": []}]
 
 
 def test_thereAreAboutFiftyBasics():
@@ -72,3 +74,14 @@ def test_chunkyAndBestEverOvenChipsAreChipsButCeriacOvenChipsAreNot():
     for slug in ("celeriac-oven-chips", "sweet-potato-chips"):
         listings = {"bbcgoodfood": [(f"https://www.bbcgoodfood.com/recipes/{slug}", None)]}
         assert findBasics.chooseBasics(listings, chips)[0]["url"] is None
+
+
+def test_chooseBasicsKeepsTheTopThreeRankedUrlsAndTheFirstAsUrl():
+    listings = {"bbcgoodfood": [(f"https://www.bbcgoodfood.com/recipes/{slug}", None)
+                                for slug in ("easy-pancakes", "pancakes", "classic-pancakes", "best-pancakes")],
+                "recipetineats": [("https://www.recipetineats.com/pancakes/", None)]}
+    item = findBasics.chooseBasics(listings, [("pancakes", r"pancakes?")])[0]
+    assert item["urls"] == ["https://www.bbcgoodfood.com/recipes/pancakes",
+                            "https://www.recipetineats.com/pancakes/",
+                            "https://www.bbcgoodfood.com/recipes/best-pancakes"]
+    assert item["url"] == item["urls"][0]

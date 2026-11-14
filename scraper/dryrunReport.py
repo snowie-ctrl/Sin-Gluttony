@@ -13,6 +13,7 @@ It holds the sites' recipe text, so it stays in reports/, which git ignores.
 import re
 import time
 
+import basics
 import gate
 import quantity
 import store
@@ -100,27 +101,7 @@ def unparsedGroups(recipes, units):
 
 
 def basicsStatus(rules, recipes, skipped, siteState=None):
-    byUrl = {r.sourceUrl: r for r in recipes}
-    notRead = {s["url"]: s["reason"] for s in skipped}
-    # pages the crawler fetched and found not to be recipes are not cached; the site state remembers them
-    rejected = {url for state in (siteState or {}).values() if isinstance(state, dict)
-                for url in state.get("notRecipe", {})}
-    rows = []
-    for basic in rules.get("basics", []):
-        url = basic.get("url")
-        if not url:
-            status = "missing: no site has it"
-        elif url in byUrl:
-            reason = byUrl[url].hiddenReason
-            status = f"hidden: {reason}" if reason else "listed"
-        elif url in notRead:
-            status = f"not read: {notRead[url]}"
-        elif url in rejected:
-            status = "not a recipe page"
-        else:
-            status = "not fetched"
-        rows.append({"name": basic["name"], "url": url, "status": status})
-    return rows
+    return basics.resolve(rules, recipes, skipped, siteState)
 
 
 def _pct(value):
@@ -163,9 +144,10 @@ def renderMarkdown(summary, groups):
             f"{summary['unparsedLines']} lines in all. N a number, U a unit, NU both glued, w words.", "",
             "| Shape | Lines | Example |", "|---|---|---|"]
     out += [f"| `{g['pattern']}` | {g['count']} | {_cell(g['examples'][0])} |" for g in groups[:SHOWN_PATTERNS]]
-    out += ["", "## Basics", "", "| Basic | Status | URL |", "|---|---|---|"]
+    out += ["", "## Basics", "", "| Basic | Status | Chosen URL |", "|---|---|---|"]
     out += [f"| {b['name']} | {b['status']} | {b['url'] or '-'} |" for b in summary["basics"]]
     missing = [b["name"] for b in summary["basics"] if not b["url"]]
+    out += ["", f"{summary.get('basicsFellBack', 0)} basics fell back to a later candidate."]
     out += ["", "No site provides: " + (", ".join(missing) if missing else "none") + "."]
     return "\n".join(out) + "\n"
 
@@ -180,6 +162,7 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=N
                "listed": reasons["listed"], "passRate": _share(reasons["listed"], pages), "sites": perSite,
                "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
                "basics": basicsStatus(rules, recipes, skipped, siteState)}
+    summary["basicsFellBack"] = sum(1 for b in summary["basics"] if (b["candidate"] or 1) > 1)
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)
     store.writeJson(folder / "skipped.json", skipped)

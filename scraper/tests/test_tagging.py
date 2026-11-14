@@ -198,17 +198,6 @@ def test_aDrinksMethodBecomesATechniqueTag():
     assert {"type": "technique", "tag": "shaken", "origin": "rule"} in r.tags
 
 
-def test_aBasicIsTaggedBasic():
-    rules = dict(RULES, basics=[{"name": "scrambled eggs", "url": "https://www.example-recipes.test/made-up-eggs/"},
-                                {"name": "toast", "url": None}])
-    basic = tagging.tagRecipe(recipe(source="recipetineats", sourceUrl="https://www.example-recipes.test/made-up-eggs/"),
-                              TABLE, rules)
-    other = tagging.tagRecipe(recipe(source="recipetineats", sourceUrl="https://www.example-recipes.test/made-up-stew/"),
-                              TABLE, rules)
-    assert {"type": "occasion", "tag": "basic", "origin": "rule"} in basic.tags
-    assert not [t for t in other.tags if t["tag"] == "basic"]
-
-
 def test_aDiffordsShapedRecipeGetsItsTechniqueTagFromTheKeyDiffordSets():
     from sources import difford
     import inspect

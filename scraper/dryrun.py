@@ -9,6 +9,7 @@ from datetime import date
 from itertools import zip_longest
 
 import adaptSites
+import basics
 import config
 import dryrunReport
 import gate
@@ -32,7 +33,7 @@ def roundRobin(recipes):
 def run(pages=200, log=print, today=None, crawl=True):
     rules = rulesData.load()
     siteList = sites.loadSites(rules)
-    basicUrls = frozenset(b["url"] for b in rules.get("basics", []) if b.get("url"))
+    basicUrls = basics.priorityUrls(rules)
     crawled = sites.crawl(siteList, pages, log=log, priority=basicUrls) if crawl else {}
     recipes, skipped = adaptSites.adaptCached(siteList, rules)
     log(f"read {len(recipes)} recipes; {len(skipped)} cached pages gave none")
@@ -44,6 +45,7 @@ def run(pages=200, log=print, today=None, crawl=True):
         tagging.tagRecipe(recipe, table, rules)
         recipe.dishKey = linking.dishKey(recipe.title, set(rules["fillerWords"]))
         gate.apply(recipe, rules["unitMap"])
+    basics.applyTags(recipes, rules)
     today = today or date.today()
     folder = config.REPORT_DIR / f"dryrun-{today.isoformat()}"
     summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today,
