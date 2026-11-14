@@ -68,3 +68,20 @@ def test_roundRobinTakesOneRecipePerSiteInTurn():
         return Recipe(source=source, sourceId=str(n), kind="food", title="x", ingredients=[], steps=[])
     ordered = dryrun.roundRobin([r("a", 1), r("a", 2), r("a", 3), r("b", 1)])
     assert [(x.source, x.sourceId) for x in ordered] == [("a", "1"), ("b", "1"), ("a", "2"), ("a", "3")]
+
+
+def test_aDryRunWithNoFdcFoodsWarnsAndHidesRecipesWithoutSiteNutrition(monkeypatch):
+    fakeWorld(monkeypatch, [])
+    page = (FIXTURES / "sites" / "schema-wprm.html").read_text(encoding="utf-8")
+    pagecache.save("testsite", URL, page.replace('"nutrition"', '"noNutrition"'), None)
+    logged = []
+    folder = dryrun.run(pages=5, log=logged.append, today=date(2026, 11, 14))
+    assert any("no FDC foods" in message for message in logged)
+    assert any(message.startswith("FDC: 0 foods") for message in logged)
+    summary = json.loads((folder / "summary.json").read_text(encoding="utf-8"))
+    assert summary["nutrition"]["estimate"] == 0
+    assert summary["sites"][0]["siteNutrition"] == 0 and summary["sites"][0]["gate"]["no-nutrition"] == 1
+    queue = json.loads(config.FDC_QUEUE_FILE.read_text(encoding="utf-8"))
+    assert queue["queue"] and all(row["candidates"] == [] for row in queue["queue"]) and queue["generatedAt"].endswith("+00:00")
+    assert json.loads((folder / "fdc-queue.json").read_text(encoding="utf-8")) == queue
+    assert "## Nutrition" in (folder / "summary.md").read_text(encoding="utf-8")

@@ -12,7 +12,7 @@ def test_isoMinutes(value, minutes):
 
 
 @pytest.mark.parametrize("value, servings", [
-    ("4 servings", 4), (["4", "4 servings"], 4), (6, 6), ("Serves 2-3", 2), ("Makes one loaf", None),
+    ("4 servings", 4), (["4", "4 servings"], 4), (6, 6), ("Serves 2-3", 2), ("4-6 servings", 4), ("4 to 6 servings", 4), ("Serves 4 to 6", 4), ("Makes one loaf", None),
     (None, None), ("0", None), ([], None),
 ])
 def test_servingsOf(value, servings):
@@ -157,3 +157,50 @@ def test_theRecipeIsFoundWhateverTheScriptTagsQuoting(opening):
 def test_aScriptOfAnotherTypeIsNotReadAsJsonLd(opening):
     html = f'<html><head>{opening}{{"@type": "Recipe", "name": "Made-up"}}</script></head></html>'
     assert not schemaOrg.hasRecipe(html)
+
+
+def test_yield_prefers_stated_servings_over_piece_count():
+    assert schemaOrg.yieldOf(["12", "Makes 12 cookies", "Serves 6"]) == (6, False)
+    assert schemaOrg.yieldOf("Serves 4-6") == (4, False)
+    assert schemaOrg.yieldOf(["4", "4 servings"]) == (4, False)
+    assert schemaOrg.yieldOf("4") == (4, False)          # a bare number is servings, as before
+
+
+def test_yield_piece_count_is_marked():
+    assert schemaOrg.yieldOf("Makes 12") == (12, True)
+    assert schemaOrg.yieldOf("24 cookies") == (24, True)
+    assert schemaOrg.yieldOf("1 loaf") == (1, True)
+    assert schemaOrg.yieldOf(None) == (None, False)
+
+
+def test_calories_kj_and_kcal():
+    assert schemaOrg.caloriesOf("1,250 kJ / 300 kcal") == 300
+    assert schemaOrg.caloriesOf("300 kcal (1255 kJ)") == 300
+    assert schemaOrg.caloriesOf("1255kJ") == 300.0
+    assert schemaOrg.caloriesOf("300 calories") == 300
+    assert schemaOrg.caloriesOf(450) == 450
+    assert schemaOrg.caloriesOf("none") is None
+
+
+def test_nutrition_uses_kcal_reader():
+    found = schemaOrg.nutritionOf({"calories": "1255 kJ", "fatContent": "10 g"})
+    assert found["calories"] == 300.0 and found["fatG"] == 10.0
+
+
+def test_calories_other_spellings():
+    assert schemaOrg.caloriesOf("245 kilocalories") == 245
+    assert schemaOrg.caloriesOf("300 kcals") == 300
+    assert schemaOrg.caloriesOf("300 calorie") == 300
+    assert schemaOrg.caloriesOf("12 g") is None
+    assert schemaOrg.caloriesOf(None) is None
+    assert schemaOrg.caloriesOf("") is None
+
+
+def test_yield_takes_the_number_next_to_the_serving_word():
+    assert schemaOrg.yieldOf("Makes 12 cookies (serves 6)") == (6, False)
+    assert schemaOrg.yieldOf("12 cookies (6 servings)") == (6, False)
+
+
+def test_yield_piece_text_beats_a_bare_number_in_a_list():
+    assert schemaOrg.yieldOf(["12", "12 cookies"]) == (12, True)
+    assert schemaOrg.yieldOf(["4", "4 servings"]) == (4, False)

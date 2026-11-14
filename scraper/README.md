@@ -32,3 +32,40 @@ and fill it in, then `./run.sh`. Surrogate's Gluttony page drives it through `co
 `scripts/seedCandidates.py` shows coverage, the most common unknown ingredients and the allergen audit, from the last
 pass's `data/normalised.jsonl`. Add entries to `rules/ingredients.json`; mappings made in Surrogate live on plutus and
 are never overwritten by the seed.
+
+## Nutrition (USDA FoodData Central)
+
+Nutrition per serving is estimated from USDA FoodData Central (FDC) when a recipe's site gives none. Free, rules only,
+no API key and no calls to USDA.
+
+**Getting the data.** Download the SR Legacy (and, when a complete release exists, Foundation Foods) CSV zips from
+the FoodData Central download page (fdc.nal.usda.gov/download-datasets) and unzip each into its own folder under
+`data/fdc/` (for example `data/fdc/sr/`). These files are git-ignored and are never committed. Each folder must hold
+`food.csv`, `food_nutrient.csv` and `food_portion.csv`; folders without them are logged as incomplete and skipped.
+Then build the cache:
+
+```bash
+.venv/Scripts/python.exe fdc.py import
+```
+
+The "newer USDA release" monthly check is left to milestone 4 (on the VM, with the owner).
+
+**How a mapping is chosen.** Mappings are keyed by ingredient name. Precedence: the owner's pick
+(`run/fdc-picks.json`), then a curated override (`rules/fdcMap.json`), then a settled rule match (exact name, raw,
+Foundation before SR Legacy). A pick of `null` means no FDC food fits. Milestone 3 copies the result into
+`Ingredients.FdcID`.
+
+**Control API, the contract for Surrogate's FDC mapping page.** The page sits beside ingredient mapping, lists the
+queue by unlocks, shows each ingredient's candidates with a search box, and offers a "no FDC food fits" button (a
+`null` pick). All routes need the `X-Control-Token` header. A pick takes effect on the next pass or dry run; the API
+never starts one.
+
+- `GET /fdc/queue` returns `{"status": "ok", "generatedAt": iso | null, "queue": [{"ingredient", "unlocks", "blocks",
+  "candidates": [{"fdcId", "description", "dataType", "score"}]}], "picks": {name: fdcId | null}}`. The queue is the
+  dry run's `run/fdc-queue.json`; without it, `queue` is `[]`.
+- `GET /fdc/search?q=<text>&limit=10` returns `{"status": "ok", "results": [{"fdcId", "description", "dataType",
+  "score"}]}`. `q` is 2 to 80 characters (else 400); `limit` is clamped to 1 to 25. 503 `"FDC data not imported"`
+  when no foods are imported.
+- `POST /fdc/pick` with `{"ingredient": str, "fdcId": int | null}` returns `{"status": "ok"}`. 400 for a missing,
+  empty or over-100-character `ingredient` or an `fdcId` that is not a whole number or null; 404 when `fdcId` is not
+  an imported food.

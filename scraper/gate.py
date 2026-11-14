@@ -5,9 +5,9 @@ nutrition. The first check that fails, in that order, is its HiddenReason. It
 is checked again every pass, so better rules bring recipes in without a
 re-crawl.
 
-Milestone 1 has no nutrition estimate: check 5 passes only on the site's own
-per-serving nutrition. Milestone 2 adds the estimate from USDA data, and a
-recipe whose site gave none is listed once the estimate is complete.
+Check 5 passes on per-serving nutrition, which is the site's own or, when the
+site gave none, the complete estimate from USDA data that nutrition.choose
+stored in recipe.nutrition.
 
 The gate never touches facts: a recipe whose ingredients are not all known is
 still never listed under a diet or as free of an allergen (facts.py).
@@ -50,7 +50,7 @@ def check(recipe, units):
         return "no-servings"
     if not recipe.ingredients or not all(lineParsed(line, units) for line in recipe.ingredients):
         return "unparsed-line"
-    if not hasNutrition(recipe):    # milestone 2: "or a complete estimate"
+    if not hasNutrition(recipe):    # the site's own or a chosen estimate
         return "no-nutrition"
     return None
 

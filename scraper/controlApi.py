@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -16,6 +17,8 @@ from flask import Flask, jsonify, request
 import config
 import contractView
 import controlRequests
+import fdc
+import fdcMatch
 import progress
 import report
 import schedule
@@ -145,6 +148,69 @@ def contractDaily():
     except ValueError:
         days = 30
     return jsonify(contractView.dailyDoc(_runs(), days, date.today()))
+
+
+# ========== FDC MAPPING ==========
+# Surrogate's FDC mapping page: the queue of ingredients the dry run could not
+# map, a search over the USDA foods, and the owner's picks. A pick only lands
+# in run/fdc-picks.json; it takes effect on the next pass or dry run, which
+# this API never starts.
+
+@lru_cache(maxsize=1)
+def _loadFoods(path, mtime):
+    return fdc.loadFoods()
+
+
+def _foods():
+    """The FDC foods, loaded again only when the cache file changes; {} when nothing is imported.
+    Only reads an existing cache: importing the CSVs writes data/, which is the scraper's job."""
+    path = config.FDC_FOODS_FILE
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    return _loadFoods(str(path), mtime)
+
+
+@app.get("/fdc/queue")
+def fdcQueue():
+    saved = store.readJson(config.FDC_QUEUE_FILE, None)
+    saved = saved if isinstance(saved, dict) else {}
+    return jsonify({"status": "ok", "generatedAt": saved.get("generatedAt"), "queue": saved.get("queue") or [],
+                    "picks": fdcMatch.loadPicks()})
+
+
+@app.get("/fdc/search")
+def fdcSearch():
+    text = request.args.get("q", "").strip()
+    if not 2 <= len(text) <= 80:
+        return error("q must be 2 to 80 characters")
+    try:
+        limit = max(1, min(25, int(request.args.get("limit", 10))))
+    except ValueError:
+        limit = 10
+    foods = _foods()
+    if not foods:
+        return error("FDC data not imported", 503)
+    return jsonify({"status": "ok", "results": fdcMatch.candidates(text, foods, limit)})
+
+
+@app.post("/fdc/pick")
+def fdcPick():
+    body = request.get_json(silent=True)
+    body = body if isinstance(body, dict) else {}
+    ingredient = body.get("ingredient")
+    if not isinstance(ingredient, str) or not ingredient.strip() or len(ingredient) > 100:
+        return error("ingredient must be 1 to 100 characters")
+    if "fdcId" not in body:
+        return error("fdcId is required: a whole number, or null when no FDC food fits")
+    fdcId = body["fdcId"]
+    if fdcId is not None and (not isinstance(fdcId, int) or isinstance(fdcId, bool)):
+        return error("fdcId must be a whole number or null")
+    if fdcId is not None and fdcId not in _foods():
+        return error("no FDC food has that id", 404)
+    fdcMatch.savePick(ingredient.strip(), fdcId)
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":

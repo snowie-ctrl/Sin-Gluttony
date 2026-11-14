@@ -34,7 +34,8 @@ RECHECK_EVERY = 4       # a site without lastmod is fetched in full every fourth
 GONE_AFTER = 2          # a page answering 404 or 410 this many passes in a row is gone
 
 FIELDS = ("site", "name", "host", "sitemaps", "recipeUrl", "parser", "kind", "enabled")
-OPTIONAL_FIELDS = ("sitemapFilter",)    # a pattern naming which child sitemaps of an index to follow (none: all)
+OPTIONAL_FIELDS = ("sitemapFilter", "measures")    # a pattern naming which child sitemaps of an index to follow (none: all)
+# measures: a site's own millilitres per unit for cup and tbsp ({"cup": 250}), read by the nutrition step, not the crawler
 PARSERS = ("schema", "difford")
 
 
