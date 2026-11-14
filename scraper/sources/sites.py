@@ -17,6 +17,30 @@ import net
 AGENT = "GluttonyPersonalCrawler"       # the name robots.txt groups are matched against
 MAX_SITEMAPS = 300                      # a runaway sitemap index stops here
 
+FIELDS = ("site", "name", "host", "sitemaps", "recipeUrl", "parser", "kind", "enabled")
+PARSERS = ("schema", "difford")
+
+
+def loadSites(rules):
+    """The enabled entries of rules/sites.json. A malformed entry stops the run: the file is reviewed config."""
+    enabled = []
+    for entry in rules.get("sites", []):
+        name = entry.get("site", "?")
+        missing = [field for field in FIELDS if field not in entry]
+        if missing:
+            raise ValueError(f"sites.json: {name} lacks {', '.join(missing)}")
+        if entry["parser"] not in PARSERS:
+            raise ValueError(f"sites.json: {name}: parser must be one of {', '.join(PARSERS)}")
+        if entry["kind"] not in ("food", "drink"):
+            raise ValueError(f"sites.json: {name}: kind must be food or drink")
+        try:
+            re.compile(entry["recipeUrl"])
+        except re.error as e:
+            raise ValueError(f"sites.json: {name}: recipeUrl is not a pattern ({e})")
+        if entry["enabled"]:
+            enabled.append(entry)
+    return enabled
+
 
 class SiteStopped(Exception):
     """A site that refused, walled us off or says no in robots.txt: nothing more is asked of it this pass."""

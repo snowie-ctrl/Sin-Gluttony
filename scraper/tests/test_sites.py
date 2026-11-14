@@ -175,3 +175,44 @@ def test_a429OnASitemapStopsTheSiteWithItsRetryAfter(monkeypatch):
 ])
 def test_isDue(lastmod, cached, recheck, due):
     assert sites.isDue(lastmod, cached, recheck) is due
+
+
+import re
+
+import rulesData
+
+
+def test_loadSitesKeepsTheEnabledEntries():
+    rules = {"sites": [dict(SITE), dict(SITE, site="off", enabled=False)]}
+    assert [site["site"] for site in sites.loadSites(rules)] == ["testsite"]
+
+
+@pytest.mark.parametrize("change, message", [
+    ({"parser": "html"}, "parser"), ({"kind": "snack"}, "kind"), ({"recipeUrl": "("}, "recipeUrl"),
+])
+def test_aMalformedSiteEntryIsRefused(change, message):
+    with pytest.raises(ValueError, match=message):
+        sites.loadSites({"sites": [dict(SITE, **change)]})
+
+
+def test_aSiteEntryMissingAFieldIsRefused():
+    entry = dict(SITE)
+    del entry["host"]
+    with pytest.raises(ValueError, match="host"):
+        sites.loadSites({"sites": [entry]})
+
+
+def test_theSitesFileNamesTheFiveSitesWithDiscoveredValues():
+    entries = rulesData.load()["sites"]
+    assert [e["site"] for e in entries] == ["bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "difford"]
+    for entry in entries:
+        assert set(entry) == set(sites.FIELDS), entry["site"]
+        # Fails while a value the discovery step fills in is still missing.
+        assert entry["sitemaps"] and all(url.startswith("https://") for url in entry["sitemaps"]), entry["site"]
+        pattern = re.compile(entry["recipeUrl"])
+        assert entry["recipeUrl"].startswith("^https://"), entry["site"]
+        assert not pattern.match(f"https://{entry['host']}/"), entry["site"]
+    kinds = {e["site"]: (e["parser"], e["kind"], e["name"]) for e in entries}
+    assert kinds["difford"] == ("difford", "drink", "Difford's Guide")
+    assert kinds["recipetineats"] == ("schema", "food", "RecipeTin Eats")
+    assert len(sites.loadSites(rulesData.load())) == sum(1 for e in entries if e["enabled"])
