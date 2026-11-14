@@ -28,6 +28,8 @@ DATA_DIR = BASE_DIR / "data"
 RAW_DIR = DATA_DIR / "raw"
 IMAGE_DIR = DATA_DIR / "images"
 CACHE_DIR = DATA_DIR / "cache"
+FDC_DIR = DATA_DIR / "fdc"
+FDC_FOODS_FILE = FDC_DIR / "foods.json.gz"
 NORMALISED_FILE = DATA_DIR / "normalised.jsonl"
 PUBLISHED_FILE = DATA_DIR / "published.json"
 RULES_DIR = BASE_DIR / "rules"
@@ -41,6 +43,8 @@ LAST_REPORT_FILE = RUN_DIR / "last-report.json"
 CONTROL_REQUESTS_FILE = RUN_DIR / "control-requests.json"
 STOP_FILE = RUN_DIR / "stop.flag"
 LOCK_FILE = RUN_DIR / "scraper.lock"
+FDC_PICKS_FILE = RUN_DIR / "fdc-picks.json"
+FDC_QUEUE_FILE = RUN_DIR / "fdc-queue.json"
 SITE_STATE_FILE = RUN_DIR / "site-state.json"   # per recipe site: stops, Retry-After, 404 counts, pass count
 
 # ========== SOURCES ==========
