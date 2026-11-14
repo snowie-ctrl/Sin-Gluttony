@@ -6,7 +6,7 @@ first such line named. The site's own nutrition wins; an estimate is used only
 when the site gave none, and is flagged when its calories look out of range.
 """
 import gate
-from grams import amountOf, gramsOf
+from grams import gramsOf
 
 FIELDS = ("calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG", "sodiumMg")
 _NO_QUANTITY_NOTES = ("to taste", "as needed", "to top up")
@@ -27,14 +27,11 @@ def _blocker(line, reason, name=None):
     return {"line": line.line, "reason": reason, "ingredient": name}
 
 
-def _drinkAmounts(line, category, densities):
-    """(per-field amounts per 100 ml, ml) for a drink line, or (None, reason)."""
+def _drinkMl(line, category, densities, measures):
+    """(ml, None) for a drink line, or (None, reason); a line in grams goes back through the category's density."""
     density = category["mlDensity"]
-    useDensity = {**densities, "mlDensity": {"default": density}}
-    grams, reason = gramsOf(line, {"portions": []}, useDensity)
-    if grams is None:
-        return None, reason
-    return category, grams / density
+    grams, reason = gramsOf(line, {"portions": [], "mlDensity": density}, densities, measures)
+    return (grams / density, None) if grams is not None else (None, reason)
 
 
 def estimate(recipe, table, mapping, foods, rules, measures=None):
@@ -50,9 +47,10 @@ def estimate(recipe, table, mapping, foods, rules, measures=None):
         name = table.rows[line.ingredientId]["name"]
         categoryName = drinks["ingredients"].get(name)
         if categoryName:
-            category, ml = _drinkAmounts(line, drinks["categories"][categoryName], densities)
-            if category is None:
-                return None, _blocker(line, ml, name)
+            category = drinks["categories"][categoryName]
+            ml, reason = _drinkMl(line, category, densities, measures)
+            if ml is None:
+                return None, _blocker(line, reason, name)
             for field in FIELDS:
                 totals[field] += (category.get(field) or 0) * ml / 100
             continue

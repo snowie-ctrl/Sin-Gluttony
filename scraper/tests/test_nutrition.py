@@ -125,3 +125,22 @@ def test_a_site_value_outside_the_range_is_flagged(setup):
     r = recipe(lines=[line("100 g flour", "flour", 100, "g")], nutrition={"calories": 5})
     nutrition.choose(r, *setup)
     assert r.nutritionFrom == "source" and r.nutritionFlagged
+
+
+def test_drink_lines_use_the_sites_measures(setup):
+    table = matching.IngredientTable.fromSeed(SEED + [{"name": "simple syrup"}], set())
+    ids = {row["name"]: i for i, row in table.rows.items()}
+    r = recipe(kind="drink", lines=[IngredientLine(line="1 tbsp simple syrup", name="simple syrup", quantity=1,
+                                                   unit="tbsp", ingredientId=ids["simple syrup"])])
+    _, mapping, foods, rules = setup
+    est, _ = nutrition.estimate(r, table, mapping, foods, rules, measures={"tbsp": 20})
+    assert est["calories"] == round(260 * 20 / 100, 1)
+
+
+def test_a_chosen_estimate_that_later_fails_leaves_no_nutrition(setup):
+    r = recipe(lines=[line("100 g flour", "flour", 100, "g")])
+    nutrition.choose(r, *setup)
+    assert r.nutritionFrom == "estimate"
+    r.ingredients.append(line("1 dragonfruit", None, 1, None))
+    nutrition.choose(r, *setup)
+    assert r.nutrition is None and r.nutritionFrom is None and not r.nutritionFlagged
