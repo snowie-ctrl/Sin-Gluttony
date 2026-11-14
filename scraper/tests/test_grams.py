@@ -116,3 +116,18 @@ def test_a_count_whose_note_states_the_weight(dens, ONION):
     assert grams.gramsOf(potatoes, ONION, dens) == (1134, None)
     ranged = L(line="", name="potato", quantity=2, unit=None, note="1-2 lb")
     assert grams.gramsOf(ranged, None, dens) == (680.4, None)
+
+
+def test_a_stated_weight_reads_past_a_second_unit_and_an_each_before_it(dens, ONION):
+    def count(note):
+        return grams.gramsOf(L(line="", name="chicken", quantity=3, unit=None, note=note), ONION, dens)[0]
+    assert count("200g/7oz each") == 600
+    assert count("200g (7oz) each") == 600
+    assert count("each about 200g") == 600
+    assert count("~1.2kg/2.4lb") == 1200
+
+
+def test_a_multiplier_before_the_weight_falls_through_to_the_portions(dens, ONION):
+    for note in ("2 x 150g", "1 x 400g", "3\u00d7100g"):
+        line = L(line="", name="onion", quantity=3, unit=None, note=note)
+        assert grams.gramsOf(line, ONION, dens) == grams.gramsOf(L(line="", name="onion", quantity=3, unit=None), ONION, dens)

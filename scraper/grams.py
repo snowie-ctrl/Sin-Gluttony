@@ -19,14 +19,21 @@ _NOTE_WEIGHT = re.compile(r"(\d+(?:\.\d+)?)\s*(g|kg|oz|lb|ml)\b")
 _NUMBER = r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)"
 _COUNT_WEIGHT = re.compile(rf"({_NUMBER})(?:\s*(?:-|–|to)\s*({_NUMBER}))?\s*(kg|lbs|lb|oz|g)\b")
 _EACH = re.compile(r"\W{0,3}each\b")
+_SECOND_WEIGHT = re.compile(rf"\s*[/(]?\s*{_NUMBER}\s*(?:kg|lbs|lb|oz|g)\b\)?")
+_EACH_BEFORE = re.compile(r"\beach\b[^\d]{0,15}$")
+_MULTIPLIER = re.compile(r"[x\u00d7]\s*$")
 _WEIGHT_UNITS = {"lbs": "lb"}
 
 
 def _statedWeight(line, weights):
-    """Grams a count's note states: "200g each" times the count, any other weight ("~1.2kg") once."""
+    """
+    Grams a count's note states: "200g each" (or "each about 200g") times the count, any other weight
+    ("~1.2kg") once. A second weight in another unit ("200g/7oz each") is skipped; a multiplier before
+    the weight ("2 x 150g") makes it unreadable.
+    """
     note = (line.note or "").lower()
     found = _COUNT_WEIGHT.search(note)
-    if not found:
+    if not found or _MULTIPLIER.search(note[:found.start()]):
         return None
     low = quantity.toNumber(found.group(1))
     high = quantity.toNumber(found.group(2)) if found.group(2) else None
@@ -34,7 +41,12 @@ def _statedWeight(line, weights):
         return None
     number = low if high is None else (low + high) / 2
     grams = number * weights[_WEIGHT_UNITS.get(found.group(3), found.group(3))]
-    return grams * amountOf(line) if _EACH.match(note, found.end()) else grams
+    end = found.end()
+    second = _SECOND_WEIGHT.match(note, end)
+    if second:
+        end = second.end()
+    each = _EACH.match(note, end) or _EACH_BEFORE.search(note[:found.start()])
+    return grams * amountOf(line) if each else grams
 
 
 def amountOf(line):

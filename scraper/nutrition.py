@@ -5,6 +5,8 @@ servings. One line that cannot be converted means no estimate at all, with the
 first such line named. The site's own nutrition wins; an estimate is used only
 when the site gave none, and is flagged when its calories look out of range.
 """
+import re
+
 import gate
 from grams import gramsOf
 
@@ -20,7 +22,13 @@ def _skipped(line, densities):
         return True
     if line.quantity is None and any(text in note for text in _NO_QUANTITY_NOTES):
         return True
-    return any(text in note for text in densities.get("skipNotes", []))
+    return any(_skipsLine(note, text) for text in densities.get("skipNotes", []))
+
+
+def _skipsLine(note, phrase):
+    """The note holds the skip phrase and no "plus" or "extra" before it ("plus extra for dusting" is only the extra)."""
+    at = note.find(phrase)
+    return at >= 0 and not re.search(r"\b(plus|extra)\b", note[:at])
 
 
 def _blocker(line, reason, name=None):

@@ -190,3 +190,12 @@ def test_every_failing_line_is_a_blocker_once_in_line_order(setup):
     ok.hints["blockers"] = [{"reason": "x", "ingredient": None}]
     nutrition.estimate(ok, table, mapping, foods, rules)
     assert "blockers" not in ok.hints
+
+
+def test_a_skip_phrase_after_plus_or_extra_qualifies_only_the_extra(setup):
+    r = recipe(servings=1, lines=[line("200 g flour, plus extra for dusting", "flour", 200, "g",
+                                       note="plus extra for dusting")])
+    assert nutrition.estimate(r, *setup)[0]["calories"] == 728
+    r = recipe(servings=1, lines=[line("200 g flour", "flour", 200, "g", note="extra for dusting"),
+                                  line("100 g flour", "flour", 100, "g", note="for dusting")])
+    assert nutrition.estimate(r, *setup)[0]["calories"] == 728

@@ -7,5 +7,6 @@
   "mlDensity": {"default": 1.0, "oil": 0.92, "olive oil": 0.92, "honey": 1.42, "syrup": 1.33,
                 "flour": 0.53, "sugar": 0.85, "rice": 0.85, "butter": 0.96, "milk": 1.03, "cream": 1.0},
   "skipNotes": ["for frying", "for greasing", "for serving", "to serve", "for dusting", "for brushing",
-                "for drizzling", "to garnish", "for the tin", "for the work surface", "for work surfaces", "for rolling", "for deep frying"]
+                "for drizzling", "to garnish", "for the tin",
+                "for the work surface", "for work surfaces", "for rolling", "for deep frying"]
 }
