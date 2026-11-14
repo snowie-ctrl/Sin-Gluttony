@@ -50,6 +50,7 @@ Rectangle {
                 visible: Diet.hasProfile
                 Chip {
                     objectName: "filterDiet"
+                    kind: "diet"
                     text: Words.dietChip(Diet.diets, Diet.avoid) + (Diet.enabled ? "" : " · " + Words.dietOffForNow)
                     selected: Diet.enabled
                     onClicked: Diet.enabled = !Diet.enabled
@@ -63,6 +64,7 @@ Rectangle {
                     delegate: Chip {
                         required property var modelData
                         objectName: "filter-kind-" + (modelData.value || "both")
+                        kind: "kind"
                         text: modelData.label
                         selected: panel.f.kind === modelData.value
                         onClicked: Catalog.setFilter("kind", modelData.value)
@@ -77,6 +79,7 @@ Rectangle {
                     delegate: Chip {
                         required property var modelData
                         objectName: "filter-time-" + modelData.value
+                        kind: "time"
                         text: modelData.label
                         selected: panel.f.maxMinutes === modelData.value
                         onClicked: Catalog.setFilter("maxMinutes", modelData.value)
@@ -91,6 +94,7 @@ Rectangle {
                     delegate: Chip {
                         required property var modelData
                         objectName: "filter-effort-" + modelData.value
+                        kind: "effort"
                         text: modelData.label
                         selected: Filters.contains(panel.f.difficulty, modelData.value)
                         onClicked: Catalog.toggle("difficulty", modelData.value)
@@ -106,6 +110,7 @@ Rectangle {
                     delegate: Chip {
                         required property var modelData
                         objectName: "filter-course-" + modelData.value
+                        kind: "course"
                         text: Words.courseWord(modelData.value) + "  " + modelData.count
                         selected: Filters.contains(panel.f.course, modelData.value)
                         onClicked: Catalog.toggle("course", modelData.value)
@@ -124,6 +129,7 @@ Rectangle {
                     model: (panel.o.cuisines || []).slice(0, cuisines.all ? 1000 : 12)
                     delegate: Chip {
                         required property var modelData
+                        kind: "cuisine"
                         text: modelData.value + "  " + modelData.count
                         selected: Filters.contains(panel.f.cuisine, modelData.value)
                         enabled: selected || !cuisines.full
@@ -145,6 +151,8 @@ Rectangle {
                     model: panel.o.flavours || []
                     delegate: Chip {
                         required property var modelData
+                        objectName: "filter-flavour-" + modelData.value
+                        kind: "flavour"
                         text: modelData.value
                         selected: Filters.contains(panel.f.flavour, modelData.value)
                         onClicked: Catalog.toggle("flavour", modelData.value)
@@ -159,6 +167,7 @@ Rectangle {
                     model: panel.o.occasions || []
                     delegate: Chip {
                         required property var modelData
+                        kind: "occasion"
                         text: modelData.value
                         selected: Filters.contains(panel.f.occasion, modelData.value)
                         onClicked: Catalog.toggle("occasion", modelData.value)
@@ -173,6 +182,7 @@ Rectangle {
                     model: Words.ALCOHOL
                     delegate: Chip {
                         required property var modelData
+                        kind: "alcohol"
                         text: modelData.label
                         selected: Filters.contains(panel.f.alcohol, modelData.value)
                         onClicked: Catalog.toggle("alcohol", modelData.value)
@@ -187,6 +197,7 @@ Rectangle {
                     delegate: Chip {
                         required property var modelData
                         objectName: "filter-avoid-" + modelData.value
+                        kind: "avoid"
                         text: modelData.label
                         selected: Filters.contains(panel.f.avoid, modelData.value)
                         onClicked: Catalog.toggle("avoid", modelData.value)
@@ -248,6 +259,7 @@ Rectangle {
                 model: panel.f[picker.key] || []
                 delegate: Chip {
                     required property var modelData
+                    kind: picker.key
                     text: modelData.name
                     selected: true
                     removable: true

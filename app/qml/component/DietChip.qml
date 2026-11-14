@@ -10,6 +10,7 @@ Row {
 
     Chip {
         objectName: "dietChip"
+        kind: "diet"
         visible: Diet.hasProfile
         outlined: Diet.enabled
         text: (Diet.enabled ? "✓ " : "") + Words.dietChip(Diet.diets, Diet.avoid)

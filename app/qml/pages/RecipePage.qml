@@ -196,11 +196,13 @@ Item {
 
                 Chip {
                     visible: text.length > 0
+                    kind: "time"
                     text: Tiles.timeText(root.r.totalMinutes, root.r.timeFrom)
                     italic: root.r.timeFrom === "rule"
                 }
                 Chip {
                     visible: text.length > 0
+                    kind: "effort"
                     text: Words.effortWord(root.r.difficulty).length > 0
                           ? (root.r.difficultyFrom === "rule" ? Words.about : "") + Words.effortWord(root.r.difficulty) : ""
                     italic: root.r.difficultyFrom === "rule"
@@ -212,15 +214,16 @@ Item {
                 }
                 Chip {
                     visible: text.length > 0
+                    kind: "contains"
                     text: Words.containsText(root.r.facts ? root.r.facts.contains : [])
                 }
                 Repeater {
                     model: root.r.facts ? root.r.facts.diets : []
-                    delegate: Chip { required property var modelData; text: Words.dietChip([modelData], []) }
+                    delegate: Chip { required property var modelData; kind: "diet"; text: Words.dietChip([modelData], []) }
                 }
                 Repeater {
                     model: root.r.tags ? root.r.tags.flavour : []
-                    delegate: Chip { required property var modelData; text: modelData }
+                    delegate: Chip { required property var modelData; kind: "flavour"; text: modelData }
                 }
                 Chip {
                     objectName: "unknownWarning"
@@ -262,6 +265,7 @@ Item {
                     }
                     Chip {
                         objectName: "actionCraving"
+                        kind: "craving"
                         text: (root.mine.craving ? "♥ " : "♡ ") + Words.craving
                         selected: !!root.mine.craving
                         onClicked: Saved.setCraving(root.r.id, !root.mine.craving)
@@ -543,6 +547,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         objectName: "stepTimer-" + stepIndex + "-" + index
+                                        kind: "timer"
                                         text: "⏱ " + modelData.text
                                         onClicked: Cook.startTimer(modelData.seconds,
                                                                    Words.timerLabel(root.r.title || "", stepIndex + 1))

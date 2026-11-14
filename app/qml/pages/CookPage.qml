@@ -243,6 +243,7 @@ Rectangle {
                             required property var modelData
                             required property int index
                             objectName: "cookTimer-" + step.index + "-" + index
+                            kind: "timer"
                             text: "⏱ " + modelData.text
                             onClicked: Cook.startTimer(modelData.seconds, Words.timerLabel(root.r.title || "", step.index + 1))
                         }

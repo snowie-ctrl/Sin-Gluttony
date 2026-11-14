@@ -910,6 +910,30 @@ private slots:
         QTRY_VERIFY(findVisible("filterPanel"));
     }
 
+    void chipsReadInTheirFamilies()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        nav->navigateTo("results-page");
+        QTRY_VERIFY(find("filterPanel")->childItems().value(0)->property("contentHeight").toDouble() > 0);
+        const auto tone = [this](const char *name) {
+            QQuickItem *chip = find(QString::fromLatin1(name));
+            return chip ? chip->property("tone").value<QColor>() : QColor();
+        };
+        QTRY_COMPARE(tone("filter-time-15"), preferences->accentAmber);
+        QCOMPARE(tone("filter-effort-1"), preferences->accentAmber);
+        QTRY_COMPARE(tone("filter-course-main"), preferences->accentColor);
+        QTRY_COMPARE(tone("filter-flavour-savoury"), preferences->accentRose);
+        QCOMPARE(tone("filter-avoid-peanut"), preferences->textSecondary);
+        // A control keeps no family.
+        QCOMPARE(find("hideFilters")->property("family").toString(), QString());
+        // Selected: the accent-tinted ground for a family, never for a neutral chip.
+        click(findVisible("filter-time-15"));
+        QTRY_COMPARE(find("filter-time-15")->property("color").value<QColor>(), preferences->accentSubtle);
+        click(findVisible("filter-avoid-peanut"));
+        QTRY_COMPARE(find("filter-avoid-peanut")->property("color").value<QColor>(), preferences->backgroundTertiary);
+    }
+
     void resultsShowTheDietChipWithThePanelCollapsed()
     {
         server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegetarian"],"avoid":["peanut"]}})";
