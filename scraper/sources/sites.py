@@ -22,9 +22,12 @@ from sources import schemaOrg
 
 AGENT = "GluttonyPersonalCrawler"       # the name robots.txt groups are matched against
 MAX_SITEMAPS = 300                      # a runaway sitemap index stops here
-# A page without recipe markup that carries one of these is a bot challenge or a "Simple Page" wall.
-WALL_MARKERS = re.compile(r"cf-challenge|challenge-platform|captcha|are you a robot|access denied|just a moment"
-                          r"|simple page", re.IGNORECASE)
+# A bare page (no recipe, no page metadata) whose <title> or first 2 KB of body holds one of these is a bot
+# challenge or a "Simple Page" wall. Not looked for in ordinary pages: Cloudflare scripts and reCAPTCHA sit in those.
+WALL_MARKERS = re.compile(r"cf-challenge|are you a robot|access denied|just a moment|simple page", re.IGNORECASE)
+_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+_BODY = re.compile(r"<body[^>]*>", re.I)
+BODY_SCAN = 2048
 NOT_RECIPE_RUN = 10     # this many bare pages (no JSON-LD, no og:type) in a row is a wall too
 UNREACHABLE_RUN = 5     # this many failed requests in a row stops the site
 RECHECK_EVERY = 4       # a site without lastmod is fetched in full every fourth pass
@@ -216,9 +219,20 @@ def _plan(site, siteState, pages, priority, log, now):
     passes = siteState.get("passes", 0)
     siteState["passes"] = passes + 1
     recheck = not any(lastmod for _, lastmod in entries) and passes % RECHECK_EVERY == 0
-    chosen = choose(entries, pages, priority)
+    # pages known not to be recipes (blog posts) wait for a changed lastmod and take no slot from the limit
+    known = siteState.get("notRecipe", {})
+    eligible = [(url, lastmod) for url, lastmod in entries
+                if url not in known or isDue(lastmod, {"lastmod": known[url]}, recheck)]
+    chosen = choose(eligible, pages, priority)
     due = [(url, lastmod) for url, lastmod in chosen if isDue(lastmod, pagecache.meta(site["site"], url), recheck)]
     return entries, chosen, due
+
+
+def _challenge(html):
+    title = _TITLE.search(html)
+    body = _BODY.search(html)
+    start = body.end() if body else 0
+    return bool(WALL_MARKERS.search((title.group(1) if title else "") + " " + html[start:start + BODY_SCAN]))
 
 
 def _fetchOne(site, url, lastmod, result, siteState, run, now, log):
@@ -241,16 +255,19 @@ def _fetchOne(site, url, lastmod, result, siteState, run, now, log):
     run["failures"] = 0
     siteState.get("missing", {}).pop(url, None)
     if not schemaOrg.hasRecipe(html):
-        if WALL_MARKERS.search(html):
-            raise SiteStopped("walled (a bot challenge instead of the recipe)")
         result["notRecipe"] += 1
         if schemaOrg.hasPageMetadata(html):
+            siteState.setdefault("notRecipe", {})[url] = lastmod
             return      # an ordinary blog post or article: skipped, but no sign of a wall either way
+        if _challenge(html):
+            result["notRecipe"] -= 1        # a wall is not a page of the site
+            raise SiteStopped(f"walled (a bot challenge instead of the recipe at {url})")
         run["notRecipe"] += 1
         if run["notRecipe"] >= NOT_RECIPE_RUN:
             raise SiteStopped(f"walled ({NOT_RECIPE_RUN} pages in a row without recipe markup)")
         return
     run["notRecipe"] = 0
+    siteState.get("notRecipe", {}).pop(url, None)
     pagecache.save(site["site"], url, html, lastmod, fetchedAt=now())
     result["fetched"] += 1
     if result["fetched"] % 25 == 0:

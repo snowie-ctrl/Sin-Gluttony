@@ -420,3 +420,45 @@ def test_blogPostsNeitherAdvanceNorResetTheBareRun(monkeypatch):
     result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
     assert result["stopReason"] == "walled (10 pages in a row without recipe markup)"
     assert len(pageUrls(asked)) == 11      # ten bare pages, with the blog post among them
+
+
+def test_aBlogPostWithCloudflareAndCaptchaMarkupIsOrdinaryNotAWall(monkeypatch):
+    post = ('<html><head><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'
+            '<script type="application/ld+json">{"@type":"BlogPosting","headline":"Made-up Post"}</script>'
+            '</head><body>Made-up post. Leave a comment: captcha. Access denied is a phrase.</body></html>')
+    fakeCrawl(monkeypatch, web(A, {"made-up-post": post, "made-up-stew": recipePage("Made-up Stew")}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["notRecipe"], result["fetched"]) == (True, 1, 1)
+
+
+def test_aBarePageTitledJustAMomentStopsTheSiteAtOnceAndNamesTheUrl(monkeypatch):
+    wall = "<html><head><title>Just a moment...</title></head><body>Checking</body></html>"
+    asked = fakeCrawl(monkeypatch, web(A, {"made-up-one": wall, "made-up-two": recipePage("2")}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert result["stopReason"].startswith("walled") and f"https://{A}/made-up-one/" in result["stopReason"]
+    assert len(pageUrls(asked)) == 1
+
+
+def test_aKnownNonRecipePageIsNotAskedAgainUntilItsLastmodChanges(monkeypatch):
+    answers = web(A, {"made-up-post": blogPost(1), "made-up-stew": recipePage("Made-up Stew")},
+                  lastmods={"made-up-post": "2026-11-01", "made-up-stew": "2026-11-01"})
+    asked = fakeCrawl(monkeypatch, answers)
+    first = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert first["notRecipe"] == 1
+    asked.clear()
+    second = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert pageUrls(asked) == [] and second["notRecipe"] == 0
+    answers[f"https://{A}/post-sitemap.xml"] = urlset((f"https://{A}/made-up-post/", "2026-11-09"),
+                                                      (f"https://{A}/made-up-stew/", "2026-11-01"))
+    third = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert pageUrls(asked) == [f"https://{A}/made-up-post/"] and third["notRecipe"] == 1
+
+
+def test_knownNonRecipePagesDoNotTakeSlotsFromThePagesLimit(monkeypatch):
+    answers = web(A, {"made-up-post": blogPost(1), "made-up-stew": recipePage("Made-up Stew")},
+                  lastmods={"made-up-post": "2026-11-09", "made-up-stew": "2026-11-01"})
+    asked = fakeCrawl(monkeypatch, answers)
+    sites.crawl([siteFor(A, "sitea")], pages=1, log=QUIET)      # the newer blog post takes the one slot
+    asked.clear()
+    second = sites.crawl([siteFor(A, "sitea")], pages=1, log=QUIET)["sitea"]
+    assert pageUrls(asked) == [f"https://{A}/made-up-stew/"] and second["fetched"] == 1
