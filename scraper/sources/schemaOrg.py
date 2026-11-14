@@ -108,18 +108,30 @@ def _number(text):
     return int(match.group()) if match and int(match.group()) > 0 else None
 
 
+_SERVING_NUMBER = re.compile(r"(?:serves|feeds)[:\s]*(\d+)|(\d+)\s*(?:servings?|portions?|people|persons?)", re.I)
+
+def _servingNumber(text):
+    """The number next to a serving word ("serves 6", "6 servings"), else the first number in the text."""
+    match = _SERVING_NUMBER.search(text)
+    number = int(match.group(1) or match.group(2)) if match else 0
+    return number or _number(text)
+
+
 def yieldOf(value):
     """(servings, pieces): a value that states servings wins over a count of pieces ("Makes 12"); a bare number
-    is servings. pieces is True when the only count given is of pieces, so per serving means per piece."""
+    is servings. pieces is True when the only count given is of pieces, so per serving means per piece. When a
+    list has a text with a piece word and a bare number, the piece text wins."""
     values = value if isinstance(value, list) else [value]
     texts = [str(int(v)) if isinstance(v, (int, float)) else str(v) for v in values if v not in (None, "")]
     for text in texts:
-        if _SERVES.search(text) and _number(text):
-            return _number(text), False
+        if _SERVES.search(text) and _servingNumber(text):
+            return _servingNumber(text), False
     for text in texts:
-        number = _number(text)
-        if number:
-            return number, bool(_MAKES.search(text)) and not _SERVES.search(text)
+        if _MAKES.search(text) and _number(text):
+            return _number(text), True
+    for text in texts:
+        if _number(text):
+            return _number(text), False
     return None, False
 
 
@@ -266,7 +278,7 @@ def _amount(value):
     return float(number), match.group(2).lower()
 
 
-_KCAL = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*(?:kcal|cal(?:ories)?)\b", re.I)
+_KCAL = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*(?:(?:kilo)?cal(?:orie)?s?|kcals?)\b", re.I)
 _KJ = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*kj\b", re.I)
 KJ_PER_KCAL = 4.184
 
@@ -281,7 +293,7 @@ def caloriesOf(value):
         if match:
             return round(_amount(match.group(1))[0] / divide, 1)
     amount = _amount(text)
-    return amount[0] if amount and not amount[1] else None
+    return amount[0] if amount and amount[1] not in ("g", "mg", "kj", "mj") else None
 
 
 def nutritionOf(nutrients):

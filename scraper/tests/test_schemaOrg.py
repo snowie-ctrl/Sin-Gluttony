@@ -169,3 +169,22 @@ def test_calories_kj_and_kcal():
 def test_nutrition_uses_kcal_reader():
     found = schemaOrg.nutritionOf({"calories": "1255 kJ", "fatContent": "10 g"})
     assert found["calories"] == 300.0 and found["fatG"] == 10.0
+
+
+def test_calories_other_spellings():
+    assert schemaOrg.caloriesOf("245 kilocalories") == 245
+    assert schemaOrg.caloriesOf("300 kcals") == 300
+    assert schemaOrg.caloriesOf("300 calorie") == 300
+    assert schemaOrg.caloriesOf("12 g") is None
+    assert schemaOrg.caloriesOf(None) is None
+    assert schemaOrg.caloriesOf("") is None
+
+
+def test_yield_takes_the_number_next_to_the_serving_word():
+    assert schemaOrg.yieldOf("Makes 12 cookies (serves 6)") == (6, False)
+    assert schemaOrg.yieldOf("12 cookies (6 servings)") == (6, False)
+
+
+def test_yield_piece_text_beats_a_bare_number_in_a_list():
+    assert schemaOrg.yieldOf(["12", "12 cookies"]) == (12, True)
+    assert schemaOrg.yieldOf(["4", "4 servings"]) == (4, False)
