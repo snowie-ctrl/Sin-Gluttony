@@ -70,6 +70,11 @@ class Recipe:
     facts: dict | None = None                       # {"complete", "contains", "diets"}
     dishKey: str | None = None
     imagePath: str | None = None                    # the picture's name on plutus, or None
+    # The recipe sites (the new catalog). Publishing them is milestone 3; publish.payloadFor ignores them until then.
+    description: str | None = None
+    nutrition: dict | None = None    # per serving: calories, proteinG, carbsG, fatG, satFatG, fibreG, sugarG, sodiumMg
+    imageWidth: int | None = None    # the original picture's width, for the gate's 800 px
+    hiddenReason: str | None = None  # the gate's first failing check; None means listed
 
     @property
     def key(self):

@@ -3,8 +3,11 @@ Reading schema.org Recipe data out of a page: the JSON-LD block, and helpers
 that turn its loosely typed fields (ISO durations, yields as text or lists,
 pictures as text, lists or objects) into plain values.
 """
+import html
 import json
 import re
+
+from models import Step
 
 _LD = re.compile(r"<script[^>]*type\s*=\s*[\"']application/ld\+json[\"'][^>]*>(.*?)</script>", re.I | re.S)
 
@@ -57,3 +60,131 @@ def hasPageMetadata(html):
         if any("@type" in node for node in _walk(data)):
             return True
     return False
+
+
+_TAG = re.compile(r"<[^>]+>")
+_ISO = re.compile(r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$", re.IGNORECASE)
+_AMOUNT = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*([a-zA-Z]*)")
+NUTRIENTS = {"calories": "calories", "proteinContent": "proteinG", "carbohydrateContent": "carbsG",
+             "fatContent": "fatG", "saturatedFatContent": "satFatG", "fiberContent": "fibreG",
+             "sugarContent": "sugarG", "sodiumContent": "sodiumMg"}
+SALT_TO_SODIUM_MG = 393     # 1 g of salt holds 393 mg of sodium (BBC Good Food gives salt, not sodium)
+
+
+def clean(text):
+    """Page text as plain words: entities decoded, tags dropped, spaces collapsed."""
+    if not isinstance(text, str):
+        return ""
+    return " ".join(html.unescape(_TAG.sub(" ", html.unescape(text))).split())
+
+
+def isoMinutes(value):
+    """'PT1H30M' -> 90. A bare number counts as minutes. None for nothing, zero or nonsense."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        minutes = round(value)
+    else:
+        text = str(value).strip()
+        if text.isdigit():
+            minutes = int(text)
+        else:
+            match = _ISO.match(text)
+            if not match:
+                return None
+            days, hours, mins, secs = (float(group) if group else 0.0 for group in match.groups())
+            minutes = round(days * 1440 + hours * 60 + mins + secs / 60)
+    return minutes or None
+
+
+def servingsOf(value):
+    """'4 servings', 4 or ['4', '4 servings'] -> 4: the first whole number given. None when there is none."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = int(value)
+    else:
+        match = re.search(r"\d+", str(value))
+        number = int(match.group()) if match else 0
+    return number if number > 0 else None
+
+
+def imageOf(value):
+    """A picture's address from text, a list, or an ImageObject."""
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, list):
+        for item in value:
+            found = imageOf(item)
+            if found:
+                return found
+        return None
+    if isinstance(value, dict):
+        return imageOf(value.get("url") or value.get("contentUrl"))
+    return None
+
+
+def stepsOf(value):
+    """recipeInstructions in any of its shapes (text, HowToStep list, HowToSection list) as Steps."""
+    steps = []
+
+    def add(node, group):
+        if isinstance(node, str):
+            for part in re.split(r"[\r\n]+", node):
+                text = clean(part)
+                if text:
+                    steps.append(Step(text=text, group=group))
+        elif isinstance(node, list):
+            for item in node:
+                add(item, group)
+        elif isinstance(node, dict):
+            if "itemListElement" in node:
+                add(node["itemListElement"], clean(node.get("name")) or group)
+            elif node.get("text"):
+                add(node["text"], group)
+
+    add(value, None)
+    return steps
+
+
+def keywordsOf(value):
+    parts = value if isinstance(value, list) else str(value or "").split(",")
+    return [clean(part) for part in parts if clean(part)]
+
+
+def joined(value):
+    """A field that may be text or a list (recipeCategory, recipeCuisine) as one text, or None."""
+    parts = keywordsOf(value) if isinstance(value, list) else [clean(value)] if value else []
+    return ", ".join(part for part in parts if part) or None
+
+
+def _amount(value):
+    """(number, unit) from '1,250 kcal', '6.5g', 300; None when there is no number."""
+    match = _AMOUNT.search(str(value))
+    if not match:
+        return None
+    number = match.group(1)
+    number = number.replace(",", "") if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", number) else number.replace(",", ".")
+    return float(number), match.group(2).lower()
+
+
+def nutritionOf(nutrients):
+    """A site's per-serving nutrition in Gluttony's eight fields, or None when it gives no calories."""
+    if not isinstance(nutrients, dict):
+        return None
+    found = {field: None for field in NUTRIENTS.values()}
+    for key, field in NUTRIENTS.items():
+        amount = _amount(nutrients[key]) if nutrients.get(key) is not None else None
+        if amount is None:
+            continue
+        number, unit = amount
+        if field == "sodiumMg" and unit == "g":
+            number *= 1000
+        found[field] = round(number, 1)
+    if found["sodiumMg"] is None and nutrients.get("saltContent") is not None:
+        salt = _amount(nutrients["saltContent"])
+        if salt is not None:
+            found["sodiumMg"] = round(salt[0] * SALT_TO_SODIUM_MG, 1)
+    return found if found["calories"] is not None else None

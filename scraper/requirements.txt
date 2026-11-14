@@ -4,3 +4,4 @@ flask
 Pillow>=10.4
 mwparserfromhell
 tzdata
+recipe-scrapers>=15
