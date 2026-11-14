@@ -98,18 +98,46 @@ def isoMinutes(value):
     return minutes or None
 
 
+_SERVES = re.compile(r"\b(?:serves|servings?|portions?|people|persons?|feeds)\b", re.I)
+_MAKES = re.compile(r"\b(?:makes|pieces?|cookies?|biscuits?|muffins?|cupcakes?|bars?|squares?|slices?|loaf|loaves|"
+                    r"rolls?|buns?|balls?|bites?|pancakes?|scones?|cakes?|pies?|tarts?|jars?|cups?|litres?|ml)\b", re.I)
+
+
+def _number(text):
+    match = re.search(r"\d+", text)
+    return int(match.group()) if match and int(match.group()) > 0 else None
+
+
+_SERVING_NUMBER = re.compile(r"(?:serves|feeds)[:\s]*(\d+)(?:\s*(?:-|to)\s*\d+)?|(\d+)(?:\s*(?:-|to)\s*\d+)?\s*(?:servings?|portions?|people|persons?)", re.I)
+
+def _servingNumber(text):
+    """The number next to a serving word ("serves 6", "6 servings"), else the first number in the text."""
+    match = _SERVING_NUMBER.search(text)
+    number = int(match.group(1) or match.group(2)) if match else 0
+    return number or _number(text)
+
+
+def yieldOf(value):
+    """(servings, pieces): a value that states servings wins over a count of pieces ("Makes 12"); a bare number
+    is servings. pieces is True when the only count given is of pieces, so per serving means per piece. When a
+    list has a text with a piece word and a bare number, the piece text wins."""
+    values = value if isinstance(value, list) else [value]
+    texts = [str(int(v)) if isinstance(v, (int, float)) else str(v) for v in values if v not in (None, "")]
+    for text in texts:
+        if _SERVES.search(text) and _servingNumber(text):
+            return _servingNumber(text), False
+    for text in texts:
+        if _MAKES.search(text) and _number(text):
+            return _number(text), True
+    for text in texts:
+        if _number(text):
+            return _number(text), False
+    return None, False
+
+
 def servingsOf(value):
-    """'4 servings', 4 or ['4', '4 servings'] -> 4: the first whole number given. None when there is none."""
-    if isinstance(value, list):
-        value = value[0] if value else None
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        number = int(value)
-    else:
-        match = re.search(r"\d+", str(value))
-        number = int(match.group()) if match else 0
-    return number if number > 0 else None
+    """'4 servings', 4 or ['4', '4 servings'] -> 4: the servings given, else the first whole number. None if none."""
+    return yieldOf(value)[0]
 
 
 def imageOf(value):
@@ -250,12 +278,34 @@ def _amount(value):
     return float(number), match.group(2).lower()
 
 
+_KCAL = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*(?:(?:kilo)?cal(?:orie)?s?|kcals?)\b", re.I)
+_KJ = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*kj\b", re.I)
+KJ_PER_KCAL = 4.184
+
+
+def caloriesOf(value):
+    """kcal from a site's calories text: a kcal number wins, a kJ-only number is converted."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "")
+    for pattern, divide in ((_KCAL, 1), (_KJ, KJ_PER_KCAL)):
+        match = pattern.search(text)
+        if match:
+            return round(_amount(match.group(1))[0] / divide, 1)
+    amount = _amount(text)
+    return amount[0] if amount and amount[1] not in ("g", "mg", "kj", "mj") else None
+
+
 def nutritionOf(nutrients):
     """A site's per-serving nutrition in Gluttony's eight fields, or None when it gives no calories."""
     if not isinstance(nutrients, dict):
         return None
     found = {field: None for field in NUTRIENTS.values()}
     for key, field in NUTRIENTS.items():
+        if field == "calories":
+            calories = caloriesOf(nutrients.get(key)) if nutrients.get(key) is not None else None
+            found[field] = round(calories, 1) if calories is not None else None
+            continue
         amount = _amount(nutrients[key]) if nutrients.get(key) is not None else None
         if amount is None:
             continue

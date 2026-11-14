@@ -86,3 +86,14 @@ def test_theGateLeavesTheSafetyRuleAlone():
     r = candidate(facts=dict(facts))
     gate.apply(r, UNITS)
     assert r.facts == facts
+
+
+def test_aChosenEstimatePassesCheckFiveAndNoneFails():
+    import matching, nutrition
+    rules = rulesData.load()
+    table = matching.IngredientTable.fromSeed([{"name": "gin"}], set())
+    gin = IngredientLine(line="50 ml gin", name="gin", quantity=50.0, unit="ml", ingredientId=1)
+    r = candidate(kind="drink", nutrition=None, ingredients=[gin])
+    nutrition.choose(r, table, {}, {}, rules)
+    assert r.nutritionFrom == "estimate" and gate.check(r, UNITS) is None
+    assert gate.check(candidate(nutrition=None), UNITS) == "no-nutrition"
