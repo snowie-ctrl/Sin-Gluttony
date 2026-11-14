@@ -102,7 +102,7 @@ Rectangle {
 
             Text {
                 text: Words.ingredientsTitle
-                color: Preferences.accentColor
+                color: Preferences.textPrimary
                 font.family: Preferences.headingFont
                 font.weight: Font.Black
                 font.pixelSize: Preferences.fontSizeHeading
@@ -203,7 +203,7 @@ Rectangle {
                 Text {
                     visible: !!step.modelData.group && (step.index === 0 || root.steps[step.index - 1].group !== step.modelData.group)
                     text: step.modelData.group || ""
-                    color: Preferences.accentColor
+                    color: Preferences.textPrimary
                     font.family: Preferences.appFont
                     font.bold: true
                     font.pixelSize: Preferences.fontSizeLabel
@@ -214,7 +214,7 @@ Rectangle {
                     Text {
                         width: 36
                         text: step.index + 1
-                        color: Preferences.accentColor
+                        color: step.current ? Preferences.accentColor : Preferences.textMuted
                         font.family: Preferences.headingFont
                         font.weight: Font.Black
                         font.pixelSize: step.current ? Preferences.fontSizeDisplay : Preferences.fontSizeHeading
@@ -243,6 +243,7 @@ Rectangle {
                             required property var modelData
                             required property int index
                             objectName: "cookTimer-" + step.index + "-" + index
+                            kind: "timer"
                             text: "⏱ " + modelData.text
                             onClicked: Cook.startTimer(modelData.seconds, Words.timerLabel(root.r.title || "", step.index + 1))
                         }

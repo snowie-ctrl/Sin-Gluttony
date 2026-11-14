@@ -52,7 +52,9 @@ $src    = Split-Path (Split-Path $here -Parent) -Parent
 $repo   = Split-Path $src -Parent
 $qt     = if ($env:GLUTTONY_QT) { $env:GLUTTONY_QT } else { 'D:\allNewQT6\6.11.1\msvc2022_64' }
 # -Exe runs another build (release.ps1's package) instead of the test build.
-$exe    = if ($Exe) { (Resolve-Path -LiteralPath $Exe).Path } else { Join-Path $src 'build\tests\appGluttony.exe' }
+# Named appExe, not exe: PowerShell names ignore case, so $exe would overwrite the -Exe parameter and every grab would run
+# as a package check, with Qt taken off its PATH.
+$appExe = if ($Exe) { (Resolve-Path -LiteralPath $Exe).Path } else { Join-Path $src 'build\tests\appGluttony.exe' }
 # A git worktree has no venv of its own, so GLUTTONY_PYTHON can point at the main checkout's.
 $python = if ($env:GLUTTONY_PYTHON) { $env:GLUTTONY_PYTHON } else { Join-Path $repo 'server\.venv\Scripts\python.exe' }
 
@@ -115,7 +117,7 @@ try {
         $env:GLUTTONY_CLICK        = ''
         $env:GLUTTONY_GRAB         = Join-Path $scratch 'first-run.png'
         $env:GLUTTONY_GRAB_DELAY   = '6000'
-        Start-Process $exe -Wait
+        Start-Process $appExe -Wait
         Stop-Process -Id $stub.Id -ErrorAction SilentlyContinue
         $stub = $null
     }
@@ -127,12 +129,12 @@ try {
     $env:GLUTTONY_GRAB_DELAY    = "$Delay"
     $env:GLUTTONY_CLICK         = $Click
     $env:GLUTTONY_CLICK_DELAY   = "$ClickDelay"
-    Start-Process $exe -Wait
+    Start-Process $appExe -Wait
 } finally {
     if ($stub) { Stop-Process -Id $stub.Id -ErrorAction SilentlyContinue }
     Remove-Item -Recurse -Force $scratch -ErrorAction SilentlyContinue
 }
 if (-not (Test-Path -LiteralPath $outFile)) {
-    throw "The app exited without saving $outFile (did it start? is the build in $exe current?)"
+    throw "The app exited without saving $outFile (did it start? is the build in $appExe current?)"
 }
 Write-Output "Saved $outFile"

@@ -362,7 +362,7 @@ Flickable {
 
             Text {
                 text: section.title
-                color: Preferences.accentColor
+                color: Preferences.textPrimary
                 font.family: Preferences.headingFont
                 font.weight: Font.Black
                 font.pixelSize: Preferences.fontSizeHeading

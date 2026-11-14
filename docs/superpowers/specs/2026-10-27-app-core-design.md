@@ -329,6 +329,8 @@ account also needs a login key.
 
 ### Tokens (`Preferences`, resettable)
 
+> Replaced on 2026-11-13 by "Ember" (`2026-11-13-look-reset-design.md` §2-3): the values below are Gula's, kept for history.
+
 | token | value | used for |
 |---|---|---|
 | `backgroundPrimary` | `#140c08` | the page behind everything |

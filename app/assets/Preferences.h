@@ -1,4 +1,4 @@
-// Copied from Pageturner Pageturner/assets/Preferences.h at ad9342e; Gluttony's look ("Gula") replaces the
+// Copied from Pageturner Pageturner/assets/Preferences.h at ad9342e; Gluttony's look ("Ember") replaces the
 // ink-blue tokens; the reader, storage and per-series settings are gone; units, tileWidth, the filter panel and
 // resetColours are new.
 #pragma once
@@ -37,6 +37,8 @@ class Preferences : public QObject
     Q_PROPERTY(QColor  accentColor         MEMBER accentColor         NOTIFY accentColorChanged)
     Q_PROPERTY(QColor  accentDeep          MEMBER accentDeep          NOTIFY accentDeepChanged)
     Q_PROPERTY(QColor  accentSubtle        MEMBER accentSubtle        NOTIFY accentSubtleChanged)
+    Q_PROPERTY(QColor  accentAmber         MEMBER accentAmber         NOTIFY accentAmberChanged)
+    Q_PROPERTY(QColor  accentRose          MEMBER accentRose          NOTIFY accentRoseChanged)
     Q_PROPERTY(QColor  borderColor         MEMBER borderColor         NOTIFY borderColorChanged)
     Q_PROPERTY(QColor  textPrimary         MEMBER textPrimary         NOTIFY textPrimaryChanged)
     Q_PROPERTY(QColor  textSecondary       MEMBER textSecondary       NOTIFY textSecondaryChanged)
@@ -61,8 +63,11 @@ public:
     Q_INVOKABLE QStringList choices(const QString &key) const;
     Q_INVOKABLE void reset(const QString &key);
     Q_INVOKABLE void resetAll();
-    // Settings › Colours: every colour token back to Gula's, everything else as it is.
+    // Settings › Colours: every colour token back to Ember's, everything else as it is.
     Q_INVOKABLE void resetColours();
+    // Stored colours older than this are dropped once on start (version 2: Gula → Ember), so nobody keeps a
+    // leftover from an old palette. Saved as "paletteVersion" beside the preferences, never reset.
+    static constexpr int kPaletteVersion = 2;
 
         // Type: Tahoma for reading, Playfair Display (bundled) for headings, mood names and page titles.
     QString appFont =           QStringLiteral("Tahoma");
@@ -78,21 +83,23 @@ public:
     int     spacingSmall =      8;
     int     spacingMedium =     16;
     int     spacingLarge =      24;
-        // Colour ("Gula"). The mood lives in the chrome; pictures always sit on surfaceArt so the warm grounds
-        // never tint the food.
-    QColor  backgroundPrimary =   QColor(0x140c08); // the page behind everything
-    QColor  backgroundSecondary = QColor(0x22140d); // panels, the rail, the top bar, mood cards
-    QColor  backgroundTertiary =  QColor(0x2e1b12); // fields, pills, hovered rows
-    QColor  surfaceArt =          QColor(0x161312); // under every picture
-    QColor  accentColor =         QColor(0xff7a1a); // focus, selection, headings; the gradient's start
-    QColor  accentDeep =          QColor(0xc8212f); // the gradient's end
-    QColor  accentSubtle =        QColor(0x3a1a0d); // a selected chip, the active rail pill
-    QColor  borderColor =         QColor(0x3a2418); // hairlines, field borders
-    QColor  textPrimary =         QColor(0xfbeee2);
-    QColor  textSecondary =       QColor(0xd8b9a0);
-    QColor  textMuted =           QColor(0x9a7a64); // placeholders, metadata, counts
-    QColor  dangerColor =         QColor(0xe23d3d); // errors; destructive buttons are outlined in it
-    QColor  successColor =        QColor(0x6fbf73);
+        // Colour ("Ember"). Neutral charcoal grounds and neutral text; Gluttony lives only in the accents, the icon's
+        // orange melting into crimson. Pictures sit on surfaceArt and nothing tints them.
+    QColor  backgroundPrimary =   QColor(0x0f0f11); // the page behind everything
+    QColor  backgroundSecondary = QColor(0x17171a); // panels, the rail, the top bar, mood cards
+    QColor  backgroundTertiary =  QColor(0x222226); // fields, pills, hovered rows
+    QColor  surfaceArt =          QColor(0x1c1c1f); // under every picture
+    QColor  accentColor =         QColor(0xf27620); // the icon's orange: focus, selection; the gradient's start
+    QColor  accentDeep =          QColor(0xe8263f); // the gradient's end
+    QColor  accentSubtle =        QColor(0x2b1d16); // a selected chip, the active rail pill
+    QColor  accentAmber =         QColor(0xffc24b); // time and effort chips
+    QColor  accentRose =          QColor(0xff5470); // flavour chips
+    QColor  borderColor =         QColor(0x2c2c31); // hairlines, field borders
+    QColor  textPrimary =         QColor(0xf4f4f5); // body and headings
+    QColor  textSecondary =       QColor(0xb4b4bb);
+    QColor  textMuted =           QColor(0x7d7d86); // placeholders, metadata, counts
+    QColor  dangerColor =         QColor(0xf04444); // errors; destructive buttons are outlined in it
+    QColor  successColor =        QColor(0x4fd18b);
         // Browsing and recipes
     QString units =             QStringLiteral("metric");   // metric | us
     int     tileWidth =         200;
@@ -118,6 +125,8 @@ signals:
     void accentColorChanged();
     void accentDeepChanged();
     void accentSubtleChanged();
+    void accentAmberChanged();
+    void accentRoseChanged();
     void borderColorChanged();
     void textPrimaryChanged();
     void textSecondaryChanged();

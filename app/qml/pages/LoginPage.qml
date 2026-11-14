@@ -57,9 +57,14 @@ Rectangle {
             spacing: Preferences.spacingMedium
 
             Image {
+                objectName: "loginMark"
                 anchors.horizontalCenter: parent.horizontalCenter
-                source: "qrc:/images/gluttony.svg"
-                sourceSize: Qt.size(56, 56)
+                width: 56
+                height: 56
+                source: "qrc:/images/gluttonyAppIcon.png"
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
             }
 
             Text {

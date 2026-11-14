@@ -154,7 +154,7 @@ Item {
                     radius: Preferences.cornerRadius
                     gradient: Gradient {
                         GradientStop { position: 0.4; color: "transparent" }
-                        GradientStop { position: 1; color: "#e6140c08" }
+                        GradientStop { position: 1; color: Qt.rgba(Preferences.backgroundPrimary.r, Preferences.backgroundPrimary.g, Preferences.backgroundPrimary.b, 0.9) }
                     }
                 }
                 Chip {
@@ -196,11 +196,13 @@ Item {
 
                 Chip {
                     visible: text.length > 0
+                    kind: "time"
                     text: Tiles.timeText(root.r.totalMinutes, root.r.timeFrom)
                     italic: root.r.timeFrom === "rule"
                 }
                 Chip {
                     visible: text.length > 0
+                    kind: "effort"
                     text: Words.effortWord(root.r.difficulty).length > 0
                           ? (root.r.difficultyFrom === "rule" ? Words.about : "") + Words.effortWord(root.r.difficulty) : ""
                     italic: root.r.difficultyFrom === "rule"
@@ -212,18 +214,20 @@ Item {
                 }
                 Chip {
                     visible: text.length > 0
+                    kind: "contains"
                     text: Words.containsText(root.r.facts ? root.r.facts.contains : [])
                 }
                 Repeater {
                     model: root.r.facts ? root.r.facts.diets : []
-                    delegate: Chip { required property var modelData; text: Words.dietChip([modelData], []) }
+                    delegate: Chip { required property var modelData; kind: "diet"; text: Words.dietChip([modelData], []) }
                 }
                 Repeater {
                     model: root.r.tags ? root.r.tags.flavour : []
-                    delegate: Chip { required property var modelData; text: modelData }
+                    delegate: Chip { required property var modelData; kind: "flavour"; text: modelData }
                 }
                 Chip {
                     objectName: "unknownWarning"
+                    kind: "contains"
                     visible: Diet.enabled && Diet.hasProfile && !!root.r.facts && !root.r.facts.complete
                     outlined: true
                     text: "⚠ " + Words.unknownIngredients
@@ -262,6 +266,7 @@ Item {
                     }
                     Chip {
                         objectName: "actionCraving"
+                        kind: "craving"
                         text: (root.mine.craving ? "♥ " : "♡ ") + Words.craving
                         selected: !!root.mine.craving
                         onClicked: Saved.setCraving(root.r.id, !root.mine.craving)
@@ -382,7 +387,8 @@ Item {
 
                     Text {
                         text: Words.ingredientsTitle
-                        color: Preferences.accentColor
+                        objectName: "ingredientsHeading"
+                        color: Preferences.textPrimary
                         font.family: Preferences.headingFont
                         font.weight: Font.Black
                         font.pixelSize: Preferences.fontSizeHeading + 2
@@ -445,7 +451,7 @@ Item {
                                 visible: !!modelData.group && (index === 0 || root.r.ingredients[index - 1].group !== modelData.group)
                                 topPadding: 8
                                 text: modelData.group || ""
-                                color: Preferences.accentColor
+                                color: Preferences.textPrimary
                                 font.family: Preferences.appFont
                                 font.bold: true
                                 font.pixelSize: Preferences.fontSizeLabel
@@ -485,7 +491,8 @@ Item {
 
                     Text {
                         text: Words.methodTitle
-                        color: Preferences.accentColor
+                        objectName: "methodHeading"
+                        color: Preferences.textPrimary
                         font.family: Preferences.headingFont
                         font.weight: Font.Black
                         font.pixelSize: Preferences.fontSizeHeading + 2
@@ -502,7 +509,7 @@ Item {
                             Text {
                                 visible: !!modelData.group && (index === 0 || root.r.steps[index - 1].group !== modelData.group)
                                 text: modelData.group || ""
-                                color: Preferences.accentColor
+                                color: Preferences.textPrimary
                                 font.family: Preferences.appFont
                                 font.bold: true
                                 font.pixelSize: Preferences.fontSizeLabel
@@ -513,7 +520,7 @@ Item {
                                 Text {
                                     width: 28
                                     text: index + 1
-                                    color: Preferences.accentColor
+                                    color: Preferences.textMuted
                                     font.family: Preferences.headingFont
                                     font.weight: Font.Black
                                     font.pixelSize: 22
@@ -543,6 +550,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         objectName: "stepTimer-" + stepIndex + "-" + index
+                                        kind: "timer"
                                         text: "⏱ " + modelData.text
                                         onClicked: Cook.startTimer(modelData.seconds,
                                                                    Words.timerLabel(root.r.title || "", stepIndex + 1))

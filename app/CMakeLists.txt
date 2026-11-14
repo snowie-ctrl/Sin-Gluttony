@@ -58,6 +58,11 @@ qt_add_executable(appGluttony
     services/Wiring.cpp
 )
 
+# The exe's own icon (Explorer, the taskbar, Alt-Tab, the release zip): the premade pig, made by assets/make_icon.py.
+if(WIN32)
+    target_sources(appGluttony PRIVATE assets/gluttony.rc)
+endif()
+
 # The QML lives in a static library of its own, so test harnesses (tests/tst_pages.cpp) load the real pages.
 qt_add_library(gluttony_ui STATIC)
 qt_add_qml_module(gluttony_ui
@@ -99,6 +104,7 @@ qt_add_qml_module(gluttony_ui
         qml/logic/days.mjs
         qml/logic/timers.mjs
         qml/logic/stepIngredients.mjs
+        qml/logic/chips.mjs
 )
 target_link_libraries(gluttony_ui PRIVATE Qt6::Quick Qt6::QuickControls2)
 

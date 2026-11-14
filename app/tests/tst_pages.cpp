@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QColor>
+#include <QIcon>
 #include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -433,6 +434,16 @@ private slots:
         QTRY_COMPARE(copies->lists().size(), 1);
     }
 
+    void headingsAreNeutral()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("ingredientsHeading"));
+        QCOMPARE(find("ingredientsHeading")->property("color").value<QColor>(), preferences->textPrimary);
+        QCOMPARE(find("methodHeading")->property("color").value<QColor>(), preferences->textPrimary);
+    }
+
     void cookingARecipeKeepsItOnTheDevice()
     {
         start();
@@ -673,6 +684,29 @@ private slots:
         QTRY_VERIFY(findVisible("loginError"));
     }
 
+    void thePigIsTheMarkEverywhere()
+    {
+        QVERIFY(!QIcon(QStringLiteral(":/images/gluttonyAppIcon.png")).isNull());
+        QVERIFY(!QFile::exists(QStringLiteral(":/images/gluttony.svg")));
+
+        server->responses[path("/device/identify")] = R"({"status":"new"})";
+        start();
+        QTRY_VERIFY(findVisible("loginMark"));
+        QQuickItem *login = find("loginMark");
+        QVERIFY(login->property("source").toUrl().toString().endsWith("gluttonyAppIcon.png"));
+        QTRY_COMPARE(login->property("status").toInt(), 1);   // Image.Ready
+        QVERIFY(login->property("mipmap").toBool());
+        QCOMPARE(login->height(), 56.0);
+
+        server->responses[path("/device/identify")] = signedIn;
+        session->identifyDevice();
+        QTRY_VERIFY(findVisible("railMark"));
+        QQuickItem *rail = find("railMark");
+        QTRY_COMPARE(rail->property("status").toInt(), 1);
+        QVERIFY(rail->property("mipmap").toBool());
+        QCOMPARE(rail->height(), 36.0);
+    }
+
     void signingOutGoesBackToTheForm()
     {
         start();
@@ -908,6 +942,45 @@ private slots:
         QCOMPARE(findVisible("showFilters")->property("text").toString(), QStringLiteral("Filters"));
         click(findVisible("showFilters"));
         QTRY_VERIFY(findVisible("filterPanel"));
+    }
+
+    void chipsReadInTheirFamilies()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        nav->navigateTo("results-page");
+        QTRY_VERIFY(find("filterPanel")->childItems().value(0)->property("contentHeight").toDouble() > 0);
+        const auto tone = [this](const char *name) {
+            QQuickItem *chip = find(QString::fromLatin1(name));
+            return chip ? chip->property("tone").value<QColor>() : QColor();
+        };
+        QTRY_COMPARE(tone("filter-time-15"), preferences->accentAmber);
+        QCOMPARE(tone("filter-effort-1"), preferences->accentAmber);
+        QTRY_COMPARE(tone("filter-course-main"), preferences->accentColor);
+        QTRY_COMPARE(tone("filter-flavour-savoury"), preferences->accentRose);
+        QCOMPARE(tone("filter-avoid-peanut"), preferences->textSecondary);
+        // A control keeps no family.
+        QCOMPARE(find("hideFilters")->property("family").toString(), QString());
+        // Selected: the accent-tinted ground for a family, never for a neutral chip.
+        click(findVisible("filter-time-15"));
+        QTRY_COMPARE(find("filter-time-15")->property("color").value<QColor>(), preferences->accentSubtle);
+        click(findVisible("filter-avoid-peanut"));
+        QTRY_COMPARE(find("filter-avoid-peanut")->property("color").value<QColor>(), preferences->backgroundTertiary);
+        // A selected neutral chip says so with a tick; an unselected one does not. Its border goes to the full tone.
+        const auto label = [this](const char *name) {
+            QQuickItem *chip = find(QString::fromLatin1(name));
+            QQuickItem *text = chip ? chip->findChild<QQuickItem *>(QStringLiteral("chipLabel")) : nullptr;
+            return text ? text->property("text").toString() : QString();
+        };
+        QTRY_VERIFY(label("filter-avoid-peanut").startsWith(QStringLiteral("✓ ")));
+        QVERIFY(!label("filter-avoid-meat").isEmpty());
+        QVERIFY(!label("filter-avoid-meat").startsWith(QStringLiteral("✓")));
+        const QColor border = find("filter-avoid-peanut")->property("border").value<QObject *>()->property("color").value<QColor>();
+        QCOMPARE(border, preferences->textSecondary);
+        QCOMPARE(border.alphaF(), 1.0);
+        // A changed token repaints the chips.
+        preferences->setProperty("accentAmber", QColor(0x00ff00));
+        QTRY_COMPARE(tone("filter-time-15"), QColor(0x00ff00));
     }
 
     void resultsShowTheDietChipWithThePanelCollapsed()
@@ -1834,7 +1907,7 @@ private slots:
         QTRY_COMPARE(preferences->units, QStringLiteral("us"));
         preferences->setProperty("accentColor", QColor(0x00ff00));
         click(findVisible("resetColours"));
-        QTRY_COMPARE(preferences->accentColor, QColor(0xff7a1a));
+        QTRY_COMPARE(preferences->accentColor, QColor(0xf27620));
         QCOMPARE(preferences->units, QStringLiteral("us"));
     }
 

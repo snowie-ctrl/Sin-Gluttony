@@ -68,7 +68,7 @@ Popup {
 
         Text {
             text: Words.dietTitle
-            color: Preferences.accentColor
+            color: Preferences.textPrimary
             font.family: Preferences.headingFont
             font.weight: Font.Black
             font.pixelSize: Preferences.fontSizeHeading + 4
@@ -88,6 +88,7 @@ Popup {
                 delegate: Chip {
                     required property var modelData
                     objectName: "diet-" + modelData.value
+                    kind: "diet"
                     text: modelData.label
                     selected: popup.chosenDiets.indexOf(modelData.value) >= 0
                     onClicked: popup.chosenDiets = popup.toggled(popup.chosenDiets, modelData.value)
@@ -109,6 +110,7 @@ Popup {
                 delegate: Chip {
                     required property var modelData
                     objectName: "avoid-" + modelData.value
+                    kind: "avoid"
                     text: modelData.label
                     selected: popup.chosenAvoid.indexOf(modelData.value) >= 0
                     onClicked: popup.chosenAvoid = popup.toggled(popup.chosenAvoid, modelData.value)
