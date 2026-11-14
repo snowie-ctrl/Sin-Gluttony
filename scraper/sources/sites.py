@@ -34,6 +34,7 @@ RECHECK_EVERY = 4       # a site without lastmod is fetched in full every fourth
 GONE_AFTER = 2          # a page answering 404 or 410 this many passes in a row is gone
 
 FIELDS = ("site", "name", "host", "sitemaps", "recipeUrl", "parser", "kind", "enabled")
+OPTIONAL_FIELDS = ("sitemapFilter",)    # a pattern naming which child sitemaps of an index to follow (none: all)
 PARSERS = ("schema", "difford")
 
 
@@ -53,6 +54,10 @@ def loadSites(rules):
             re.compile(entry["recipeUrl"])
         except re.error as e:
             raise ValueError(f"sites.json: {name}: recipeUrl is not a pattern ({e})")
+        try:
+            re.compile(entry.get("sitemapFilter", ""))
+        except re.error as e:
+            raise ValueError(f"sites.json: {name}: sitemapFilter is not a pattern ({e})")
         for url in entry["sitemaps"]:
             if (urlsplit(url).hostname or "").lower() != entry["host"]:
                 raise ValueError(f"sites.json: {name}: sitemap {url} is not on host {entry['host']}")
@@ -137,6 +142,7 @@ def sitemapEntries(site, robots, log=print):
     allows, as (url, lastmod or None): newest first, pages without lastmod last.
     """
     pattern = re.compile(site["recipeUrl"])
+    childFilter = re.compile(site["sitemapFilter"]) if site.get("sitemapFilter") else None
     queue, seen, found = list(site["sitemaps"]), set(), {}
     while queue and len(seen) < MAX_SITEMAPS:
         url = queue.pop(0)
@@ -160,7 +166,7 @@ def sitemapEntries(site, robots, log=print):
             log(f"{site['site']}: sitemap {url} unreadable ({type(e).__name__})")
             continue
         if kind == "sitemapindex":
-            queue += [loc for loc, _ in entries]
+            queue += [loc for loc, _ in entries if childFilter is None or childFilter.search(loc)]
             continue
         for loc, lastmod in entries:
             if pattern.match(loc):

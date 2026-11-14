@@ -92,6 +92,31 @@ def test_indexesAreFollowedAndOnlyRecipePagesKeptNewestFirst(monkeypatch):
     ]
 
 
+def test_onlyChildSitemapsMatchingTheFilterAreFollowed(monkeypatch):
+    asked = fakeCrawl(monkeypatch, {
+        f"https://{HOST}/sitemap_index.xml": sitemapIndex(f"https://{HOST}/post-sitemap.xml",
+                                                          f"https://{HOST}/post-sitemap2.xml",
+                                                          f"https://{HOST}/page-sitemap.xml"),
+        f"https://{HOST}/post-sitemap.xml": urlset((f"https://{HOST}/made-up-stew/", "2026-10-01")),
+        f"https://{HOST}/post-sitemap2.xml": urlset((f"https://{HOST}/made-up-soup/", "2026-10-02")),
+        f"https://{HOST}/page-sitemap.xml": urlset((f"https://{HOST}/made-up-page/", "2026-10-03")),
+    })
+    site = dict(SITE, sitemapFilter=r"post-sitemap\d*\.xml$")
+    found = sites.sitemapEntries(site, robotsFrom(), log=QUIET)
+    assert [url for url, _ in found] == [f"https://{HOST}/made-up-soup/", f"https://{HOST}/made-up-stew/"]
+    assert f"https://{HOST}/page-sitemap.xml" not in asked
+
+
+def test_aNewChildSitemapInTheIndexIsDiscovered(monkeypatch):
+    fakeCrawl(monkeypatch, {
+        f"https://{HOST}/sitemap_index.xml": sitemapIndex(f"https://{HOST}/2027-Q1-recipe.xml"),
+        f"https://{HOST}/2027-Q1-recipe.xml": urlset((f"https://{HOST}/made-up-new/", "2027-01-05")),
+    })
+    site = dict(SITE, sitemapFilter=r"-recipe\.xml$")
+    assert sites.sitemapEntries(site, robotsFrom(), log=QUIET) == [(f"https://{HOST}/made-up-new/",
+                                                                    "2027-01-05T00:00:00+00:00")]
+
+
 def test_aPageListedTwiceKeepsItsNewestLastmod(monkeypatch):
     fakeCrawl(monkeypatch, {
         f"https://{HOST}/sitemap_index.xml": sitemapIndex(f"https://{HOST}/a.xml", f"https://{HOST}/b.xml"),
@@ -188,7 +213,7 @@ def test_loadSitesKeepsTheEnabledEntries():
 
 
 @pytest.mark.parametrize("change, message", [
-    ({"parser": "html"}, "parser"), ({"kind": "snack"}, "kind"), ({"recipeUrl": "("}, "recipeUrl"),
+    ({"sitemapFilter": "("}, "sitemapFilter"), ({"parser": "html"}, "parser"), ({"kind": "snack"}, "kind"), ({"recipeUrl": "("}, "recipeUrl"),
 ])
 def test_aMalformedSiteEntryIsRefused(change, message):
     with pytest.raises(ValueError, match=message):
@@ -206,7 +231,8 @@ def test_theSitesFileNamesTheFiveSitesWithDiscoveredValues():
     entries = rulesData.load()["sites"]
     assert [e["site"] for e in entries] == ["bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "difford"]
     for entry in entries:
-        assert set(entry) == set(sites.FIELDS), entry["site"]
+        assert set(entry) == set(sites.FIELDS) | {"sitemapFilter"}, entry["site"]
+        re.compile(entry["sitemapFilter"])
         # Fails while a value the discovery step fills in is still missing.
         assert entry["sitemaps"] and all(url.startswith("https://") for url in entry["sitemaps"]), entry["site"]
         pattern = re.compile(entry["recipeUrl"])
