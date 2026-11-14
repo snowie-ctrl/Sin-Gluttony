@@ -168,3 +168,55 @@ def test_sourceTagsAreKeptOnceEach():
 def test_blankSourceTagsAreSkipped():
     r = tagging.tagRecipe(recipe(source="mealdb", hints={"tags": [" Meat ", "  ", "meat"]}), TABLE, RULES)
     assert [t["tag"] for t in r.tags if t["type"] == "source"] == ["Meat"]
+
+
+def test_aTimeTheSiteGaveIsKept():
+    r = tagging.tagRecipe(recipe(source="recipetineats", steps=("Bake 90 minutes.",), prepMinutes=10,
+                                 cookMinutes=25, totalMinutes=35, timeFrom="source"), TABLE, RULES)
+    assert (r.prepMinutes, r.cookMinutes, r.totalMinutes, r.timeFrom) == (10, 25, 35, "source")
+
+
+def test_aDrinkTimeTheAdapterSetByRuleIsKept():
+    r = tagging.tagRecipe(recipe(kind="drink", source="difford", steps=("Stir for 2 minutes.",), ingredients=("gin",),
+                                 totalMinutes=4, timeFrom="rule", hints={"method": "stirred"}), TABLE, RULES)
+    assert (r.totalMinutes, r.timeFrom) == (4, "rule")
+
+
+def test_anAdapterTimeOverAWeekIsDropped():
+    r = tagging.tagRecipe(recipe(steps=("Stir.",), totalMinutes=20000, timeFrom="source"), TABLE, RULES)
+    assert (r.totalMinutes, r.timeFrom) == (None, None)
+
+
+def test_servingsTheSiteGaveAreKept():
+    r = tagging.tagRecipe(recipe(source="recipetineats", servings=6, servingsFrom="source"), TABLE, RULES)
+    assert (r.servings, r.servingsFrom) == (6, "source")
+
+
+def test_aDrinksMethodBecomesATechniqueTag():
+    r = tagging.tagRecipe(recipe(kind="drink", source="difford", ingredients=("gin",), hints={"method": "shaken"}),
+                          TABLE, RULES)
+    assert {"type": "technique", "tag": "shaken", "origin": "rule"} in r.tags
+
+
+def test_aBasicIsTaggedBasic():
+    rules = dict(RULES, basics=[{"name": "scrambled eggs", "url": "https://www.example-recipes.test/made-up-eggs/"},
+                                {"name": "toast", "url": None}])
+    basic = tagging.tagRecipe(recipe(source="recipetineats", sourceUrl="https://www.example-recipes.test/made-up-eggs/"),
+                              TABLE, rules)
+    other = tagging.tagRecipe(recipe(source="recipetineats", sourceUrl="https://www.example-recipes.test/made-up-stew/"),
+                              TABLE, rules)
+    assert {"type": "occasion", "tag": "basic", "origin": "rule"} in basic.tags
+    assert not [t for t in other.tags if t["tag"] == "basic"]
+
+
+def test_aDiffordsShapedRecipeGetsItsTechniqueTagFromTheKeyDiffordSets():
+    from sources import difford
+    import inspect
+    assert 'hints={"method": method' in inspect.getsource(difford)
+    r = tagging.tagRecipe(recipe(kind="drink", source="difford", ingredients=("gin", "dry vermouth"), glass="coupe",
+                                 totalMinutes=4, timeFrom="rule", servings=1, servingsFrom="rule",
+                                 hints={"method": "stirred", "category": "Cocktail"}), TABLE, RULES)
+    assert [t["tag"] for t in r.tags if t["type"] == "technique"] == ["stirred"]
+    assert (r.totalMinutes, r.timeFrom, r.servings, r.servingsFrom) == (4, "rule", 1, "rule")
+    plain = tagging.tagRecipe(recipe(kind="drink", source="cocktaildb", ingredients=("gin",)), TABLE, RULES)
+    assert not [t for t in plain.tags if t["type"] == "technique"]

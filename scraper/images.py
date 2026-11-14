@@ -46,6 +46,25 @@ def _made(name):
     return (config.IMAGE_DIR / "images" / name).exists() and (config.IMAGE_DIR / "thumbs" / name).exists()
 
 
+def _width(name, index):
+    """
+    The original picture's width, kept in the index. A picture made before
+    widths were kept is measured once: from the original, else from the large
+    copy, which is the original's width when that was under LARGE and LARGE
+    when it was wider (either way enough to judge the gate's 800 px).
+    """
+    widths = index.setdefault("widths", {})
+    if name not in widths:
+        for path in (config.IMAGE_DIR / "original" / name[:-4], config.IMAGE_DIR / "images" / name):
+            try:
+                with Image.open(path) as img:
+                    widths[name] = img.width
+                break
+            except (OSError, ValueError, Image.DecompressionBombError):
+                continue
+    return widths.get(name)
+
+
 def _source(recipe, index, allowDownload):
     """(address, credit) of a recipe's picture, or None."""
     if recipe.imageUrl is not None:
@@ -102,6 +121,7 @@ def ensureImages(recipes, allowDownload, log=print, onProgress=None):
             made += 1
         recipe.imagePath = name
         recipe.imageCredit = credit
+        recipe.imageWidth = _width(name, index)
     store.writeJson(_indexPath(), index)
     if made or failed:
         log(f"pictures: {made} made, {failed} failed")
