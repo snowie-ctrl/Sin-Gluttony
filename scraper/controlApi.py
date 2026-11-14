@@ -162,20 +162,14 @@ def _loadFoods(path, mtime):
 
 
 def _foods():
-    """The FDC foods, loaded again only when the cache file changes; {} when nothing is imported."""
+    """The FDC foods, loaded again only when the cache file changes; {} when nothing is imported.
+    Only reads an existing cache: importing the CSVs writes data/, which is the scraper's job."""
     path = config.FDC_FOODS_FILE
     try:
         mtime = path.stat().st_mtime_ns
     except OSError:
-        mtime = None
-    foods = _loadFoods(str(path), mtime)
-    if mtime is None and foods:
-        # loadFoods imported the CSVs just now; key the result by the new file
-        _loadFoods.cache_clear()
-        return _loadFoods(str(path), path.stat().st_mtime_ns)
-    if not foods:
-        _loadFoods.cache_clear()
-    return foods
+        return {}
+    return _loadFoods(str(path), mtime)
 
 
 @app.get("/fdc/queue")
@@ -208,7 +202,9 @@ def fdcPick():
     ingredient = body.get("ingredient")
     if not isinstance(ingredient, str) or not ingredient.strip() or len(ingredient) > 100:
         return error("ingredient must be 1 to 100 characters")
-    fdcId = body.get("fdcId")
+    if "fdcId" not in body:
+        return error("fdcId is required: a whole number, or null when no FDC food fits")
+    fdcId = body["fdcId"]
     if fdcId is not None and (not isinstance(fdcId, int) or isinstance(fdcId, bool)):
         return error("fdcId must be a whole number or null")
     if fdcId is not None and fdcId not in _foods():

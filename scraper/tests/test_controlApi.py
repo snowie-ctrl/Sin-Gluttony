@@ -3,6 +3,7 @@ import pytest
 import config
 import controlApi
 import controlRequests
+import fdc
 import fdcMatch
 from conftest import FIXTURES
 import progress
@@ -59,6 +60,7 @@ def test_reportIsTheLastPasses(client):
 def _installFoods():
     import shutil
     shutil.copytree(FIXTURES / "fdc" / "sr", config.FDC_DIR / "sr")
+    fdc.importFolders(log=lambda *_: None)
 
 
 def test_fdcQueueIsEmptyWithoutAFile(client):
@@ -85,6 +87,13 @@ def test_fdcSearchChecksItsInput(client):
     assert len(client.get("/fdc/search?q=onions&limit=999").get_json()["results"]) <= 25
 
 
+def test_fdcSearchNeverImportsFromARequest(client):
+    import shutil
+    shutil.copytree(FIXTURES / "fdc" / "sr", config.FDC_DIR / "sr")
+    assert client.get("/fdc/search?q=onions").status_code == 503
+    assert not config.FDC_FOODS_FILE.exists()
+
+
 def test_fdcSearchWithoutImportedFoodsIs503(client):
     answer = client.get("/fdc/search?q=onions")
     assert answer.status_code == 503 and answer.get_json()["message"] == "FDC data not imported"
@@ -107,7 +116,7 @@ def test_fdcPickOfAnUnknownIdIs404(client):
 def test_fdcPickChecksItsInput(client):
     _installFoods()
     for body in ({}, {"ingredient": ""}, {"ingredient": "x" * 101, "fdcId": None},
-                 {"ingredient": "onion", "fdcId": "900001"}, {"ingredient": "onion", "fdcId": True}):
+                 {"ingredient": "onion", "fdcId": "900001"}, {"ingredient": "onion", "fdcId": True}, {"ingredient": "onion"}):
         assert client.post("/fdc/pick", json=body).status_code == 400, body
 
 
