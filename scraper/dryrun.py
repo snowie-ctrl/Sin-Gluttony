@@ -16,6 +16,7 @@ import images
 import linking
 import matching
 import rulesData
+import store
 import tagging
 from sources import sites
 
@@ -45,6 +46,7 @@ def run(pages=200, log=print, today=None, crawl=True):
         gate.apply(recipe, rules["unitMap"])
     today = today or date.today()
     folder = config.REPORT_DIR / f"dryrun-{today.isoformat()}"
-    summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today)
+    summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today,
+                                    store.readJson(config.SITE_STATE_FILE, {}))
     log(f"dry run: {summary['listed']} of {summary['pages']} pages would be listed; report in {folder}")
     return folder

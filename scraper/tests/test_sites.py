@@ -512,3 +512,14 @@ def test_aBasicIsNeverHeldBackByTheNonRecipeMemory(monkeypatch):
     asked.clear()
     second = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET, priority={post})["sitea"]
     assert pageUrls(asked) == [post] and second["notRecipe"] == 1
+
+
+def test_eachSiteEndsWithOneLineOfAllItsCounters(monkeypatch):
+    fakeCrawl(monkeypatch, {**web(A, {"made-up-post": blogPost(1), "made-up-stew": recipePage("Made-up Stew")}),
+                            **web(B, {"made-up-soup": recipePage("Made-up Soup")}, robots="User-agent: *\nDisallow: /\n")})
+    lines = []
+    sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=lines.append)
+    assert [l for l in lines if l.startswith("sitea: done")] == [
+        "sitea: done: 2 due, 1 fetched, 1 notRecipe, 0 gone, 0 errors, not stopped"]
+    assert [l for l in lines if l.startswith("siteb: done")] == [
+        "siteb: done: 0 due, 0 fetched, 0 notRecipe, 0 gone, 0 errors, stopped (no recipe pages in the sitemaps)"]

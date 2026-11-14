@@ -203,6 +203,13 @@ def _newResult(name):
             "notRecipe": 0, "gone": 0, "errors": 0}
 
 
+def _closing(name, result, log):
+    """One line with every counter, at the end of the site's crawl."""
+    stop = f"stopped ({result['stopReason']})" if result["stopReason"] else "not stopped"
+    log(f"{name}: done: {result['due']} due, {result['fetched']} fetched, {result['notRecipe']} notRecipe, "
+        f"{result['gone']} gone, {result['errors']} errors, {stop}")
+
+
 def _stopped(result, siteState, stop, now):
     result["ok"], result["stopReason"] = False, stop.reason
     siteState["lastStop"] = stop.reason
@@ -303,12 +310,15 @@ def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time):
             except SiteStopped as stop:
                 _stopped(result, siteState, stop, now)
                 log(f"{name}: stopped ({stop.reason})")
+                _closing(name, result, log)
                 continue
             siteState.pop("lastStop", None)
             result.update(listed=len(entries), planned=len(chosen), due=len(due))
             log(f"{name}: {len(entries)} recipe pages listed, {len(due)} of the first {len(chosen)} due")
             if due:
                 queues[name], runs[name] = list(due), {"notRecipe": 0, "failures": 0}
+            else:
+                _closing(name, result, log)
         while queues:
             for name in list(queues):
                 url, lastmod = queues[name].pop(0)
@@ -320,6 +330,7 @@ def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time):
                     queues[name] = []
                 if not queues[name]:
                     del queues[name]
+                    _closing(name, results[name], log)
     finally:
         store.writeJson(config.SITE_STATE_FILE, state)
     return results

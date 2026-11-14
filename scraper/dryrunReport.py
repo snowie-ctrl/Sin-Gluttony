@@ -99,9 +99,12 @@ def unparsedGroups(recipes, units):
     return sorted(groups.values(), key=lambda g: (-g["count"], g["pattern"]))
 
 
-def basicsStatus(rules, recipes, skipped):
+def basicsStatus(rules, recipes, skipped, siteState=None):
     byUrl = {r.sourceUrl: r for r in recipes}
     notRead = {s["url"]: s["reason"] for s in skipped}
+    # pages the crawler fetched and found not to be recipes are not cached; the site state remembers them
+    rejected = {url for state in (siteState or {}).values() if isinstance(state, dict)
+                for url in state.get("notRecipe", {})}
     rows = []
     for basic in rules.get("basics", []):
         url = basic.get("url")
@@ -112,6 +115,8 @@ def basicsStatus(rules, recipes, skipped):
             status = f"hidden: {reason}" if reason else "listed"
         elif url in notRead:
             status = f"not read: {notRead[url]}"
+        elif url in rejected:
+            status = "not a recipe page"
         else:
             status = "not fetched"
         rows.append({"name": basic["name"], "url": url, "status": status})
@@ -129,7 +134,7 @@ def _cell(text):
 def renderMarkdown(summary, groups):
     out = [f"# Dry run {summary['date']}", "",
            f"{summary['recipes']} recipes from {summary['pages']} cached pages; {summary['listed']} would be listed "
-           f"({_pct(summary['passRate'])}). Milestone 1 has no nutrition estimate, so `no-nutrition` counts every "
+           f"({_pct(summary['passRate'])}). These counts cover every cached page, not only this run's. Milestone 1 has no nutrition estimate, so `no-nutrition` counts every "
            "recipe whose site gives no per-serving nutrition; milestone 2's estimate brings those in.", "",
            "## Sites", "",
            "| Site | Pages | Not read | " + " | ".join(_ORDER) + " | Pass rate | Site nutrition | Crawl |",
@@ -141,7 +146,9 @@ def renderMarkdown(summary, groups):
         elif crawl.get("stopReason"):
             state = f"stopped: {crawl['stopReason']}"
         else:
-            state = f"{crawl.get('fetched', 0)} fetched, {crawl.get('listed', 0)} listed in sitemaps"
+            state = (f"{crawl.get('due', 0)} due, {crawl.get('fetched', 0)} fetched, {crawl.get('notRecipe', 0)} "
+                     f"notRecipe, {crawl.get('gone', 0)} gone, {crawl.get('errors', 0)} errors, "
+                     f"{crawl.get('listed', 0)} listed")
         out.append(f"| {s['name']} | {s['pages']} | {s['notRead']} | "
                    + " | ".join(str(s["gate"][r]) for r in _ORDER)
                    + f" | {_pct(s['passRate'])} | {s['siteNutrition']} | {_cell(state)} |")
@@ -163,7 +170,7 @@ def renderMarkdown(summary, groups):
     return "\n".join(out) + "\n"
 
 
-def write(folder, siteList, crawled, recipes, skipped, rules, today):
+def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=None):
     units = rules["unitMap"]
     perSite = [siteSummary(site, crawled.get(site["site"]), recipes, skipped) for site in siteList]
     reasons = {reason: sum(s["gate"][reason] for s in perSite) for reason in _ORDER}
@@ -172,7 +179,7 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today):
     summary = {"date": today.isoformat(), "generatedAt": time.time(), "pages": pages, "recipes": len(recipes),
                "listed": reasons["listed"], "passRate": _share(reasons["listed"], pages), "sites": perSite,
                "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
-               "basics": basicsStatus(rules, recipes, skipped)}
+               "basics": basicsStatus(rules, recipes, skipped, siteState)}
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)
     store.writeJson(folder / "skipped.json", skipped)

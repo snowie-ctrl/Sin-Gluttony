@@ -77,6 +77,22 @@ def test_basicsAreFoundOrMissing():
         "listed", "hidden: small-photo", "not read: no steps", "not fetched", "missing: no site has it"]
 
 
+def test_aBasicTheCrawlerFetchedAndRejectedIsNotARecipePage():
+    rules = {"basics": [{"name": "chicken", "url": "https://x.test/e/"}, {"name": "rice", "url": "https://x.test/f/"}]}
+    state = {"testsite": {"notRecipe": {"https://x.test/e/": "2023-11-07T00:00:00+00:00"}}}
+    assert [b["status"] for b in dryrunReport.basicsStatus(rules, [], [], state)] == ["not a recipe page", "not fetched"]
+
+
+def test_theReportShowsAllCrawlCountersAndSaysCountsCoverEveryCachedPage():
+    crawl = {"due": 9, "fetched": 4, "notRecipe": 3, "gone": 1, "errors": 1, "listed": 50}
+    summary = dryrunReport.siteSummary(SITE, crawl, [made()], [])
+    text = dryrunReport.renderMarkdown({"date": "2026-11-14", "pages": 1, "recipes": 1, "listed": 1, "passRate": 1.0,
+                                        "sites": [summary], "reasons": {r: 0 for r in dryrunReport._ORDER},
+                                        "unparsedLines": 0, "basics": []}, [])
+    assert "9 due, 4 fetched, 3 notRecipe, 1 gone, 1 errors, 50 listed" in text
+    assert "every cached page, not only this run's" in text
+
+
 def test_writeLeavesTheOwnersReport(tmp_path):
     recipes = [made(url="https://x.test/a/")]
     summary = dryrunReport.write(tmp_path / "report", [SITE], {"testsite": {"listed": 9, "fetched": 1}}, recipes, [],
