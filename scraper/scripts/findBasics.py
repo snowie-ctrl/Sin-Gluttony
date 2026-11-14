@@ -42,7 +42,7 @@ BASICS = [
     ("fried rice", r"^(?:easy-|egg-|simple-|classic-)?fried-rice$"),
     ("pasta", r"how-to-cook-pasta|^(?:simple-|basic-|plain-|easy-)?pasta$"),
     ("spaghetti bolognese", r"spaghetti-bolognese|bolognese"),
-    ("macaroni cheese", r"mac(?:aroni)?-(?:and-|n-)?cheese"),
+    ("macaroni cheese", r"^(?:classic-|easy-|best-|baked-|homemade-|ultimate-)?mac(?:aroni)?-(?:and-|n-)?cheese$"),
     ("tomato pasta", r"^(?:fresh-|simple-|easy-)?tomato-pasta(?:-sauce)?$|pasta-(?:al-)?pomodoro"),
     ("mashed potatoes", r"mash(?:ed)?-potato(?:es)?|potato-mash"),
     ("roast potatoes", r"roast(?:ed)?-potato(?:es)?"),
@@ -67,7 +67,7 @@ BASICS = [
     ("lasagne", r"lasagn(?:e|a)"),
     ("tacos", r"(?:beef-|chicken-)?tacos"),
     ("quesadillas", r"quesadillas?"),
-    ("salmon", r"(?:baked|oven-baked|pan-fried|roast)-salmon"),
+    ("salmon", r"^(?:easy-|simple-|best-|perfect-)?(?:baked|oven-baked|pan-fried|roast)-salmon$"),
     ("steak", r"^(?:pan-fried-|perfect-|rump-|sirloin-)?steak$"),
     ("pork chops", r"^(?:pan-fried-|baked-|homemade-|oven-baked-|juicy-|easy-)?pork-chops$"),
     ("sausage and mash", r"sausages?-(?:and-)?mash|bangers-(?:and-)?mash"),
@@ -78,10 +78,12 @@ BASICS = [
     ("vinaigrette", r"^(?:classic-|simple-|easy-|basic-)?vinaigrette$"),
     ("banana bread", r"^(?:homemade-|easy-|classic-|best-|simple-)?banana-bread$"),
     ("chocolate chip cookies", r"chocolate-chip-cookies"),
-    ("sponge cake", r"victoria-sponge|vanilla-cake|sponge-cake"),
+    ("sponge cake", r"^(?:classic-|easy-|best-|simple-|ultimate-)?(?:victoria-sponge(?:-cake)?|vanilla-cake|sponge-cake)$"),
     ("smoothie", r"^(?:banana-|berry-|fruit-|breakfast-)?smoothie$"),
     ("bacon sandwich", r"^(?:classic-|best-|ultimate-)?bacon-(?:sandwich|sarnie|butty)$"),
 ]
+
+
 
 
 def slugOf(url):
@@ -111,7 +113,12 @@ def chooseBasics(listings, basics=BASICS):
     chosen = []
     for name, pattern in basics:
         best = candidates(pattern, listings)
-        chosen.append({"name": name, "url": best[0][2] if best else None})
+        urls, sitesSeen = [], set()
+        for _, rank, url in best:          # the best page of each site, in ranking order
+            if rank not in sitesSeen:
+                sitesSeen.add(rank)
+                urls.append(url)
+        chosen.append({"name": name, "url": urls[0] if urls else None, "urls": urls})
     return chosen
 
 
