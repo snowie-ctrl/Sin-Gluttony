@@ -37,6 +37,9 @@ def loadSites(rules):
             re.compile(entry["recipeUrl"])
         except re.error as e:
             raise ValueError(f"sites.json: {name}: recipeUrl is not a pattern ({e})")
+        for url in entry["sitemaps"]:
+            if (urlsplit(url).hostname or "").lower() != entry["host"]:
+                raise ValueError(f"sites.json: {name}: sitemap {url} is not on host {entry['host']}")
         if entry["enabled"]:
             enabled.append(entry)
     return enabled

@@ -216,3 +216,16 @@ def test_theSitesFileNamesTheFiveSitesWithDiscoveredValues():
     assert kinds["difford"] == ("difford", "drink", "Difford's Guide")
     assert kinds["recipetineats"] == ("schema", "food", "RecipeTin Eats")
     assert len(sites.loadSites(rulesData.load())) == sum(1 for e in entries if e["enabled"])
+
+
+def test_aSitemapOnAnotherHostThanTheEntrysIsRefused():
+    with pytest.raises(ValueError, match="host"):
+        sites.loadSites({"sites": [dict(SITE, sitemaps=["https://other.example.test/sitemap.xml"])]})
+
+
+def test_recipeTinEatsPatternTakesRecipesAndNotTheBlogPage():
+    entry = next(e for e in rulesData.load()["sites"] if e["site"] == "recipetineats")
+    pattern = re.compile(entry["recipeUrl"])
+    assert pattern.match("https://www.recipetineats.com/giant-hash-brown/")
+    assert pattern.match("https://www.recipetineats.com/blogger-style-pasta/")
+    assert not pattern.match("https://www.recipetineats.com/blog/")
