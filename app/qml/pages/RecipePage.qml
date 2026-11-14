@@ -227,6 +227,7 @@ Item {
                 }
                 Chip {
                     objectName: "unknownWarning"
+                    kind: "contains"
                     visible: Diet.enabled && Diet.hasProfile && !!root.r.facts && !root.r.facts.complete
                     outlined: true
                     text: "⚠ " + Words.unknownIngredients

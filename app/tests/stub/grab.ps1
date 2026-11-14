@@ -52,7 +52,7 @@ $src    = Split-Path (Split-Path $here -Parent) -Parent
 $repo   = Split-Path $src -Parent
 $qt     = if ($env:GLUTTONY_QT) { $env:GLUTTONY_QT } else { 'D:\allNewQT6\6.11.1\msvc2022_64' }
 # -Exe runs another build (release.ps1's package) instead of the test build.
-# Named appExe, not exe: PowerShell names ignore case, so $exe would overwrite the -Exe switch and every grab would run
+# Named appExe, not exe: PowerShell names ignore case, so $exe would overwrite the -Exe parameter and every grab would run
 # as a package check, with Qt taken off its PATH.
 $appExe = if ($Exe) { (Resolve-Path -LiteralPath $Exe).Path } else { Join-Path $src 'build\tests\appGluttony.exe' }
 # A git worktree has no venv of its own, so GLUTTONY_PYTHON can point at the main checkout's.

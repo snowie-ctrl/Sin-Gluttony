@@ -966,6 +966,21 @@ private slots:
         QTRY_COMPARE(find("filter-time-15")->property("color").value<QColor>(), preferences->accentSubtle);
         click(findVisible("filter-avoid-peanut"));
         QTRY_COMPARE(find("filter-avoid-peanut")->property("color").value<QColor>(), preferences->backgroundTertiary);
+        // A selected neutral chip says so with a tick; an unselected one does not. Its border goes to the full tone.
+        const auto label = [this](const char *name) {
+            QQuickItem *chip = find(QString::fromLatin1(name));
+            QQuickItem *text = chip ? chip->findChild<QQuickItem *>(QStringLiteral("chipLabel")) : nullptr;
+            return text ? text->property("text").toString() : QString();
+        };
+        QTRY_VERIFY(label("filter-avoid-peanut").startsWith(QStringLiteral("✓ ")));
+        QVERIFY(!label("filter-avoid-meat").isEmpty());
+        QVERIFY(!label("filter-avoid-meat").startsWith(QStringLiteral("✓")));
+        const QColor border = find("filter-avoid-peanut")->property("border").value<QObject *>()->property("color").value<QColor>();
+        QCOMPARE(border, preferences->textSecondary);
+        QCOMPARE(border.alphaF(), 1.0);
+        // A changed token repaints the chips.
+        preferences->setProperty("accentAmber", QColor(0x00ff00));
+        QTRY_COMPARE(tone("filter-time-15"), QColor(0x00ff00));
     }
 
     void resultsShowTheDietChipWithThePanelCollapsed()

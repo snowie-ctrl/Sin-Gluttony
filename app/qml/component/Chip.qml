@@ -45,7 +45,8 @@ Rectangle {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: chip.text
+            objectName: "chipLabel"
+            text: (chip.family === "neutral" && chip.selected ? "✓ " : "") + chip.text
             color: chip.family === "neutral" ? (chip.marked ? Preferences.textPrimary : chip.tone)
                  : chip.family !== "" ? chip.tone
                  : (chip.marked ? chip.tone : Preferences.textSecondary)
