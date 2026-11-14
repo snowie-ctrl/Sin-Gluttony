@@ -1,11 +1,18 @@
 # Copied from Artemis/Pageturner/net.py at 7acc9ec; changes: Gluttony's hosts and User-Agent, 1 s default interval,
-# 3 tries, config read at call time, downloadLarge for the Wikibooks dump.
+# 3 tries, config read at call time, downloadLarge for the Wikibooks dump, crawl() for the recipe sites.
 """
 Polite HTTP for every outside service: a per-host rate limit, retries with
 backoff (honouring Retry-After on 429), and an optional on-disk cache so dry
 runs can be repeated without asking the sources again.
+
+The recipe sites are asked only through crawl(): as GluttonyPersonalCrawler,
+at most once every CRAWL_INTERVAL seconds per host, and a refusal (403, 429)
+comes straight back with its status so the caller can stop that site for the
+pass. Pictures later fetched from a crawled host get the same name and pace.
 """
+import email.utils
 import hashlib, json, os, random, time
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import requests
@@ -16,6 +23,8 @@ import config
 # The sources are free services run by volunteers: a named agent lets them see
 # who is asking, and nothing here needs to look like a browser.
 USER_AGENT = "Gluttony-catalog/1.0 (private recipe catalog for a few friends)"
+# The recipe sites see the crawler's own name and where to read about it. Never a browser's name.
+CRAWLER_AGENT = "GluttonyPersonalCrawler/1.0 (+https://github.com/snowie-ctrl/Sin-Gluttony)"
 MIN_INTERVAL = {                # seconds between requests to the same host
     "www.themealdb.com": 1.0,
     "www.thecocktaildb.com": 1.0,
@@ -24,22 +33,56 @@ MIN_INTERVAL = {                # seconds between requests to the same host
     "upload.wikimedia.org": 1.0,
 }
 DEFAULT_INTERVAL = 1.0
+CRAWL_INTERVAL = 5.0            # seconds between requests to a recipe site's host
 RETRIES = 3
 
 _session = requests.Session()
 _session.headers["User-Agent"] = USER_AGENT
 _lastCall = {}
+_crawlHosts = set()             # hosts crawl() has asked: everything sent to them uses its name and pace
 
 
 class HttpError(Exception):
-    pass
+    """status: the HTTP status, or None when no answer came. retryAfter: the server's Retry-After in seconds."""
+    def __init__(self, message, status=None, retryAfter=None):
+        super().__init__(message)
+        self.status = status
+        self.retryAfter = retryAfter
+
+
+def _interval(host):
+    if host in _crawlHosts:
+        # A robots.txt Crawl-delay above 5 s is put in MIN_INTERVAL by sources/sites.py.
+        return max(CRAWL_INTERVAL, MIN_INTERVAL.get(host, 0.0))
+    return MIN_INTERVAL.get(host, DEFAULT_INTERVAL)
 
 
 def _throttle(host):
-    wait = MIN_INTERVAL.get(host, DEFAULT_INTERVAL) - (time.time() - _lastCall.get(host, 0))
+    wait = _interval(host) - (time.time() - _lastCall.get(host, 0))
     if wait > 0:
         time.sleep(wait + random.uniform(0, 0.3))
     _lastCall[host] = time.time()
+
+
+def _headersFor(host):
+    return {"User-Agent": CRAWLER_AGENT} if host in _crawlHosts else None
+
+
+def retryAfterSeconds(value, now=None):
+    """A Retry-After header as seconds: a number, or an HTTP date. None when absent or unreadable."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return max(0.0, (when - now).total_seconds())
 
 
 def _cachePath(method, url, params, payload):
@@ -63,30 +106,30 @@ def request(method, url, *, params=None, payload=None, cacheHours=None, timeout=
         raise HttpError(f"{method} {url} not cached")
 
     host = urlsplit(url).hostname
-    lastError = None
+    lastError, lastStatus = None, None
     for attempt in range(retries):
         last = attempt == retries - 1
         _throttle(host)
         try:
             resp = _session.request(method, url, params=params, json=payload, timeout=timeout, headers=headers)
         except requests.RequestException as e:
-            lastError = f"{type(e).__name__}: {e}"
+            lastError, lastStatus = f"{type(e).__name__}: {e}", None
             if not last:
                 time.sleep(2 ** attempt)
             continue
 
         if resp.status_code == 429:
-            lastError = "429 rate limited"
+            lastError, lastStatus = "429 rate limited", 429
             if not last:
                 time.sleep(float(resp.headers.get("Retry-After") or 2 ** (attempt + 2)))
             continue
         if resp.status_code >= 500:
-            lastError = f"{resp.status_code} server error"
+            lastError, lastStatus = f"{resp.status_code} server error", resp.status_code
             if not last:
                 time.sleep(2 ** attempt)
             continue
         if resp.status_code >= 400:
-            raise HttpError(f"{method} {url} -> {resp.status_code}")
+            raise HttpError(f"{method} {url} -> {resp.status_code}", status=resp.status_code)
 
         if cacheFile:
             config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,7 +140,45 @@ def request(method, url, *, params=None, payload=None, cacheHours=None, timeout=
             os.replace(tmp, cacheFile)
         return resp.text
 
-    raise HttpError(f"{method} {url} failed after {retries} attempt(s) ({lastError})")
+    raise HttpError(f"{method} {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
+
+
+def crawl(url, *, binary=False, timeout=20, retries=2):
+    """
+    One request to a recipe site, as GluttonyPersonalCrawler, at most one per
+    CRAWL_INTERVAL per host. Any 4xx (403 and 429 included) raises at once with
+    its status, and a 429's Retry-After rides in the error for the next pass:
+    a site that refuses is stopped by the caller, never waited out here. A 5xx
+    or a dropped connection is tried `retries` times. Returns the page's text,
+    or its bytes with binary=True (sitemaps, which may be gzipped).
+    """
+    host = urlsplit(url).hostname
+    _crawlHosts.add(host)
+    lastError, lastStatus = None, None
+    for attempt in range(retries):
+        last = attempt == retries - 1
+        _throttle(host)
+        try:
+            resp = _session.request("GET", url, timeout=timeout, headers={"User-Agent": CRAWLER_AGENT})
+        except requests.RequestException as e:
+            lastError, lastStatus = f"{type(e).__name__}: {e}", None
+            if not last:
+                time.sleep(2 ** attempt)
+            continue
+        if resp.status_code >= 500:
+            lastError, lastStatus = f"{resp.status_code} server error", resp.status_code
+            if not last:
+                time.sleep(2 ** attempt)
+            continue
+        if resp.status_code >= 400:
+            raise HttpError(f"GET {url} -> {resp.status_code}", status=resp.status_code,
+                            retryAfter=retryAfterSeconds(resp.headers.get("Retry-After")))
+        if binary:
+            return resp.content
+        if "charset=" not in (resp.headers.get("Content-Type") or "").lower():
+            resp.encoding = "utf-8"     # requests would guess ISO-8859-1 and turn "½" into "Â½"
+        return resp.text
+    raise HttpError(f"GET {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
 
 
 def getText(url, params=None, cacheHours=None, retries=RETRIES, timeout=20, cacheOnly=False, headers=None):
@@ -120,7 +201,7 @@ def download(url, destPath, timeout=30):
     for attempt in range(RETRIES):
         _throttle(host)
         try:
-            resp = _session.get(url, timeout=timeout)
+            resp = _session.get(url, timeout=timeout, headers=_headersFor(host))
         except requests.RequestException:
             time.sleep(2 ** attempt)
             continue
