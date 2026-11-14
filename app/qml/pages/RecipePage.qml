@@ -386,7 +386,8 @@ Item {
 
                     Text {
                         text: Words.ingredientsTitle
-                        color: Preferences.accentColor
+                        objectName: "ingredientsHeading"
+                        color: Preferences.textPrimary
                         font.family: Preferences.headingFont
                         font.weight: Font.Black
                         font.pixelSize: Preferences.fontSizeHeading + 2
@@ -449,7 +450,7 @@ Item {
                                 visible: !!modelData.group && (index === 0 || root.r.ingredients[index - 1].group !== modelData.group)
                                 topPadding: 8
                                 text: modelData.group || ""
-                                color: Preferences.accentColor
+                                color: Preferences.textPrimary
                                 font.family: Preferences.appFont
                                 font.bold: true
                                 font.pixelSize: Preferences.fontSizeLabel
@@ -489,7 +490,8 @@ Item {
 
                     Text {
                         text: Words.methodTitle
-                        color: Preferences.accentColor
+                        objectName: "methodHeading"
+                        color: Preferences.textPrimary
                         font.family: Preferences.headingFont
                         font.weight: Font.Black
                         font.pixelSize: Preferences.fontSizeHeading + 2
@@ -506,7 +508,7 @@ Item {
                             Text {
                                 visible: !!modelData.group && (index === 0 || root.r.steps[index - 1].group !== modelData.group)
                                 text: modelData.group || ""
-                                color: Preferences.accentColor
+                                color: Preferences.textPrimary
                                 font.family: Preferences.appFont
                                 font.bold: true
                                 font.pixelSize: Preferences.fontSizeLabel
@@ -517,7 +519,7 @@ Item {
                                 Text {
                                     width: 28
                                     text: index + 1
-                                    color: Preferences.accentColor
+                                    color: Preferences.textMuted
                                     font.family: Preferences.headingFont
                                     font.weight: Font.Black
                                     font.pixelSize: 22

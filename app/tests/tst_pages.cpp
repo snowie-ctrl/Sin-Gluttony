@@ -433,6 +433,16 @@ private slots:
         QTRY_COMPARE(copies->lists().size(), 1);
     }
 
+    void headingsAreNeutral()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("ingredientsHeading"));
+        QCOMPARE(find("ingredientsHeading")->property("color").value<QColor>(), preferences->textPrimary);
+        QCOMPARE(find("methodHeading")->property("color").value<QColor>(), preferences->textPrimary);
+    }
+
     void cookingARecipeKeepsItOnTheDevice()
     {
         start();

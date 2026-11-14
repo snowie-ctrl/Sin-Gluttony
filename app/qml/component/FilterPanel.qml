@@ -222,7 +222,7 @@ Rectangle {
 
         Text {
             text: group.title
-            color: Preferences.accentColor
+            color: Preferences.textPrimary
             font.family: Preferences.appFont
             font.pixelSize: Preferences.fontSizeLabel
             font.bold: true
@@ -247,7 +247,7 @@ Rectangle {
 
         Text {
             text: picker.title
-            color: Preferences.accentColor
+            color: Preferences.textPrimary
             font.family: Preferences.appFont
             font.pixelSize: Preferences.fontSizeLabel
             font.bold: true
