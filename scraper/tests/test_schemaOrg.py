@@ -141,3 +141,12 @@ def test_bestImageOnABbcShapedPageReturnsTheOriginal():
                  f'<meta property="og:image" content="{BBC}?quality=90&amp;resize=1200,630">')
     assert _best(html) == BBC + "?quality=90"
     assert _best(_page([BBC + "?quality=90&resize=440,400", BBC])) in (BBC, BBC + "?quality=90")
+
+
+@pytest.mark.parametrize("opening", ['<script type="application/ld+json">', "<script type='application/ld+json'>",
+                                     "<script type=application/ld+json class=made-up-graph>"])
+def test_theRecipeIsFoundWhateverTheScriptTagsQuoting(opening):
+    """A minified page (Love and Lemons) leaves the type and class attributes unquoted."""
+    html = f'<html><head>{opening}{{"@graph": [{{"@type": "WebPage"}}, {{"@type": "Recipe", "name": "Made-up"}}]}}</script></head></html>'
+    assert schemaOrg.hasRecipe(html)
+    assert schemaOrg.recipeJsonLd(html)["name"] == "Made-up"

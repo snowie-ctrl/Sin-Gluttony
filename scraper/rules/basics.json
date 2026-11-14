@@ -6,14 +6,16 @@
    "https://www.recipetineats.com/scrambled-eggs/",
    "https://www.budgetbytes.com/scrambled-eggs/",
    "https://www.bbcgoodfood.com/recipes/kimchi-scrambled-eggs",
-   "https://pinchofyum.com/soft-scrambled-eggs"
+   "https://pinchofyum.com/soft-scrambled-eggs",
+   "https://www.loveandlemons.com/scrambled-eggs-recipe/"
   ]
  },
  {
   "name": "fried eggs",
   "url": "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg"
+   "https://www.bbcgoodfood.com/recipes/air-fryer-fried-egg",
+   "https://www.loveandlemons.com/fried-egg/"
   ]
  },
  {
@@ -21,7 +23,8 @@
   "url": "https://www.bbcgoodfood.com/recipes/soft-boiled-eggs",
   "urls": [
    "https://www.bbcgoodfood.com/recipes/soft-boiled-eggs",
-   "https://www.budgetbytes.com/make-soft-boiled-eggs/"
+   "https://www.budgetbytes.com/make-soft-boiled-eggs/",
+   "https://www.loveandlemons.com/how-to-make-hard-boiled-eggs/"
   ]
  },
  {
@@ -31,6 +34,7 @@
    "https://www.bbcgoodfood.com/recipes/poached-eggs",
    "https://www.recipetineats.com/poached-eggs/",
    "https://www.budgetbytes.com/poached-eggs/",
+   "https://www.loveandlemons.com/poached-eggs/",
    "https://pinchofyum.com/spaghetti-marinara-poached-eggs"
   ]
  },
@@ -39,7 +43,8 @@
   "url": "https://www.recipetineats.com/omelette/",
   "urls": [
    "https://www.recipetineats.com/omelette/",
-   "https://www.bbcgoodfood.com/recipes/asparagus-omelette"
+   "https://www.bbcgoodfood.com/recipes/asparagus-omelette",
+   "https://www.loveandlemons.com/omelette-recipe/"
   ]
  },
  {
@@ -51,7 +56,8 @@
   "name": "porridge",
   "url": "https://www.bbcgoodfood.com/recipes/perfect-porridge",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/perfect-porridge"
+   "https://www.bbcgoodfood.com/recipes/perfect-porridge",
+   "https://www.loveandlemons.com/porridge/"
   ]
  },
  {
@@ -68,6 +74,7 @@
    "https://www.bbcgoodfood.com/recipes/french-toast",
    "https://www.recipetineats.com/french-toast/",
    "https://www.budgetbytes.com/french-toast/",
+   "https://www.loveandlemons.com/french-toast/",
    "https://pinchofyum.com/french-toast-casserole"
   ]
  },
@@ -77,6 +84,7 @@
   "urls": [
    "https://www.bbcgoodfood.com/recipes/overnight-oats",
    "https://pinchofyum.com/chia-overnight-oats",
+   "https://www.loveandlemons.com/overnight-oats-recipe/",
    "https://www.budgetbytes.com/double-chocolate-overnight-oats/"
   ]
  },
@@ -84,7 +92,8 @@
   "name": "granola",
   "url": "https://www.budgetbytes.com/homemade-granola/",
   "urls": [
-   "https://www.budgetbytes.com/homemade-granola/"
+   "https://www.budgetbytes.com/homemade-granola/",
+   "https://www.loveandlemons.com/granola/"
   ]
  },
  {
@@ -94,6 +103,7 @@
    "https://www.bbcgoodfood.com/recipes/steamed-white-rice",
    "https://www.recipetineats.com/how-to-cook-basmati-rice/",
    "https://www.budgetbytes.com/how-to-cook-rice/",
+   "https://www.loveandlemons.com/how-to-cook-rice/",
    "https://pinchofyum.com/how-to-cook-perfect-rice"
   ]
  },
@@ -116,6 +126,7 @@
   "urls": [
    "https://www.recipetineats.com/spaghetti-bolognese/",
    "https://www.budgetbytes.com/bolognese/",
+   "https://www.loveandlemons.com/spaghetti-bolognese/",
    "https://www.bbcgoodfood.com/recipes/bacon-bolognese"
   ]
  },
@@ -126,7 +137,8 @@
    "https://www.bbcgoodfood.com/recipes/ultimate-macaroni-cheese",
    "https://www.recipetineats.com/baked-mac-and-cheese/",
    "https://www.budgetbytes.com/baked-mac-and-cheese/",
-   "https://pinchofyum.com/baked-mac-and-cheese"
+   "https://pinchofyum.com/baked-mac-and-cheese",
+   "https://www.loveandlemons.com/mac-and-cheese/"
   ]
  },
  {
@@ -134,6 +146,7 @@
   "url": "https://www.bbcgoodfood.com/recipes/fresh-tomato-pasta",
   "urls": [
    "https://www.bbcgoodfood.com/recipes/fresh-tomato-pasta",
+   "https://www.loveandlemons.com/pasta-pomodoro/",
    "https://www.budgetbytes.com/angel-hair-pasta-pomodoro/"
   ]
  },
@@ -143,6 +156,7 @@
   "urls": [
    "https://www.recipetineats.com/mashed-potato/",
    "https://www.budgetbytes.com/mashed-potatoes/",
+   "https://www.loveandlemons.com/mashed-potatoes/",
    "https://www.bbcgoodfood.com/recipes/garlic-mashed-potatoes",
    "https://pinchofyum.com/easiest-garlic-mashed-potatoes"
   ]
@@ -153,6 +167,7 @@
   "urls": [
    "https://www.bbcgoodfood.com/recipes/roast-potatoes",
    "https://www.recipetineats.com/roast-potatoes/",
+   "https://www.loveandlemons.com/roasted-potatoes/",
    "https://www.budgetbytes.com/chili-roasted-potatoes/",
    "https://pinchofyum.com/cheesy-roasted-potato-nachos"
   ]
@@ -161,7 +176,8 @@
   "name": "baked potato",
   "url": "https://www.bbcgoodfood.com/recipes/classic-jacket-potatoes",
   "urls": [
-   "https://www.bbcgoodfood.com/recipes/classic-jacket-potatoes"
+   "https://www.bbcgoodfood.com/recipes/classic-jacket-potatoes",
+   "https://www.loveandlemons.com/baked-potato/"
   ]
  },
  {
@@ -193,6 +209,7 @@
   "url": "https://www.recipetineats.com/grilled-cheese-sandwich/",
   "urls": [
    "https://www.recipetineats.com/grilled-cheese-sandwich/",
+   "https://www.loveandlemons.com/grilled-cheese/",
    "https://www.bbcgoodfood.com/recipes/three-cheese-toastie",
    "https://pinchofyum.com/caprese-grilled-cheese",
    "https://www.budgetbytes.com/air-fryer-grilled-cheese/"
@@ -204,7 +221,8 @@
   "urls": [
    "https://www.bbcgoodfood.com/recipes/garden-salad",
    "https://www.recipetineats.com/garden-salad/",
-   "https://pinchofyum.com/simple-green-salad"
+   "https://pinchofyum.com/simple-green-salad",
+   "https://www.loveandlemons.com/green-salad-recipe/"
   ]
  },
  {
@@ -213,6 +231,7 @@
   "urls": [
    "https://www.bbcgoodfood.com/recipes/tomato-soup",
    "https://www.budgetbytes.com/roasted-tomato-soup/",
+   "https://www.loveandlemons.com/creamy-tomato-soup/",
    "https://www.recipetineats.com/smoky-roasted-tomato-soup/",
    "https://pinchofyum.com/5-ingredient-tomato-soup"
   ]
@@ -229,8 +248,9 @@
  },
  {
   "name": "vegetable soup",
-  "url": "https://www.bbcgoodfood.com/recipes/chunky-vegetable-soup",
+  "url": "https://www.loveandlemons.com/vegetable-soup/",
   "urls": [
+   "https://www.loveandlemons.com/vegetable-soup/",
    "https://www.bbcgoodfood.com/recipes/chunky-vegetable-soup",
    "https://www.recipetineats.com/healthy-vegetable-soup/",
    "https://www.budgetbytes.com/chunky-lentil-vegetable-soup/"
@@ -242,6 +262,7 @@
   "urls": [
    "https://www.bbcgoodfood.com/recipes/roasted-vegetables",
    "https://www.recipetineats.com/roasted-vegetables/",
+   "https://www.loveandlemons.com/roasted-vegetables/",
    "https://www.budgetbytes.com/balsamic-roasted-vegetables/"
   ]
  },
@@ -250,6 +271,7 @@
   "url": "https://www.bbcgoodfood.com/recipes/roasted-broccoli",
   "urls": [
    "https://www.bbcgoodfood.com/recipes/roasted-broccoli",
+   "https://www.loveandlemons.com/roasted-broccoli/",
    "https://pinchofyum.com/roasted-broccoli-salad",
    "https://www.budgetbytes.com/perfect-oven-roasted-broccoli/"
   ]
@@ -259,7 +281,8 @@
   "url": "https://www.bbcgoodfood.com/recipes/simple-green-beans",
   "urls": [
    "https://www.bbcgoodfood.com/recipes/simple-green-beans",
-   "https://www.budgetbytes.com/sauteed-green-beans/"
+   "https://www.budgetbytes.com/sauteed-green-beans/",
+   "https://www.loveandlemons.com/sauteed-green-beans/"
   ]
  },
  {
@@ -315,6 +338,7 @@
    "https://www.bbcgoodfood.com/recipes/lasagne",
    "https://www.recipetineats.com/lasagna/",
    "https://www.budgetbytes.com/lasagna-soup/",
+   "https://www.loveandlemons.com/eggplant-lasagna/",
    "https://pinchofyum.com/asparagus-quesadilla-lasagna"
   ]
  },
@@ -325,7 +349,8 @@
    "https://pinchofyum.com/chicken-tacos",
    "https://www.bbcgoodfood.com/recipes/birria-tacos",
    "https://www.recipetineats.com/birria-tacos/",
-   "https://www.budgetbytes.com/birria-tacos/"
+   "https://www.budgetbytes.com/birria-tacos/",
+   "https://www.loveandlemons.com/breakfast-tacos/"
   ]
  },
  {
@@ -333,6 +358,7 @@
   "url": "https://www.recipetineats.com/quesadilla/",
   "urls": [
    "https://www.recipetineats.com/quesadilla/",
+   "https://www.loveandlemons.com/quesadilla/",
    "https://www.bbcgoodfood.com/recipes/beef-quesadilla",
    "https://www.budgetbytes.com/kimchi-quesadillas/",
    "https://pinchofyum.com/asparagus-quesadilla-lasagna"
@@ -373,6 +399,7 @@
   "urls": [
    "https://www.budgetbytes.com/guacamole/",
    "https://www.bbcgoodfood.com/recipes/classic-guacamole",
+   "https://www.loveandlemons.com/guacamole-recipe/",
    "https://www.recipetineats.com/best-ever-authentic-guacamole/",
    "https://pinchofyum.com/southwest-burgers-with-guacamole"
   ]
@@ -384,7 +411,8 @@
    "https://www.bbcgoodfood.com/recipes/hummus",
    "https://www.recipetineats.com/hummus/",
    "https://www.budgetbytes.com/homemade-hummus/",
-   "https://pinchofyum.com/curry-hummus"
+   "https://pinchofyum.com/curry-hummus",
+   "https://www.loveandlemons.com/beet-hummus/"
   ]
  },
  {
@@ -393,6 +421,7 @@
   "urls": [
    "https://www.recipetineats.com/garlic-bread/",
    "https://www.budgetbytes.com/garlic-bread/",
+   "https://www.loveandlemons.com/garlic-bread/",
    "https://www.bbcgoodfood.com/recipes/cheesy-garlic-bread",
    "https://pinchofyum.com/house-favorite-garlic-bread"
   ]
@@ -403,7 +432,8 @@
   "urls": [
    "https://www.recipetineats.com/gravy/",
    "https://www.bbcgoodfood.com/recipes/ghanaian-gravy",
-   "https://www.budgetbytes.com/turkey-gravy/"
+   "https://www.budgetbytes.com/turkey-gravy/",
+   "https://www.loveandlemons.com/mushroom-gravy/"
   ]
  },
  {
@@ -417,7 +447,8 @@
   "name": "banana bread",
   "url": "https://www.budgetbytes.com/homemade-banana-bread/",
   "urls": [
-   "https://www.budgetbytes.com/homemade-banana-bread/"
+   "https://www.budgetbytes.com/homemade-banana-bread/",
+   "https://www.loveandlemons.com/banana-bread/"
   ]
  },
  {
@@ -426,6 +457,7 @@
   "urls": [
    "https://www.recipetineats.com/chocolate-chip-cookies/",
    "https://www.budgetbytes.com/chocolate-chip-cookies/",
+   "https://www.loveandlemons.com/chocolate-chip-cookies/",
    "https://www.bbcgoodfood.com/recipes/chewy-chocolate-chip-cookies",
    "https://pinchofyum.com/perfect-chocolate-chip-cookies"
   ]
