@@ -41,6 +41,7 @@ LAST_REPORT_FILE = RUN_DIR / "last-report.json"
 CONTROL_REQUESTS_FILE = RUN_DIR / "control-requests.json"
 STOP_FILE = RUN_DIR / "stop.flag"
 LOCK_FILE = RUN_DIR / "scraper.lock"
+SITE_STATE_FILE = RUN_DIR / "site-state.json"   # per recipe site: stops, Retry-After, 404 counts, pass count
 
 # ========== SOURCES ==========
 # The free key "1" only: the owner pays for nothing the scraper uses.

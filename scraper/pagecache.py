@@ -1,0 +1,63 @@
+"""
+The raw record of every recipe page: data/raw/<site>/<sha1(url)>.html.gz, with
+<sha1(url)>.json beside it holding the url, when it was fetched and the
+sitemap's lastmod, and listing.json holding the site's last sitemap listing.
+Better parsing later reads these again and never asks the site. data/ is
+git-ignored: no page is ever committed.
+"""
+import gzip
+import hashlib
+import os
+import time
+
+import config
+import store
+
+LISTING = "listing.json"
+
+
+def _paths(site, url):
+    folder = config.RAW_DIR / site
+    name = hashlib.sha1(url.encode("utf-8")).hexdigest()
+    return folder / f"{name}.html.gz", folder / f"{name}.json"
+
+
+def save(site, url, html, lastmod, fetchedAt=None):
+    """The page first, then its sidecar: a sidecar never names a page that is not whole on disk."""
+    page, meta = _paths(site, url)
+    page.parent.mkdir(parents=True, exist_ok=True)
+    tmp = page.with_name(f"{page.name}.{os.getpid()}.tmp")
+    tmp.write_bytes(gzip.compress(html.encode("utf-8")))
+    os.replace(tmp, page)
+    store.writeJson(meta, {"url": url, "fetchedAt": time.time() if fetchedAt is None else fetchedAt,
+                           "lastmod": lastmod})
+
+
+def meta(site, url):
+    return store.readJson(_paths(site, url)[1])
+
+
+def load(site, url):
+    page, _ = _paths(site, url)
+    try:
+        return gzip.decompress(page.read_bytes()).decode("utf-8", errors="replace")
+    except (OSError, EOFError):     # missing, or cut short by a killed run
+        return None
+
+
+def pages(site):
+    """(meta, html) for every whole cached page of a site, in URL order, one at a time (a full site is gigabytes)."""
+    folder = config.RAW_DIR / site
+    metas = [store.readJson(path) for path in folder.glob("*.json") if path.name != LISTING]
+    for info in sorted((m for m in metas if m and m.get("url")), key=lambda m: m["url"]):
+        html = load(site, info["url"])
+        if html is not None:
+            yield info, html
+
+
+def saveListing(site, entries):
+    store.writeJson(config.RAW_DIR / site / LISTING, [[url, lastmod] for url, lastmod in entries])
+
+
+def listing(site):
+    return [(url, lastmod) for url, lastmod in store.readJson(config.RAW_DIR / site / LISTING, []) or []]

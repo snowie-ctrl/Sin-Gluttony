@@ -229,3 +229,194 @@ def test_recipeTinEatsPatternTakesRecipesAndNotTheBlogPage():
     assert pattern.match("https://www.recipetineats.com/giant-hash-brown/")
     assert pattern.match("https://www.recipetineats.com/blogger-style-pasta/")
     assert not pattern.match("https://www.recipetineats.com/blog/")
+
+
+import config
+import pagecache
+import store
+
+A, B = "www.site-a.test", "www.site-b.test"
+
+
+def siteFor(host, name):
+    return dict(SITE, site=name, name=name.title(), host=host, sitemaps=[f"https://{host}/sitemap_index.xml"],
+                recipeUrl=rf"^https://{re.escape(host)}/[a-z0-9-]+/$")
+
+
+def recipePage(title):
+    return ('<html><head><script type="application/ld+json">'
+            f'{{"@context":"https://schema.org","@type":"Recipe","name":"{title}"}}'
+            '</script></head><body></body></html>')
+
+
+def web(host, pages, lastmods=None, robots="User-agent: *\nAllow: /\n"):
+    """robots.txt, a sitemap index, one urlset and the pages of one made-up site; pages maps slug -> answer."""
+    lastmods = lastmods or {}
+    answers = {f"https://{host}/robots.txt": robots,
+               f"https://{host}/sitemap_index.xml": sitemapIndex(f"https://{host}/post-sitemap.xml"),
+               f"https://{host}/post-sitemap.xml": urlset(*[(f"https://{host}/{slug}/", lastmods.get(slug))
+                                                            for slug in pages])}
+    answers.update({f"https://{host}/{slug}/": answer for slug, answer in pages.items() if answer is not None})
+    return answers
+
+
+def pageUrls(asked):
+    return [url for url in asked if "/made-up-" in url]
+
+
+def test_dueRecipePagesAreFetchedAndCached(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-stew": recipePage("Made-up Stew"), "made-up-soup": recipePage("Made-up Soup")},
+                               lastmods={"made-up-stew": "2026-11-01"}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=10, log=QUIET, now=lambda: 1000.0)["sitea"]
+    assert (result["ok"], result["listed"], result["due"], result["fetched"]) == (True, 2, 2, 2)
+    url = f"https://{A}/made-up-stew/"
+    assert "Made-up Stew" in pagecache.load("sitea", url)
+    assert pagecache.meta("sitea", url) == {"url": url, "fetchedAt": 1000.0, "lastmod": "2026-11-01T00:00:00+00:00"}
+    assert pagecache.listing("sitea")[0] == (url, "2026-11-01T00:00:00+00:00")
+
+
+def test_aSecondPassFetchesOnlyWhatChanged(monkeypatch):
+    answers = web(A, {"made-up-stew": recipePage("Made-up Stew"), "made-up-soup": recipePage("Made-up Soup")},
+                  lastmods={"made-up-stew": "2026-11-01", "made-up-soup": "2026-11-01"})
+    asked = fakeCrawl(monkeypatch, answers)
+    sites.crawl([siteFor(A, "sitea")], pages=10, log=QUIET)
+    answers[f"https://{A}/post-sitemap.xml"] = urlset((f"https://{A}/made-up-stew/", "2026-11-09"),
+                                                      (f"https://{A}/made-up-soup/", "2026-11-01"))
+    asked.clear()
+    result = sites.crawl([siteFor(A, "sitea")], pages=10, log=QUIET)["sitea"]
+    assert result["fetched"] == 1 and pageUrls(asked) == [f"https://{A}/made-up-stew/"]
+
+
+def test_pagesCapsEachSiteAndPriorityPagesComeFirst(monkeypatch):
+    asked = fakeCrawl(monkeypatch, web(A, {"made-up-a": recipePage("A"), "made-up-b": recipePage("B"),
+                                           "made-up-c": recipePage("C")},
+                                       lastmods={"made-up-a": "2026-01-01", "made-up-b": "2026-06-01",
+                                                 "made-up-c": "2026-11-01"}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=2, log=QUIET, priority={f"https://{A}/made-up-a/"})["sitea"]
+    assert pageUrls(asked) == [f"https://{A}/made-up-a/", f"https://{A}/made-up-c/"]
+    assert (result["listed"], result["planned"]) == (3, 2)
+
+
+def test_theSitesTakeTurns(monkeypatch):
+    answers = web(A, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")})
+    answers.update(web(B, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")}))
+    asked = fakeCrawl(monkeypatch, answers)
+    sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET)
+    assert pageUrls(asked) == [f"https://{A}/made-up-one/", f"https://{B}/made-up-one/",
+                               f"https://{A}/made-up-two/", f"https://{B}/made-up-two/"]
+
+
+def test_a403StopsOnlyThatSiteForThePass(monkeypatch):
+    answers = web(A, {"made-up-one": net.HttpError("no", status=403), "made-up-two": recipePage("2")})
+    answers.update(web(B, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")}))
+    asked = fakeCrawl(monkeypatch, answers)
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET)
+    assert (results["sitea"]["ok"], results["sitea"]["stopReason"]) == (False, "blocked (403)")
+    assert f"https://{A}/made-up-two/" not in asked
+    assert results["siteb"]["fetched"] == 2
+
+
+def test_a429IsHonouredOnTheNextPassNotThisOne(monkeypatch):
+    answers = web(A, {"made-up-one": net.HttpError("slow", status=429, retryAfter=3600.0)})
+    asked = fakeCrawl(monkeypatch, answers)
+    first = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET, now=lambda: 1000.0)["sitea"]
+    assert first["stopReason"] == "rate limited (429)"
+    assert store.readJson(config.SITE_STATE_FILE)["sitea"]["notBefore"] == 4600.0
+    asked.clear()
+    waiting = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET, now=lambda: 2000.0)["sitea"]
+    assert waiting["stopReason"] == "waiting for the Retry-After a 429 asked for" and asked == []
+    answers[f"https://{A}/made-up-one/"] = recipePage("1")
+    later = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET, now=lambda: 5000.0)["sitea"]
+    assert later["ok"] and later["fetched"] == 1
+
+
+def test_aChallengePageStopsTheSiteAndIsNotCached(monkeypatch):
+    wall = "<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>"
+    fakeCrawl(monkeypatch, web(A, {"made-up-one": wall, "made-up-two": recipePage("2")}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert result["stopReason"].startswith("walled") and result["fetched"] == 0
+    assert pagecache.meta("sitea", f"https://{A}/made-up-one/") is None
+
+
+def test_aPageWithoutRecipeMarkupIsSkippedNotCached(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-post": "<html><body>Made-up blog post</body></html>",
+                                   "made-up-stew": recipePage("Made-up Stew")}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["notRecipe"], result["fetched"]) == (True, 1, 1)
+    assert pagecache.meta("sitea", f"https://{A}/made-up-post/") is None
+
+
+def test_tenPagesInARowWithoutRecipeMarkupStopTheSite(monkeypatch):
+    asked = fakeCrawl(monkeypatch, web(A, {f"made-up-{n:02d}": "<html><body>Made-up</body></html>"
+                                           for n in range(12)}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert result["stopReason"] == "walled (10 pages in a row without recipe markup)"
+    assert len(pageUrls(asked)) == 10
+
+
+def test_fiveFailedRequestsInARowStopTheSite(monkeypatch):
+    asked = fakeCrawl(monkeypatch, web(A, {f"made-up-{n}": net.HttpError("down", status=503) for n in range(7)}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert result["stopReason"].startswith("unreachable") and len(pageUrls(asked)) == 5
+
+
+def test_aPageGoneTwiceInARowCountsAsGone(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-gone": None, "made-up-stew": recipePage("Made-up Stew")}))
+    first = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    second = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (first["gone"], second["gone"]) == (0, 1)
+
+
+def test_aSiteWithoutLastmodIsRecheckedEveryFourthPass(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-stew": recipePage("Made-up Stew")}))
+    fetched = [sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]["fetched"] for _ in range(5)]
+    assert fetched == [1, 0, 0, 0, 1]
+
+
+def test_aCrawlDelayAboveFiveSecondsIsHonoured(monkeypatch):
+    monkeypatch.setattr(net, "MIN_INTERVAL", dict(net.MIN_INTERVAL))
+    fakeCrawl(monkeypatch, web(A, {"made-up-stew": recipePage("Made-up Stew")},
+                               robots="User-agent: *\nCrawl-delay: 12\nAllow: /\n"))
+    sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)
+    assert net.MIN_INTERVAL[A] == 12.0
+
+
+def test_siteStateIsSavedEvenWhenThePassBreaks(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-stew": KeyboardInterrupt()}))
+    with pytest.raises(KeyboardInterrupt):
+        sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)
+    assert store.readJson(config.SITE_STATE_FILE)["sitea"]["passes"] == 1
+
+
+def blogPost(n):
+    return ('<html><head><meta property="og:type" content="article">'
+            '<script type="application/ld+json">'
+            f'{{"@context":"https://schema.org","@type":"BlogPosting","headline":"Made-up Post {n}"}}'
+            '</script></head><body>Made-up blog post</body></html>')
+
+
+BARE = "<html><body>Made-up</body></html>"
+
+
+def test_ordinaryBlogPostsDoNotStopTheSiteAndCountAsNotRecipe(monkeypatch):
+    pages = {f"made-up-post-{n:02d}": blogPost(n) for n in range(12)}
+    pages["made-up-zz-stew"] = recipePage("Made-up Stew")
+    fakeCrawl(monkeypatch, web(A, pages))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["notRecipe"], result["fetched"]) == (True, 12, 1)
+    assert pagecache.meta("sitea", f"https://{A}/made-up-post-00/") is None
+
+
+def test_aPageWithOnlyAnOgTypeIsOrdinaryToo(monkeypatch):
+    page = '<html><head><meta property="og:type" content="article"></head><body>Made-up</body></html>'
+    fakeCrawl(monkeypatch, web(A, {f"made-up-{n:02d}": page for n in range(12)}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["notRecipe"]) == (True, 12)
+
+
+def test_blogPostsNeitherAdvanceNorResetTheBareRun(monkeypatch):
+    pages = {f"made-up-{n:02d}": (blogPost(n) if n == 4 else BARE) for n in range(12)}
+    asked = fakeCrawl(monkeypatch, web(A, pages))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert result["stopReason"] == "walled (10 pages in a row without recipe markup)"
+    assert len(pageUrls(asked)) == 11      # ten bare pages, with the blog post among them
