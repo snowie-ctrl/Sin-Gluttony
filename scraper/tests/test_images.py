@@ -135,3 +135,31 @@ def test_progressIsReportedEveryFiftyRecipes():
     images.ensureImages([recipe(sourceId=str(n)) for n in range(120)], allowDownload=False,
                         log=lambda *a: None, onProgress=seen.append)
     assert seen == [50, 100]
+
+
+def test_theOriginalWidthIsRecorded(monkeypatch, tmp_path):
+    calls = fakeDownloads(monkeypatch, tmp_path, size=(2400, 1600))
+    r = recipe(imageUrl="https://www.example-recipes.test/made-up.jpg")
+    images.ensureImages([r], allowDownload=True, log=lambda *a: None)
+    assert r.imageWidth == 2400
+    again = recipe(imageUrl="https://www.example-recipes.test/made-up.jpg")
+    images.ensureImages([again], allowDownload=False, log=lambda *a: None)
+    assert again.imageWidth == 2400 and len(calls) == 1
+
+
+def test_aSmallPictureKeepsItsSmallWidth(monkeypatch, tmp_path):
+    fakeDownloads(monkeypatch, tmp_path, size=(600, 400))
+    r = recipe(imageUrl="https://www.example-recipes.test/small.jpg")
+    images.ensureImages([r], allowDownload=True, log=lambda *a: None)
+    assert r.imageWidth == 600
+
+
+def test_aPictureMadeBeforeWidthsWereKeptIsMeasured(monkeypatch, tmp_path):
+    fakeDownloads(monkeypatch, tmp_path, size=(1000, 700))
+    images.ensureImages([recipe(imageUrl="https://x.test/old.jpg")], allowDownload=True, log=lambda *a: None)
+    index = store.readJson(config.IMAGE_DIR / "index.json")
+    del index["widths"]
+    store.writeJson(config.IMAGE_DIR / "index.json", index)
+    r = recipe(imageUrl="https://x.test/old.jpg")
+    images.ensureImages([r], allowDownload=False, log=lambda *a: None)
+    assert r.imageWidth == 1000

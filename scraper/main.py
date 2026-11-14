@@ -3,6 +3,7 @@ The Gluttony scraper's loop. It waits for Surrogate's requests (Run now,
 Re-tag) and, with SCHEDULE=on, runs the weekly pass. `--once full|retag` runs
 one pass and exits; the dry run and manual checks use it, and `--no-images`
 skips pictures when building the seed on a dev machine.
+`--dry-run [--pages N] [--no-fetch]` is milestone 1's dry run over the recipe sites; it never publishes.
 """
 import argparse
 import sys
@@ -64,9 +65,18 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Gluttony's recipe scraper")
     parser.add_argument("--once", choices=("full", "retag"), help="run one pass and exit")
     parser.add_argument("--no-images", action="store_true", help="skip pictures (building the seed on a dev machine)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="crawl the recipe sites, run the gate and write reports/dryrun-<date>/; never publishes")
+    parser.add_argument("--pages", type=int, default=200, help="with --dry-run: recipe pages per site")
+    parser.add_argument("--no-fetch", action="store_true",
+                        help="with --dry-run: report over the cached pages without asking the sites")
     args = parser.parse_args(argv)
     lock = acquireLock()  # noqa: F841 -- held for the life of the process
     progress.idle()
+    if args.dry_run:
+        import dryrun   # here, not at the top: only the dry run needs recipe-scrapers
+        dryrun.run(pages=args.pages, crawl=not args.no_fetch)
+        return 0
     if args.once:
         return 0 if runOnce(args.once, images=not args.no_images)["outcome"] == "ok" else 1
     try:

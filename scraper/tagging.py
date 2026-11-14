@@ -74,6 +74,10 @@ def withinAWeek(minutes):
 
 
 def applyTime(recipe, rules):
+    if recipe.timeFrom and withinAWeek(recipe.totalMinutes):
+        return      # the adapter read it from the page, or set a drink's rule time: it stands
+    if recipe.timeFrom:
+        recipe.prepMinutes = recipe.cookMinutes = recipe.totalMinutes = recipe.timeFrom = None
     stated = parseTimeText(recipe.hints.get("timeText")) if recipe.hints.get("timeText") else None
     if stated and withinAWeek(stated[2]):
         recipe.prepMinutes, recipe.cookMinutes = withinAWeek(stated[0]), withinAWeek(stated[1])
@@ -191,6 +195,20 @@ def applySourceTags(recipe):
             recipe.tags.append({"type": "source", "tag": tag, "origin": "source"})
 
 
+def applyTechnique(recipe):
+    """A drink's method (shaken, stirred...) read from its steps by the adapter."""
+    method = recipe.hints.get("method")
+    if method:
+        recipe.tags.append({"type": "technique", "tag": method, "origin": "rule"})
+
+
+def applyBasic(recipe, rules):
+    """The basics in rules/basics.json drive the app's quick mode."""
+    urls = {basic["url"] for basic in rules.get("basics", []) if basic.get("url")}
+    if recipe.sourceUrl and recipe.sourceUrl in urls:
+        recipe.tags.append({"type": "occasion", "tag": "basic", "origin": "rule"})
+
+
 def tagRecipe(recipe, table, rules):
     recipe.tags = []
     facts.applyMatching(recipe, table)
@@ -202,4 +220,6 @@ def tagRecipe(recipe, table, rules):
     applyFlavour(recipe, table, rules)
     applyOccasion(recipe)
     applySourceTags(recipe)
+    applyTechnique(recipe)
+    applyBasic(recipe, rules)
     return recipe

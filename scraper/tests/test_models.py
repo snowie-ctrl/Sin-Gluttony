@@ -8,3 +8,15 @@ def test_aRecipeRoundTripsThroughADict():
     again = Recipe.fromDict(recipe.toDict())
     assert again == recipe
     assert again.key == "mealdb:1"
+
+
+def test_theRecipeSiteFieldsRoundTripAndOldRecordsStillLoad():
+    recipe = Recipe(source="recipetineats", sourceId="abc", kind="food", title="Made-up Stew", ingredients=[],
+                    steps=[], description="Made-up.", nutrition={"calories": 400.0}, imageWidth=1200,
+                    hiddenReason="no-time")
+    assert Recipe.fromDict(recipe.toDict()) == recipe
+    old = recipe.toDict()
+    for field in ("description", "nutrition", "imageWidth", "hiddenReason"):
+        del old[field]
+    again = Recipe.fromDict(old)
+    assert (again.description, again.nutrition, again.imageWidth, again.hiddenReason) == (None, None, None, None)

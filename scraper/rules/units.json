@@ -25,7 +25,7 @@
   "clove": ["cloves"],
   "can": ["cans", "tin", "tins"],
   "jar": ["jars"],
-  "package": ["packages", "packet", "packets", "pkg"],
+  "package": ["packages", "packet", "packets", "pkg", "pack", "packs", "sachet", "sachets"],
   "slice": ["slices"],
   "piece": ["pieces"],
   "handful": ["handfuls"],

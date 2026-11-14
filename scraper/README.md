@@ -15,6 +15,7 @@ except sending. A re-tag runs everything after fetch over the raw copies in `dat
 py -3.12 -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements-dev.txt   # Windows dev
 .venv/Scripts/python.exe -m pytest -q
 .venv/Scripts/python.exe main.py --once full --no-images      # a dry pass on a dev machine
+.venv/Scripts/python.exe main.py --dry-run --pages 200          # the new catalog's dry run: crawl, gate, report
 ```
 
 On the VM (`~/Gluttony`): `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, `cp .env.example .env`

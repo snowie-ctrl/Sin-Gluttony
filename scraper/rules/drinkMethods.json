@@ -1,0 +1,4 @@
+{"order": ["blended", "shaken", "thrown", "stirred", "built"],
+ "words": {"blended": ["blend"], "shaken": ["shake", "shaking", "shaken"], "thrown": ["throw"],
+           "stirred": ["stir"], "built": ["build", "built", "pour", "top up", "top with"]},
+ "minutes": {"built": 3, "stirred": 4, "shaken": 4, "blended": 5}}
