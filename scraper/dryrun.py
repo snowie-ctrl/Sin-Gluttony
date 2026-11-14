@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from itertools import zip_longest
 
 import adaptSites
+import basics
 import config
 import dryrunReport
 import fdc
@@ -36,7 +37,7 @@ def roundRobin(recipes):
 def run(pages=200, log=print, today=None, crawl=True):
     rules = rulesData.load()
     siteList = sites.loadSites(rules)
-    basicUrls = frozenset(b["url"] for b in rules.get("basics", []) if b.get("url"))
+    basicUrls = basics.priorityUrls(rules)
     crawled = sites.crawl(siteList, pages, log=log, priority=basicUrls) if crawl else {}
     recipes, skipped = adaptSites.adaptCached(siteList, rules)
     log(f"read {len(recipes)} recipes; {len(skipped)} cached pages gave none")
@@ -55,6 +56,7 @@ def run(pages=200, log=print, today=None, crawl=True):
         recipe.dishKey = linking.dishKey(recipe.title, set(rules["fillerWords"]))
         nutrition.choose(recipe, table, mapping, foods, rules, measures.get(recipe.source))
         gate.apply(recipe, rules["unitMap"])
+    basics.applyTags(recipes, rules)
     queue = {"generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "queue": nutritionReport.fdcQueue(recipes, foods)}
     store.writeJson(config.FDC_QUEUE_FILE, queue)

@@ -131,3 +131,17 @@ def test_theReportHasANutritionSectionWithCalibrationAndTheQueue(tmp_path):
     assert json.loads((tmp_path / "report" / "unknown-queue.json").read_text(encoding="utf-8")) == [
         {"name": "sumac", "blocks": 1, "unlocks": 0}]
     assert "milestone 2's estimate brings" not in text
+
+
+def test_theReportCountsBasicsThatFellBackToALaterCandidate():
+    rules = {"basics": [{"name": "eggs", "url": "https://x.test/a/", "urls": ["https://x.test/a/", "https://x.test/b/"]},
+                        {"name": "rice", "url": "https://x.test/c/", "urls": ["https://x.test/c/"]}]}
+    rows = dryrunReport.basicsStatus(rules, [made(url="https://x.test/a/", hidden="small-photo"),
+                                             made(url="https://x.test/b/"), made(url="https://x.test/c/")], [])
+    assert [(r["url"], r["status"]) for r in rows] == [("https://x.test/b/", "listed via candidate 2"),
+                                                       ("https://x.test/c/", "listed")]
+    text = dryrunReport.renderMarkdown({"date": "2026-11-14", "pages": 0, "recipes": 0, "listed": 0, "passRate": None,
+                                        "sites": [], "reasons": {r: 0 for r in dryrunReport._ORDER},
+                                        "unparsedLines": 0, "basics": rows, "basicsFellBack": 1}, [])
+    assert "1 basics fell back to a later candidate" in text
+    assert "listed via candidate 2" in text

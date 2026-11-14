@@ -523,3 +523,24 @@ def test_eachSiteEndsWithOneLineOfAllItsCounters(monkeypatch):
         "sitea: done: 2 due, 1 fetched, 1 notRecipe, 0 gone, 0 errors, not stopped"]
     assert [l for l in lines if l.startswith("siteb: done")] == [
         "siteb: done: 0 due, 0 fetched, 0 notRecipe, 0 gone, 0 errors, stopped (no recipe pages in the sitemaps)"]
+
+
+def test_aPassWithAFailedChildSitemapDoesNotShrinkTheSavedListing(monkeypatch):
+    site = siteFor(A, "sitea")
+    answers = web(A, {"made-up-stew": None, "made-up-soup": None})
+    answers[f"https://{A}/sitemap_index.xml"] = sitemapIndex(f"https://{A}/post-sitemap.xml",
+                                                             f"https://{A}/more-sitemap.xml")
+    answers[f"https://{A}/more-sitemap.xml"] = urlset((f"https://{A}/made-up-salad/", None))
+    fakeCrawl(monkeypatch, dict(answers))
+    sites.crawl([site], pages=0, log=QUIET)
+    assert len(pagecache.listing("sitea")) == 3
+    del answers[f"https://{A}/more-sitemap.xml"]            # a later pass cannot read one child sitemap
+    messages = []
+    fakeCrawl(monkeypatch, answers)
+    sites.crawl([site], pages=0, log=messages.append)
+    assert len(pagecache.listing("sitea")) == 3
+    assert any("listing kept" in m for m in messages)
+    answers[f"https://{A}/more-sitemap.xml"] = urlset()      # every sitemap read: the listing may now shrink
+    fakeCrawl(monkeypatch, answers)
+    sites.crawl([site], pages=0, log=QUIET)
+    assert len(pagecache.listing("sitea")) == 2
