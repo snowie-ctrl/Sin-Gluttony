@@ -84,7 +84,6 @@ BASICS = [
 ]
 
 
-CANDIDATES = 3
 
 
 def slugOf(url):
@@ -114,7 +113,11 @@ def chooseBasics(listings, basics=BASICS):
     chosen = []
     for name, pattern in basics:
         best = candidates(pattern, listings)
-        urls = [url for _, _, url in best[:CANDIDATES]]
+        urls, sitesSeen = [], set()
+        for _, rank, url in best:          # the best page of each site, in ranking order
+            if rank not in sitesSeen:
+                sitesSeen.add(rank)
+                urls.append(url)
         chosen.append({"name": name, "url": urls[0] if urls else None, "urls": urls})
     return chosen
 

@@ -76,14 +76,13 @@ def test_chunkyAndBestEverOvenChipsAreChipsButCeriacOvenChipsAreNot():
         assert findBasics.chooseBasics(listings, chips)[0]["url"] is None
 
 
-def test_chooseBasicsKeepsTheTopThreeRankedUrlsAndTheFirstAsUrl():
+def test_chooseBasicsKeepsTheBestPageOfEachSiteAndTheFirstAsUrl():
     listings = {"bbcgoodfood": [(f"https://www.bbcgoodfood.com/recipes/{slug}", None)
                                 for slug in ("easy-pancakes", "pancakes", "classic-pancakes", "best-pancakes")],
                 "recipetineats": [("https://www.recipetineats.com/pancakes/", None)]}
     item = findBasics.chooseBasics(listings, [("pancakes", r"pancakes?")])[0]
     assert item["urls"] == ["https://www.bbcgoodfood.com/recipes/pancakes",
-                            "https://www.recipetineats.com/pancakes/",
-                            "https://www.bbcgoodfood.com/recipes/best-pancakes"]
+                            "https://www.recipetineats.com/pancakes/"]
     assert item["url"] == item["urls"][0]
 
 
