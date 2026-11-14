@@ -225,10 +225,12 @@ def _plan(site, siteState, pages, priority, log, now):
     passes = siteState.get("passes", 0)
     siteState["passes"] = passes + 1
     recheck = not any(lastmod for _, lastmod in entries) and passes % RECHECK_EVERY == 0
-    # pages known not to be recipes (blog posts) wait for a changed lastmod and take no slot from the limit
+    # pages known not to be recipes (blog posts) wait for a changed lastmod, or the every-fourth-pass recheck, and
+    # take no slot from the limit; a priority page (a basic) is never held back by the memory
     known = siteState.get("notRecipe", {})
+    again = passes % RECHECK_EVERY == 0
     eligible = [(url, lastmod) for url, lastmod in entries
-                if url not in known or isDue(lastmod, {"lastmod": known[url]}, recheck)]
+                if url not in known or url in priority or isDue(lastmod, {"lastmod": known[url]}, again)]
     chosen = choose(eligible, pages, priority)
     due = [(url, lastmod) for url, lastmod in chosen if isDue(lastmod, pagecache.meta(site["site"], url), recheck)]
     return entries, chosen, due

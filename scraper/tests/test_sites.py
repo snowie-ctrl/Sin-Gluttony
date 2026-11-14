@@ -488,3 +488,27 @@ def test_knownNonRecipePagesDoNotTakeSlotsFromThePagesLimit(monkeypatch):
     asked.clear()
     second = sites.crawl([siteFor(A, "sitea")], pages=1, log=QUIET)["sitea"]
     assert pageUrls(asked) == [f"https://{A}/made-up-stew/"] and second["fetched"] == 1
+
+
+def test_aKnownNonRecipePageIsAskedAgainEveryFourthPass(monkeypatch):
+    answers = web(A, {"made-up-post": blogPost(1), "made-up-stew": recipePage("Made-up Stew")},
+                  lastmods={"made-up-post": "2026-11-01", "made-up-stew": "2026-11-01"})
+    asked = fakeCrawl(monkeypatch, answers)
+    post = f"https://{A}/made-up-post/"
+    seen = []
+    for _ in range(5):
+        asked.clear()
+        sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)
+        seen.append(post in asked)
+    assert seen == [True, False, False, False, True]
+
+
+def test_aBasicIsNeverHeldBackByTheNonRecipeMemory(monkeypatch):
+    answers = web(A, {"made-up-post": blogPost(1), "made-up-stew": recipePage("Made-up Stew")},
+                  lastmods={"made-up-post": "2026-11-01", "made-up-stew": "2026-11-01"})
+    asked = fakeCrawl(monkeypatch, answers)
+    post = f"https://{A}/made-up-post/"
+    sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)
+    asked.clear()
+    second = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET, priority={post})["sitea"]
+    assert pageUrls(asked) == [post] and second["notRecipe"] == 1
