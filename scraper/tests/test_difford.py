@@ -128,3 +128,48 @@ def test_aServeInLineStillGivesTheGlass():
 def test_aPreChillLineThatIsNotAGlassIsIgnored():
     body = "<p>Select and pre-chill the made-up ingredients and then relax for a good long while, as the saying goes.</p>"
     assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None
+
+
+@pytest.mark.parametrize("sentence", [
+    "Select and pre-chill the shaker.", "Select and pre-chill your freezer.", "Select and pre-chill ingredients.",
+    "Select and pre-chill a COUPE.", "Select and pre-chill a made-up thing"])
+def test_aPreChillSentenceWithoutTheWordGlassSetsNoGlass(sentence):
+    body = f"<ol><li>{sentence}</li></ol>"
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass is None
+
+
+def test_theGlassIsCutAtTheFirstFullStop():
+    body = "<ol><li>Select and pre-chill a COUPE GLASS. SHAKE with ice and strain.</li></ol>"
+    assert difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).glass == "Coupe glass"
+
+
+def test_theGarnishNameComesFromThePrepareGarnishStep():
+    body = ("<ol><li>Select and pre-chill a COUPE GLASS.</li><li>Prepare garnish of lime wedge and mint sprig.</li></ol>"
+            "<h3>Garnish</h3><p>Garnish with lime wedge on the rim and add a made-up stirrer for the drinker.</p>")
+    r = difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES)
+    assert [(l.name, l.group, l.optional) for l in r.ingredients[-1:]] == [("lime wedge and mint sprig", "Garnish", True)]
+
+
+def test_withoutAPrepareGarnishStepTheGarnishTextIsUsedAsBefore():
+    body = "<h3>Garnish</h3><p>Orange slice</p>"
+    r = difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES)
+    assert r.ingredients[-1].name == "Orange slice" and r.ingredients[-1].group == "Garnish"
+
+
+def test_theLargestPictureThePageOffersIsUsed():
+    page = drinkPage("STIR.", image={"@type": "ImageObject", "url": "https://images.example-drinks.test/x/square/512x512.webp",
+                                     "width": 512, "height": 512})
+    page = page.replace("</head>", '<meta property="og:image" content="https://images.example-drinks.test/x/lifestyle/1024x.webp"></head>')
+    assert difford.extractDifford(page, URL, SITE, UNITS, RULES).imageUrl == "https://images.example-drinks.test/x/lifestyle/1024x.webp"
+
+
+@pytest.mark.parametrize("sentence, name", [
+    ("Garnish with lime wedge on rim", "lime wedge on rim"),
+    ("Garnish each individual serve with an orange slice wheel", "an orange slice wheel"),
+    ("Serve naked, without garnish", None),
+])
+def test_aGarnishSentenceWithoutAPrepareStepIsReducedToTheGarnish(sentence, name):
+    body = f"<h3>Garnish</h3><p>{sentence}</p>"
+    ingredients = difford.extractDifford(drinkPage("STIR.", body=body), URL, SITE, UNITS, RULES).ingredients
+    garnish = [l.name for l in ingredients if l.group == "Garnish"]
+    assert garnish == ([name] if name else [])

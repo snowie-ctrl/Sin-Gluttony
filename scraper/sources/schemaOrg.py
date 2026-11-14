@@ -6,6 +6,7 @@ pictures as text, lists or objects) into plain values.
 import html
 import json
 import re
+from urllib.parse import unquote
 
 from models import Step
 
@@ -124,6 +125,64 @@ def imageOf(value):
     if isinstance(value, dict):
         return imageOf(value.get("url") or value.get("contentUrl"))
     return None
+
+
+_OG_IMAGE = re.compile(r"<meta\b[^>]*?(?:property|name)\s*=\s*[\"']og:image(?::width)?[\"'][^>]*>", re.I)
+_META_CONTENT = re.compile(r"content\s*=\s*[\"']([^\"']*)[\"']", re.I)
+_HINTS = (re.compile(r"[?&](?:resize|fit)=(\d+)(?:,|;)\d+", re.I),          # ?resize=900,836  ?fit=225%2C225
+          re.compile(r"[?&](?:w|width)=(\d+)", re.I),                         # ?w=1200
+          re.compile(r"(?<![\d.])(\d{3,4})x(?:\d{3,4})?(?=[./?]|$)", re.I),    # -1200x800.jpg  /1024x.webp
+          re.compile(r"(\d{3,4})px", re.I))                                   # _680px_1.jpg
+
+
+def _width(url, stated=None):
+    """The width a picture's address or its own markup says; 0 when neither does."""
+    if stated:
+        try:
+            return int(float(stated))
+        except (TypeError, ValueError):
+            pass
+    text = unquote(url)
+    for hint in _HINTS:
+        found = hint.search(text)
+        if found:
+            return int(found.group(1))
+    return 0
+
+
+def bestImage(html, recipe):
+    """The widest picture the page itself offers: every schema.org image (text, list, ImageObject with a width),
+    the og:image with its og:image:width, and size hints in the addresses. The first wins a tie; None for no image.
+    The real width is still measured on the downloaded file (images.py), so a wrong hint only costs a worse pick."""
+    found = {}      # address -> widest width known for it
+
+    def add(url, stated=None):
+        url = (url or "").strip()
+        if url:
+            found[url] = max(found.get(url, 0), _width(url, stated))
+
+    def walk(value):
+        if isinstance(value, str):
+            add(value)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, dict):
+            add(value.get("url") or value.get("contentUrl"), value.get("width"))
+
+    walk((recipe or {}).get("image"))
+    last = None
+    for tag in _OG_IMAGE.findall(html or ""):
+        content = _META_CONTENT.search(tag)
+        if not content:
+            continue
+        if re.search(r"og:image:width", tag, re.I):
+            if last:
+                add(last, content.group(1))
+        else:
+            last = content.group(1).strip()
+            add(last)
+    return max(found, key=found.get, default=None)     # max keeps the first of equal widths
 
 
 def stepsOf(value):

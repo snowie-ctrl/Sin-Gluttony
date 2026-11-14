@@ -162,6 +162,7 @@ def parseLine(text, units):
     if part:                                         # "juice of 1 lemon": a lemon, used for its juice
         notes.append(part.group(1).lower())
         work = work[part.end():]
+        work = _ARTICLE.sub("1 ", work, count=1)     # "juice of a lemon": one lemon
     topUp = _TOP_UP.match(work)
     if topUp:                                        # "top up with soda water"
         notes.append("to top up")

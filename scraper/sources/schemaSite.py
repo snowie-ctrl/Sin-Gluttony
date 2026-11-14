@@ -79,7 +79,7 @@ def extractSchema(html, url, site, units):
     prep, cook = _minutes(scraper.prep_time), _minutes(scraper.cook_time)
     total = _minutes(scraper.total_time) or (prep + cook if prep and cook else None)
     servings = schemaOrg.servingsOf(_safe(scraper.yields))
-    image = schemaOrg.imageOf(_safe(scraper.image))
+    image = schemaOrg.bestImage(html, schemaOrg.recipeJsonLd(html)) or schemaOrg.imageOf(_safe(scraper.image))
     return Recipe(
         source=site["site"], sourceId=sourceIdFor(url), kind=site["kind"], title=title,
         ingredients=ingredients, steps=steps, sourceUrl=url, licence=LICENCE, credit=site["name"],

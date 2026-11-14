@@ -93,6 +93,9 @@ def test_parseMeasureHandlesTheDbsOddMeasures(measure, expected):
     ("1 whole chicken approx 1.2kg", 1.0, None, None, "whole chicken", "approx 1.2kg"),
     ("heaping 1/2 cup mini marshmallows", 0.5, None, "cup", "mini marshmallows", "heaping"),
     ("about 2 cups stock", 2.0, None, "cup", "stock", "about"),
+    ("juice of a lemon", 1.0, None, None, "lemon", "juice"),
+    ("Zest of an orange", 1.0, None, None, "orange", "zest"),
+    ("2 x 400g tins chopped tomatoes", 2.0, None, "can", "chopped tomatoes", "400g"),
 ])
 def test_parseLineReadsTheRecipeSitesPatterns(line, qty, qtyMax, unit, name, note):
     item = quantity.parseLine(line, UNITS)

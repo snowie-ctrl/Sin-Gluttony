@@ -17,7 +17,10 @@ _SERVE_IN = re.compile(r"^serve\s+in\s+(?:an?\s+)?", re.IGNORECASE)
 # The real pages put "Glass" as a heading whose next block is only a photo caption ("Photographed in a ... Coupe"),
 # and name the glass in the method's first step, upper-cased and sometimes with a size: "Select and pre-chill a
 # HIGHBALL (MAX 10OZ/300ML) GLASS."
-_PRE_CHILL = re.compile(r"^select\s+and\s+pre-?chill\s+(?:an?\s+)?(.+?)\.?$", re.IGNORECASE)
+_PRE_CHILL = re.compile(r"^select\s+and\s+pre-?chill\s+(?:an?\s+)?([^.]+)", re.IGNORECASE)
+# the method also has "Prepare garnish of lemon zest twist.": the garnish alone, where the "Garnish" heading is
+# followed by a sentence ("Garnish with lime wedge on rim", "EXPRESS lemon zest twist over the cocktail ...")
+_PREPARE_GARNISH = re.compile(r"^prepare\s+garnish\s+of\s+([^.]+)", re.IGNORECASE)
 # a bare "Glass" with no colon is just a word on the page; only "Garnish" may take the next block as its value
 _LABEL = re.compile(r"^(glass\s*:|garnish\s*:|garnish(?=$))\s*(.*)$", re.IGNORECASE)
 
@@ -71,15 +74,33 @@ def _value(text):
     return text if 0 < len(text) <= 80 else None
 
 
+def _bare(block):
+    """The block without bracketed sizes: 'HIGHBALL (MAX 10OZ/300ML) GLASS.' -> 'HIGHBALL GLASS.'."""
+    return " ".join(re.sub(r"\([^)]*\)", " ", block).split())
+
+
 def _preChilled(block):
-    """'Select and pre-chill a HIGHBALL (MAX 10OZ/300ML) GLASS.' -> 'Highball glass'; None for any other block."""
-    match = _PRE_CHILL.match(block)
-    if not match:
-        return None
-    value = " ".join(re.sub(r"\([^)]*\)", " ", match.group(1)).split())
-    if not value or len(value) > 40:
+    """'Select and pre-chill a HIGHBALL (MAX 10OZ/300ML) GLASS.' -> 'Highball glass'. None for any other block,
+    and for a pre-chill step that names no glass ("Select and pre-chill the shaker")."""
+    match = _PRE_CHILL.match(_bare(block))
+    value = match.group(1).strip() if match else ""
+    if not value or len(value) > 40 or "glass" not in value.lower():
         return None
     return value[0].upper() + value[1:].lower() if value.isupper() else value
+
+
+def _garnishFrom(value):
+    """The fallback garnish sentence reduced to the garnish: 'Garnish with lime wedge on rim' -> 'lime wedge on rim';
+    'Serve naked, without garnish' is no garnish at all."""
+    if not value or re.search(r"\b(?:without|no)\s+garnish\b|\bnaked\b", value, re.IGNORECASE):
+        return None
+    with_ = re.match(r"^garnish\b.*?\bwith\s+(.+)$", value, re.IGNORECASE)
+    return with_.group(1).strip() if with_ else value
+
+
+def _preparedGarnish(block):
+    match = _PREPARE_GARNISH.match(block)
+    return _value(match.group(1)) if match else None
 
 
 def glassAndGarnish(html):
@@ -88,6 +109,7 @@ def glassAndGarnish(html):
     glass = garnish = None
     blocks = textBlocks(html)
     preChilled = next(filter(None, map(_preChilled, blocks)), None)
+    prepared = next(filter(None, map(_preparedGarnish, blocks)), None)
     for n, block in enumerate(blocks):
         if _SERVE_IN.match(block):
             value = _value(block)
@@ -100,8 +122,8 @@ def glassAndGarnish(html):
         if label.group(1).lower().startswith("glass"):
             glass = glass or value
         else:
-            garnish = garnish or value
-    return glass or preChilled, garnish
+            garnish = garnish or _garnishFrom(value)
+    return glass or preChilled, prepared or garnish
 
 
 def methodFor(steps, methods):
@@ -137,7 +159,7 @@ def extractDifford(html, url, site, units, rules):
         total, timeFrom = methods["minutes"][method], "rule"
     servings = schemaOrg.servingsOf(data.get("recipeYield"))
     servingsFrom = "source" if servings else "rule"
-    image = schemaOrg.imageOf(data.get("image"))
+    image = schemaOrg.bestImage(html, data)
     return Recipe(
         source=site["site"], sourceId=schemaSite.sourceIdFor(url), kind=site["kind"], title=title,
         ingredients=ingredients, steps=steps, sourceUrl=url, licence=schemaSite.LICENCE, credit=site["name"],

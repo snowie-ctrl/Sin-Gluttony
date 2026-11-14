@@ -72,3 +72,45 @@ def test_noCaloriesMeansNoNutrition():
     assert schemaOrg.nutritionOf({"proteinContent": "10 g"}) is None
     assert schemaOrg.nutritionOf(None) is None
     assert schemaOrg.nutritionOf("400 kcal") is None
+
+
+def _page(image, og=""):
+    import json
+    ld = json.dumps({"@type": "Recipe", "name": "Made-up", "image": image})
+    return f'<html><head><script type="application/ld+json">{ld}</script>{og}</head></html>'
+
+
+def _best(html):
+    return schemaOrg.bestImage(html, schemaOrg.recipeJsonLd(html))
+
+
+def test_bestImageTakesTheWidestImageObject():
+    html = _page([{"@type": "ImageObject", "url": "https://x.test/a.jpg?resize=768,713", "width": 768, "height": 713},
+                  {"@type": "ImageObject", "url": "https://x.test/a.jpg?resize=900,836", "width": 900, "height": 836}])
+    assert _best(html) == "https://x.test/a.jpg?resize=900,836"
+
+
+def test_bestImageReadsSizeHintsInTheAddress():
+    html = _page(["https://x.test/a-500x500.jpg", "https://x.test/a-1200x900.jpg", "https://x.test/a.jpg?resize=480%2C270"])
+    assert _best(html) == "https://x.test/a-1200x900.jpg"
+
+
+def test_bestImageUsesTheOgImageAndItsStatedWidthForTheSameAddress():
+    og = ('<meta property="og:image" content="https://x.test/plain.jpg">'
+          '<meta property="og:image:width" content="1200">')
+    html = _page(["https://x.test/plain.jpg", "https://x.test/plain.jpg?fit=225%2C225"], og)
+    assert _best(html) == "https://x.test/plain.jpg"
+
+
+def test_bestImageFindsALargerOgImageThanTheSchemaOne():
+    og = '<meta property="og:image" content="https://x.test/cocktail/AbC/lifestyle/0/1024x.webp">'
+    html = _page({"@type": "ImageObject", "url": "https://x.test/cocktail/AbC/square/0/512x512.webp", "width": 512}, og)
+    assert _best(html) == "https://x.test/cocktail/AbC/lifestyle/0/1024x.webp"
+
+
+def test_bestImageKeepsTheFirstWhenNoSizeIsKnown():
+    assert _best(_page(["https://x.test/one.jpg", "https://x.test/two.jpg"])) == "https://x.test/one.jpg"
+
+
+def test_bestImageWithNoImageIsNone():
+    assert _best(_page(None)) is None
