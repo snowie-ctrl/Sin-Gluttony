@@ -120,6 +120,27 @@ def test_aGzippedSitemapIsRead(monkeypatch):
     assert sites.sitemapEntries(SITE, robotsFrom(), log=QUIET) == [(f"https://{HOST}/made-up-stew/", None)]
 
 
+def test_aCorruptGzippedSitemapIsSkippedAndTheRestRead(monkeypatch):
+    fakeCrawl(monkeypatch, {
+        f"https://{HOST}/sitemap_index.xml": sitemapIndex(f"https://{HOST}/bad.xml", f"https://{HOST}/good.xml"),
+        f"https://{HOST}/bad.xml": b"\x1f\x8b\x08\x00corrupt-not-really-gzip",
+        f"https://{HOST}/good.xml": urlset((f"https://{HOST}/made-up-stew/", None)),
+    })
+    assert sites.sitemapEntries(SITE, robotsFrom(), log=QUIET) == [(f"https://{HOST}/made-up-stew/", None)]
+
+
+def test_aSitemapOnAnotherHostIsNotAsked(monkeypatch):
+    asked = fakeCrawl(monkeypatch, {
+        f"https://{HOST}/sitemap_index.xml": sitemapIndex("https://other.example.test/sitemap.xml",
+                                                          f"https://{HOST}/post-sitemap.xml"),
+        "https://other.example.test/sitemap.xml": urlset((f"https://{HOST}/made-up-other/", None)),
+        f"https://{HOST}/post-sitemap.xml": urlset((f"https://{HOST}/made-up-stew/", None)),
+    })
+    entries = sites.sitemapEntries(SITE, robotsFrom(), log=QUIET)
+    assert "https://other.example.test/sitemap.xml" not in asked
+    assert entries == [(f"https://{HOST}/made-up-stew/", None)]
+
+
 def test_robotsThatDisallowEveryRecipePageStopTheSite(monkeypatch):
     fakeCrawl(monkeypatch, {
         f"https://{HOST}/sitemap_index.xml": sitemapIndex(f"https://{HOST}/post-sitemap.xml"),

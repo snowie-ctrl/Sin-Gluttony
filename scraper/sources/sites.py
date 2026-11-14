@@ -7,6 +7,8 @@ or 429 stops the site for the pass as SiteStopped.
 import gzip
 import re
 import xml.etree.ElementTree as ET
+import zlib
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from urllib.robotparser import RobotFileParser
 
@@ -95,7 +97,13 @@ def sitemapEntries(site, robots, log=print):
     queue, seen, found = list(site["sitemaps"]), set(), {}
     while queue and len(seen) < MAX_SITEMAPS:
         url = queue.pop(0)
-        if url in seen or not robots.can_fetch(AGENT, url):
+        if url in seen:
+            continue
+        if urlsplit(url).hostname != site["host"]:
+            # this host's robots.txt cannot vouch for another host
+            log(f"{site['site']}: sitemap {url} skipped (other host)")
+            continue
+        if not robots.can_fetch(AGENT, url):
             continue
         seen.add(url)
         try:
@@ -105,7 +113,7 @@ def sitemapEntries(site, robots, log=print):
                 raise refusal(e)
             log(f"{site['site']}: sitemap {url} skipped ({e})")
             continue
-        except (ET.ParseError, OSError, EOFError) as e:
+        except (ET.ParseError, OSError, EOFError, zlib.error) as e:
             log(f"{site['site']}: sitemap {url} unreadable ({type(e).__name__})")
             continue
         if kind == "sitemapindex":
