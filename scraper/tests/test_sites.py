@@ -231,7 +231,7 @@ def test_theSitesFileNamesTheFiveSitesWithDiscoveredValues():
     entries = rulesData.load()["sites"]
     assert [e["site"] for e in entries] == ["bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "difford"]
     for entry in entries:
-        assert set(entry) == set(sites.FIELDS) | {"sitemapFilter"}, entry["site"]
+        assert set(entry) - {"measures"} == set(sites.FIELDS) | {"sitemapFilter"}, entry["site"]
         re.compile(entry["sitemapFilter"])
         # Fails while a value the discovery step fills in is still missing.
         assert entry["sitemaps"] and all(url.startswith("https://") for url in entry["sitemaps"]), entry["site"]

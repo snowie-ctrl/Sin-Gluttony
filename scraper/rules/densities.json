@@ -1,0 +1,11 @@
+{
+  "weight": {"g": 1, "kg": 1000, "mg": 0.001, "oz": 28.35, "lb": 453.6},
+  "volumeMl": {"ml": 1, "cl": 10, "dl": 100, "l": 1000, "tsp": 4.93, "tbsp": 14.79, "cup": 236.6,
+               "fl oz": 29.57, "pint": 568, "quart": 946, "gallon": 3785, "shot": 25, "jigger": 44,
+               "dash": 0.6, "splash": 5, "drop": 0.05},
+  "vagueGrams": {"pinch": 0.4, "handful": 30, "knob": 15, "sprig": 1, "bunch": 25, "scoop": 60},
+  "mlDensity": {"default": 1.0, "oil": 0.92, "olive oil": 0.92, "honey": 1.42, "syrup": 1.33,
+                "flour": 0.53, "sugar": 0.85, "rice": 0.85, "butter": 0.96, "milk": 1.03, "cream": 1.0},
+  "skipNotes": ["for frying", "for greasing", "for serving", "to serve", "for dusting", "for brushing",
+                "for drizzling", "to garnish", "for the tin"]
+}
