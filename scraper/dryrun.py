@@ -2,8 +2,9 @@
 The PC dry run: crawl the sites in rules/sites.json (the first `pages`
 recipe pages of each, the basics first), read every cached page, make the
 pictures, tag, estimate nutrition from USDA foods, run the gate, and write
-reports/dryrun-<date>/ for the owner, with the FDC mapping queue. Nothing is published: publish.py is never called and plutus is never
-asked, whatever PUBLISH says; the ingredient table is the repo's seed.
+reports/dryrun-<date>/ for the owner, with the FDC mapping queue. Nothing is
+published: publish.py is never called and plutus is never asked, whatever
+PUBLISH says; the ingredient table is the repo's seed.
 """
 from datetime import date, datetime, timezone
 from itertools import zip_longest

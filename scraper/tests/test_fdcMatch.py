@@ -1,4 +1,5 @@
 import shutil
+import threading
 
 import pytest
 
@@ -62,3 +63,13 @@ def test_picks_round_trip():
     fdcMatch.savePick("onion", 900001)
     fdcMatch.savePick("dragonfruit", None)
     assert fdcMatch.loadPicks() == {"onion": 900001, "dragonfruit": None}
+
+
+def test_simultaneous_picks_all_survive():
+    names = [f"food{i}" for i in range(20)]
+    threads = [threading.Thread(target=fdcMatch.savePick, args=(n, 900001)) for n in names]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(fdcMatch.loadPicks()) == sorted(names)

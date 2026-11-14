@@ -26,9 +26,10 @@ def _skipped(line, densities):
 
 
 def _skipsLine(note, phrase):
-    """The note holds the skip phrase and no "plus" or "extra" before it ("plus extra for dusting" is only the extra)."""
+    """The note holds the skip phrase and no "plus" or "extra" before it ("plus extra for dusting" is only the extra).
+    "extra virgin" and "extra large" describe the food, so they do not count."""
     at = note.find(phrase)
-    return at >= 0 and not re.search(r"\b(plus|extra)\b", note[:at])
+    return at >= 0 and not re.search(r"\bplus\b|\bextra\b(?!\s+(?:virgin|large))", note[:at])
 
 
 def _blocker(line, reason, name=None):

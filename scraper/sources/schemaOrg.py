@@ -108,7 +108,7 @@ def _number(text):
     return int(match.group()) if match and int(match.group()) > 0 else None
 
 
-_SERVING_NUMBER = re.compile(r"(?:serves|feeds)[:\s]*(\d+)|(\d+)\s*(?:servings?|portions?|people|persons?)", re.I)
+_SERVING_NUMBER = re.compile(r"(?:serves|feeds)[:\s]*(\d+)(?:\s*(?:-|to)\s*\d+)?|(\d+)(?:\s*(?:-|to)\s*\d+)?\s*(?:servings?|portions?|people|persons?)", re.I)
 
 def _servingNumber(text):
     """The number next to a serving word ("serves 6", "6 servings"), else the first number in the text."""

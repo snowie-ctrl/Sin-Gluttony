@@ -199,3 +199,10 @@ def test_a_skip_phrase_after_plus_or_extra_qualifies_only_the_extra(setup):
     r = recipe(servings=1, lines=[line("200 g flour", "flour", 200, "g", note="extra for dusting"),
                                   line("100 g flour", "flour", 100, "g", note="for dusting")])
     assert nutrition.estimate(r, *setup)[0]["calories"] == 728
+
+
+def test_extra_virgin_or_extra_large_before_a_skip_phrase_does_not_cancel_it():
+    assert nutrition._skipsLine("extra virgin, for drizzling", "for drizzling")
+    assert nutrition._skipsLine("extra large, for frying", "for frying")
+    assert not nutrition._skipsLine("plus extra for drizzling", "for drizzling")
+    assert not nutrition._skipsLine("extra for drizzling", "for drizzling")

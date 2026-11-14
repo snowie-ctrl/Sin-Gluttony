@@ -12,6 +12,7 @@ A name's food comes from, in order (R2): the owner's pick in run/fdc-picks.json
 (a None pick means no FDC food fits), the curated rules/fdcMap.json, then a
 settled rule match. A pick or override naming a food the cache lacks is ignored.
 """
+import threading
 from functools import lru_cache
 
 import config
@@ -22,6 +23,8 @@ PENALISED = ("cooked", "boiled", "canned", "frozen", "prepared", "fried", "baked
 # Drinks and fats are never "raw" in FDC; for them, a description with nothing cooked earns the raw bonus.
 DRINKS_AND_FATS = {"oil", "butter", "lard", "shortening", "margarine", "ghee", "fat", "beverage", "alcoholic",
                    "juice", "milk", "wine", "beer", "liqueur", "spirit", "water", "drink"}
+
+_picksLock = threading.Lock()    # the control server is threaded; one pick at a time reads, changes and writes the file
 
 
 def _words(text):
@@ -103,6 +106,7 @@ def loadPicks():
 
 def savePick(name, fdcId):
     """Records the owner's choice for name; None means no FDC food fits it."""
-    picks = loadPicks()
-    picks[name] = fdcId
-    store.writeJson(config.FDC_PICKS_FILE, picks)
+    with _picksLock:
+        picks = loadPicks()
+        picks[name] = fdcId
+        store.writeJson(config.FDC_PICKS_FILE, picks)

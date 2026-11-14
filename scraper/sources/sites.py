@@ -35,7 +35,7 @@ GONE_AFTER = 2          # a page answering 404 or 410 this many passes in a row 
 
 FIELDS = ("site", "name", "host", "sitemaps", "recipeUrl", "parser", "kind", "enabled")
 OPTIONAL_FIELDS = ("sitemapFilter", "measures")    # a pattern naming which child sitemaps of an index to follow (none: all)
-# measures: a site's own grams-per-unit for cup and tbsp ({"cup": 250}), read by the nutrition step, not the crawler
+# measures: a site's own millilitres per unit for cup and tbsp ({"cup": 250}), read by the nutrition step, not the crawler
 PARSERS = ("schema", "difford")
 
 

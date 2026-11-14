@@ -12,7 +12,7 @@ def test_isoMinutes(value, minutes):
 
 
 @pytest.mark.parametrize("value, servings", [
-    ("4 servings", 4), (["4", "4 servings"], 4), (6, 6), ("Serves 2-3", 2), ("Makes one loaf", None),
+    ("4 servings", 4), (["4", "4 servings"], 4), (6, 6), ("Serves 2-3", 2), ("4-6 servings", 4), ("4 to 6 servings", 4), ("Serves 4 to 6", 4), ("Makes one loaf", None),
     (None, None), ("0", None), ([], None),
 ])
 def test_servingsOf(value, servings):
