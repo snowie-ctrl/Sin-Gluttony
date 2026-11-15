@@ -150,3 +150,146 @@ def planMoves(targets, refs, existing, now):
         "Notes": _perPerson("Notes", "Text", refs["Notes"], existing["Notes"], targets, now, writes, _joinedNote),
     }
     return writes, report
+
+
+# ---- the database ----
+
+class Refused(Exception):
+    pass
+
+
+def _in(values):
+    return ", ".join(["%s"] * len(values))
+
+
+OLD_IN = f"r.Source IN ({_in(rules.OLD_SOURCES)})"
+
+
+def _all(cur, sql, params):
+    cur.execute(sql, tuple(params))
+    return cur.fetchall()
+
+
+def readState(cur):
+    """Everything the switch decides from, read in one transaction. The old recipes and every row that references
+    one are locked FOR UPDATE, and the shown site recipes FOR SHARE, so nothing changes under the plan."""
+    retired = _all(cur, f"SELECT RecipeID, Source, DishKey, Kind, RemovedAt FROM Recipes "
+                        f"WHERE Source IN ({_in(rules.OLD_SOURCES)}) FOR UPDATE", rules.OLD_SOURCES)
+    candidates = _all(cur, "SELECT r.RecipeID, r.DishKey, r.Kind, r.PrepMinutes, r.CookMinutes, r.ImageWidth, "
+                           "n.NutritionFrom FROM Recipes r LEFT JOIN RecipeNutrition n ON n.RecipeID = r.RecipeID "
+                           f"WHERE r.Source IN ({_in(rules.SITE_SOURCES)}) AND {rules.SHOWN} FOR SHARE",
+                      rules.SITE_SOURCES)
+    refs = {
+        "ListItems": _all(cur, "SELECT t.ListID, t.RecipeID, t.OrderIndex FROM ListItems t "
+                               f"JOIN Recipes r ON r.RecipeID = t.RecipeID WHERE {OLD_IN} FOR UPDATE",
+                          rules.OLD_SOURCES),
+        "Devoured": _all(cur, "SELECT t.DevouredID, t.RecipeID FROM Devoured t "
+                              f"JOIN Recipes r ON r.RecipeID = t.RecipeID WHERE {OLD_IN} FOR UPDATE",
+                         rules.OLD_SOURCES),
+        "Ratings": _all(cur, "SELECT t.UserID, t.RecipeID, t.Stars FROM Ratings t "
+                             f"JOIN Recipes r ON r.RecipeID = t.RecipeID WHERE {OLD_IN} FOR UPDATE",
+                        rules.OLD_SOURCES),
+        "Notes": _all(cur, "SELECT t.UserID, t.RecipeID, t.Text FROM Notes t "
+                           f"JOIN Recipes r ON r.RecipeID = t.RecipeID WHERE {OLD_IN} FOR UPDATE",
+                      rules.OLD_SOURCES),
+    }
+    targets, several = chooseTargets(retired, candidates)
+    used = sorted({targets[r["RecipeID"]] for rows in refs.values() for r in rows if r["RecipeID"] in targets})
+    existing = {"ListItems": [], "Ratings": [], "Notes": []}
+    if used:
+        existing = {
+            "ListItems": _all(cur, f"SELECT ListID, RecipeID FROM ListItems WHERE RecipeID IN ({_in(used)}) "
+                                   "FOR UPDATE", used),
+            "Ratings": _all(cur, f"SELECT UserID, RecipeID, Stars FROM Ratings WHERE RecipeID IN ({_in(used)}) "
+                                 "FOR UPDATE", used),
+            "Notes": _all(cur, f"SELECT UserID, RecipeID, Text FROM Notes WHERE RecipeID IN ({_in(used)}) "
+                               "FOR UPDATE", used),
+        }
+    return {"retired": retired, "candidates": candidates, "refs": refs, "targets": targets, "several": several,
+            "existing": existing}
+
+
+def switch(apply, now):
+    """The report; with apply, the moves and the retirement are committed together, otherwise rolled back."""
+    conn = DBUtils.initConnection("gluttony")
+    try:
+        conn.autocommit = False
+        cur = conn.cursor(dictionary=True)
+        state = readState(cur)
+        writes, report = planMoves(state["targets"], state["refs"], state["existing"], now)
+        referenced = sorted({r["RecipeID"] for rows in state["refs"].values() for r in rows})
+        byId = {r["RecipeID"]: r for r in state["retired"]}
+        report.update({
+            "retired": len(state["retired"]),
+            "newlyRetired": sum(r["RemovedAt"] is None for r in state["retired"]),
+            "shown": len(state["candidates"]),
+            "referenced": len(referenced),
+            "matched": sum(rid in state["targets"] for rid in referenced),
+            "several": sum(rid in state["several"] for rid in referenced),
+            "mapping": [(byId[rid], state["targets"].get(rid)) for rid in referenced],
+            "applied": False,
+        })
+        if not apply:
+            conn.rollback()
+            return report
+        if not state["candidates"]:
+            raise Refused("no site recipe is shown: publish the new catalog first")
+        for sql, params in writes:
+            cur.execute(sql, params)
+        cur.execute(f"UPDATE Recipes SET RemovedAt = NOW() WHERE Source IN ({_in(rules.OLD_SOURCES)}) "
+                    "AND RemovedAt IS NULL", rules.OLD_SOURCES)
+        conn.commit()
+        report["applied"] = True
+        return report
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+# ---- the report ----
+
+def reportLines(report, listing):
+    lines = ["switch: applied" if report["applied"]
+             else "switch: dry run, nothing was written (run again with --apply to switch)"]
+    lines.append(f"old recipes: {report['retired']} ({report['newlyRetired']} retired by this run, "
+                 f"the rest already removed)")
+    lines.append(f"shown site recipes: {report['shown']}")
+    lines.append(f"old recipes people kept: {report['referenced']}, {report['matched']} with a match "
+                 f"({report['several']} chosen among several)")
+    for table in TABLES:
+        counts = report[table]
+        line = (f"{table}: {counts['moved']} moved ({counts['merged']} merged with one already there), "
+                f"{counts['notMoved']} not moved")
+        if counts.get("tooLong"):
+            line += f" ({counts['tooLong']} too long to join, left in place)"
+        lines.append(line)
+    if listing:
+        for row, target in report["mapping"]:
+            lines.append(f"  #{row['RecipeID']} {row['Source']} {row['DishKey']} ({row['Kind']}) -> "
+                         + (f"#{target}" if target is not None else "no match"))
+    return lines
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Retire the old catalog and move what people kept (spec §5)")
+    parser.add_argument("--apply", action="store_true", help="switch for real; without it nothing is written")
+    parser.add_argument("--list", action="store_true", help="also list each kept old recipe and where it goes")
+    args = parser.parse_args(argv)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now.replace(microsecond=now.microsecond // 1000 * 1000)     # DATETIME(3)
+    try:
+        report = switch(args.apply, now)
+    except Refused as e:
+        print(f"switch: refused, nothing was changed: {e}")
+        return 1
+    except Exception as e:
+        print(f"switch: failed, nothing was changed: {type(e).__name__}: {e}")
+        return 1
+    print("\n".join(reportLines(report, args.list)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
