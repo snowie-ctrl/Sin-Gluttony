@@ -16,6 +16,7 @@ from sources import wikiImages
 LARGE = 1200
 THUMB = 400
 QUALITY = 85
+OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")
 
 
 def imageName(url):
@@ -112,7 +113,10 @@ def ensureImages(recipes, allowDownload, log=print, onProgress=None):
                 continue
             if not original.exists():
                 try:
-                    got = net.download(url, original)
+                    if recipe.source in OLD_SOURCES:
+                        got = net.download(url, original)
+                    else:
+                        got = net.download(url, original, refusals=True)
                 except net.HttpError as e:
                     got = False
                     if e.status == 403:
