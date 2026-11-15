@@ -37,16 +37,20 @@ class Redirect:
 def fakeCrawl(monkeypatch, answers):
     """
     net.crawl answering from url -> text, bytes, a Redirect or an exception to raise; any other url is a 404.
-    A redirect to another host is refused the way net.crawl refuses it; the final url goes into finalUrl.
+    Every hop asked is recorded. A redirect to another host, or one mayFetch refuses, is refused before it is
+    asked, the way net.crawl refuses it; the final url goes into finalUrl.
     """
     asked = []
-    def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None):
+    def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None, mayFetch=None):
         asked.append(url)
         answer, final = answers.get(url), url
         while isinstance(answer, Redirect):
             if urlsplit(answer.target).hostname != urlsplit(url).hostname:
-                raise net.HttpError(f"GET {url} redirected off host", status=None)
+                raise net.RedirectRefused(f"GET {url} redirected off host")
+            if mayFetch is not None and not mayFetch(answer.target):
+                raise net.RedirectRefused(f"GET {url}: robots.txt disallows the redirect target")
             final = answer.target
+            asked.append(final)
             answer = answers.get(final)
         if finalUrl is not None:
             finalUrl.append(final)
@@ -678,21 +682,46 @@ def test_parseSitemapRefusesAGzipPastTheCap(monkeypatch):
 
 
 def test_aPageRedirectedOffHostIsAnErrorAndNotCached(monkeypatch):
-    fakeCrawl(monkeypatch, web(A, {"made-up-moved": Redirect("https://elsewhere.example.test/made-up-moved/"),
+    asked = fakeCrawl(monkeypatch, web(A, {"made-up-moved": Redirect("https://elsewhere.example.test/made-up-moved/"),
                                    "made-up-stew": recipePage("Made-up Stew")}))
     result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
     assert (result["errors"], result["fetched"]) == (1, 1)
     assert pagecache.meta("sitea", f"https://{A}/made-up-moved/") is None
+    assert "https://elsewhere.example.test/made-up-moved/" not in asked
 
 
 def test_aPageRedirectedIntoADisallowedPathIsAnErrorAndNotCached(monkeypatch):
     answers = web(A, {"made-up-moved": Redirect(f"https://{A}/private/made-up-moved/"),
                       "made-up-stew": recipePage("Made-up Stew")}, robots="User-agent: *\nDisallow: /private/\n")
     answers[f"https://{A}/private/made-up-moved/"] = recipePage("Made-up Moved")
-    fakeCrawl(monkeypatch, answers)
+    asked = fakeCrawl(monkeypatch, answers)
     result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
     assert (result["errors"], result["fetched"]) == (1, 1)
     assert pagecache.meta("sitea", f"https://{A}/made-up-moved/") is None
+    assert f"https://{A}/private/made-up-moved/" not in asked
+
+
+def test_refusedRedirectsDoNotStopTheSiteAsUnreachable(monkeypatch):
+    pages = {f"made-up-moved-{n}": Redirect(f"https://{A}/private/made-up-{n}/") for n in range(6)}
+    pages["made-up-stew"] = recipePage("Made-up Stew")
+    fakeCrawl(monkeypatch, web(A, pages, robots="User-agent: *\nDisallow: /private/\n"))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["errors"], result["fetched"]) == (True, 6, 1)
+
+
+def test_aMultiMemberGzipSitemapIsReadWhole():
+    first = gzip.compress(b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://'
+                          + A.encode() + b'/made-up-one/</loc></url>')
+    second = gzip.compress(b'<url><loc>https://' + A.encode() + b'/made-up-two/</loc></url></urlset>')
+    assert sites.parseSitemap(first + second) == ("urlset", [(f"https://{A}/made-up-one/", None),
+                                                               (f"https://{A}/made-up-two/", None)])
+
+
+def test_theCapCoversEveryGzipMember(monkeypatch):
+    member = gzip.compress(b"<urlset>" + b" " * 80)
+    monkeypatch.setattr(net, "MAX_SITEMAP_BYTES", 100)
+    with pytest.raises(sites.SitemapTooLarge):
+        sites.parseSitemap(member + member)
 
 
 def test_wildcardRobotsRulesKeepPagesOut(monkeypatch):

@@ -61,7 +61,8 @@ class FakeResponse:
 def fakeSession(monkeypatch, answers):
     calls = []
     def request(method, url, **kwargs):
-        calls.append({"method": method, "url": url, "headers": kwargs.get("headers")})
+        calls.append({"method": method, "url": url, "headers": kwargs.get("headers"),
+                      "allowRedirects": kwargs.get("allow_redirects", True)})
         answer = answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -160,24 +161,72 @@ def test_picturesFromACrawledHostGetTheCrawlersNameAndPace(monkeypatch, tmp_path
     assert net._interval("images.example-cdn.test") == net.DEFAULT_INTERVAL
 
 
-def redirected(status, body, finalUrl):
-    response = FakeResponse(status, body)
-    response.url = finalUrl
-    return response
+STEW = "https://www.example-recipes.test/made-up-stew/"
 
 
-def test_aRedirectOffHostIsRefused(monkeypatch):
-    fakeSession(monkeypatch, [redirected(200, "<html>Made-up</html>", "https://elsewhere.example.test/made-up/")])
+def moved(location, status=301):
+    return FakeResponse(status, headers={"Location": location})
+
+
+def throttled(monkeypatch):
+    hosts = []
+    monkeypatch.setattr(net, "_throttle", hosts.append)
+    return hosts
+
+
+def test_aRedirectOffHostIsRefusedWithoutAskingTheOtherHost(monkeypatch):
+    throttled(monkeypatch)
+    calls = fakeSession(monkeypatch, [moved("https://elsewhere.example.test/made-up/"), FakeResponse(200, "other")])
     with pytest.raises(net.HttpError, match="redirected off host") as error:
-        net.crawl("https://www.example-recipes.test/made-up-stew/")
+        net.crawl(STEW)
     assert error.value.status is None
+    assert [c["url"] for c in calls] == [STEW] and calls[0]["allowRedirects"] is False
 
 
-def test_aRedirectOnTheSameHostIsFollowedAndItsUrlHandedBack(monkeypatch):
-    fakeSession(monkeypatch, [redirected(200, "<html>Made-up</html>", "https://WWW.Example-Recipes.test/made-up-new/")])
+def test_aRelativeRedirectOnTheSameHostIsFollowedEachHopThrottledAndItsUrlHandedBack(monkeypatch):
+    hosts = throttled(monkeypatch)
+    calls = fakeSession(monkeypatch, [moved("/made-up-new/", 308),
+                                      moved("https://WWW.Example-Recipes.test/made-up-newer/", 302),
+                                      FakeResponse(200, "<html>Made-up</html>")])
     final = []
-    assert net.crawl("https://www.example-recipes.test/made-up-stew/", finalUrl=final) == "<html>Made-up</html>"
-    assert final == ["https://WWW.Example-Recipes.test/made-up-new/"]
+    assert net.crawl(STEW, finalUrl=final) == "<html>Made-up</html>"
+    assert [c["url"] for c in calls] == [STEW, "https://www.example-recipes.test/made-up-new/",
+                                         "https://WWW.Example-Recipes.test/made-up-newer/"]
+    assert all(c["allowRedirects"] is False for c in calls)
+    assert len(hosts) == 3
+    assert final == ["https://WWW.Example-Recipes.test/made-up-newer/"]
+
+
+def test_aRedirectIntoADisallowedPathIsNeverRequested(monkeypatch):
+    throttled(monkeypatch)
+    calls = fakeSession(monkeypatch, [moved("/private/made-up-stew/"), FakeResponse(200, "secret")])
+    with pytest.raises(net.HttpError, match="robots.txt disallows the redirect target") as error:
+        net.crawl(STEW, mayFetch=lambda url: "/private/" not in url)
+    assert error.value.status is None and len(calls) == 1
+
+
+def test_moreThanFiveRedirectsAreRefused(monkeypatch):
+    throttled(monkeypatch)
+    calls = fakeSession(monkeypatch, [moved(f"/made-up-{n}/") for n in range(7)])
+    with pytest.raises(net.HttpError, match="too many redirects"):
+        net.crawl(STEW)
+    assert len(calls) == 6         # the page and five hops; the sixth redirect is not followed
+
+
+def test_downloadReportsARefusalOnlyWhenAsked(monkeypatch, tmp_path):
+    monkeypatch.setattr(net.time, "sleep", lambda s: None)
+    answers = [FakeResponse(403), FakeResponse(403), FakeResponse(429, headers={"Retry-After": "60"}),
+               FakeResponse(404)]
+    monkeypatch.setattr(net._session, "get", lambda url, **kw: answers.pop(0))
+    url = "https://images.example-cdn.test/made-up.jpg"
+    assert net.download(url, tmp_path / "a") is False
+    with pytest.raises(net.HttpError) as error:
+        net.download(url, tmp_path / "b", refusals=True)
+    assert error.value.status == 403
+    with pytest.raises(net.HttpError) as error:
+        net.download(url, tmp_path / "c", refusals=True)
+    assert (error.value.status, error.value.retryAfter) == (429, 60.0)
+    assert net.download(url, tmp_path / "d", refusals=True) is False
 
 
 def test_theSitemapCapIsFiftyMegabytes():

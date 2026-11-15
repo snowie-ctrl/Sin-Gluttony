@@ -13,7 +13,7 @@ pass. Pictures later fetched from a crawled host get the same name and pace.
 import email.utils
 import hashlib, json, os, random, time
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -34,6 +34,7 @@ MIN_INTERVAL = {                # seconds between requests to the same host
 }
 DEFAULT_INTERVAL = 1.0
 CRAWL_INTERVAL = 5.0            # seconds between requests to a recipe site's host
+MAX_REDIRECTS = 5               # hops crawl() follows before it gives up
 MAX_SITEMAP_BYTES = 50 * 1024 * 1024    # a sitemap unpacked past this is refused (sources/sites.py reads it)
 RETRIES = 3
 
@@ -49,6 +50,12 @@ class HttpError(Exception):
         super().__init__(message)
         self.status = status
         self.retryAfter = retryAfter
+
+
+class RedirectRefused(HttpError):
+    """A redirect crawl() would not follow: to another host, or to a path robots.txt disallows. Never asked."""
+    def __init__(self, message):
+        super().__init__(message, status=None)
 
 
 def _interval(host):
@@ -144,7 +151,33 @@ def request(method, url, *, params=None, payload=None, cacheHours=None, timeout=
     raise HttpError(f"{method} {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
 
 
-def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None):
+REDIRECTS = (301, 302, 303, 307, 308)
+
+
+def _crawlOnce(url, host, timeout, retries):
+    """One answer (below 500) for url itself, redirects not followed; a 5xx or dropped connection tried `retries` times."""
+    lastError, lastStatus = None, None
+    for attempt in range(retries):
+        last = attempt == retries - 1
+        _throttle(host)
+        try:
+            resp = _session.request("GET", url, timeout=timeout, headers={"User-Agent": CRAWLER_AGENT},
+                                    allow_redirects=False)
+        except requests.RequestException as e:
+            lastError, lastStatus = f"{type(e).__name__}: {e}", None
+            if not last:
+                time.sleep(2 ** attempt)
+            continue
+        if resp.status_code >= 500:
+            lastError, lastStatus = f"{resp.status_code} server error", resp.status_code
+            if not last:
+                time.sleep(2 ** attempt)
+            continue
+        return resp
+    raise HttpError(f"GET {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
+
+
+def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None, mayFetch=None):
     """
     One request to a recipe site, as GluttonyPersonalCrawler, at most one per
     CRAWL_INTERVAL per host. Any 4xx (403 and 429 included) raises at once with
@@ -152,44 +185,40 @@ def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None):
     a site that refuses is stopped by the caller, never waited out here. A 5xx
     or a dropped connection is tried `retries` times. Returns the page's text,
     or its bytes with binary=True (sitemaps, which may be gzipped).
-    Redirects are followed on the same host only: one that ends on another host
-    raises HttpError (status None), because that host's robots.txt was never
-    read. finalUrl, when a list, gets the URL the answer came from appended, so
-    the caller can check it against robots.txt too.
+
+    Redirects are followed here, by hand, never by requests: each hop waits its
+    turn on the host, at most MAX_REDIRECTS of them. A hop to another host is
+    refused before it is asked (RedirectRefused, "redirected off host"),
+    because that host's robots.txt was never read; so is a hop that
+    mayFetch(url), when given, refuses (sources/sites.py passes robots.txt).
+    finalUrl, when a list, gets the URL the answer came from appended.
     """
     host = urlsplit(url).hostname
     _crawlHosts.add(host)
-    lastError, lastStatus = None, None
-    for attempt in range(retries):
-        last = attempt == retries - 1
-        _throttle(host)
-        try:
-            resp = _session.request("GET", url, timeout=timeout, headers={"User-Agent": CRAWLER_AGENT})
-        except requests.RequestException as e:
-            lastError, lastStatus = f"{type(e).__name__}: {e}", None
-            if not last:
-                time.sleep(2 ** attempt)
-            continue
-        # an answer from another host (its 404 or 403 included) is not this site's answer
-        final = getattr(resp, "url", None) or url
-        if (urlsplit(final).hostname or "").lower() != (host or "").lower():
-            raise HttpError(f"GET {url} redirected off host (to {final})", status=None)
-        if resp.status_code >= 500:
-            lastError, lastStatus = f"{resp.status_code} server error", resp.status_code
-            if not last:
-                time.sleep(2 ** attempt)
-            continue
-        if resp.status_code >= 400:
-            raise HttpError(f"GET {url} -> {resp.status_code}", status=resp.status_code,
-                            retryAfter=retryAfterSeconds(resp.headers.get("Retry-After")))
-        if finalUrl is not None:
-            finalUrl.append(final)
-        if binary:
-            return resp.content
-        if "charset=" not in (resp.headers.get("Content-Type") or "").lower():
-            resp.encoding = "utf-8"     # requests would guess ISO-8859-1 and turn "½" into "Â½"
-        return resp.text
-    raise HttpError(f"GET {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
+    current = url
+    for hop in range(MAX_REDIRECTS + 1):
+        resp = _crawlOnce(current, host, timeout, retries)
+        location = resp.headers.get("Location") if resp.status_code in REDIRECTS else None
+        if not location:
+            break
+        if hop == MAX_REDIRECTS:
+            raise HttpError(f"GET {url}: too many redirects (more than {MAX_REDIRECTS})", status=None)
+        target = urljoin(current, location)
+        if (urlsplit(target).hostname or "").lower() != (host or "").lower():
+            raise RedirectRefused(f"GET {url} redirected off host (to {target})")
+        if mayFetch is not None and not mayFetch(target):
+            raise RedirectRefused(f"GET {url}: robots.txt disallows the redirect target {target}")
+        current = target
+    if resp.status_code >= 400:
+        raise HttpError(f"GET {url} -> {resp.status_code}", status=resp.status_code,
+                        retryAfter=retryAfterSeconds(resp.headers.get("Retry-After")))
+    if finalUrl is not None:
+        finalUrl.append(current)
+    if binary:
+        return resp.content
+    if "charset=" not in (resp.headers.get("Content-Type") or "").lower():
+        resp.encoding = "utf-8"     # requests would guess ISO-8859-1 and turn "½" into "Â½"
+    return resp.text
 
 
 def getText(url, params=None, cacheHours=None, retries=RETRIES, timeout=20, cacheOnly=False, headers=None):
@@ -206,8 +235,12 @@ def postJson(url, payload, cacheHours=None, refresh=False):
     return json.loads(request("POST", url, payload=payload, cacheHours=cacheHours, refresh=refresh))
 
 
-def download(url, destPath, timeout=30):
-    """Save a binary file (pictures). Returns True on success; failures are not fatal."""
+def download(url, destPath, timeout=30, *, refusals=False):
+    """
+    Save a binary file (pictures). Returns True on success; failures are not fatal.
+    With refusals=True a 403 or 429 raises HttpError (status, and a 429's Retry-After) at once, so the caller can
+    stop asking that host; any other failure still returns False.
+    """
     host = urlsplit(url).hostname
     for attempt in range(RETRIES):
         _throttle(host)
@@ -220,6 +253,9 @@ def download(url, destPath, timeout=30):
             destPath.parent.mkdir(parents=True, exist_ok=True)
             destPath.write_bytes(resp.content)
             return True
+        if refusals and resp.status_code in (403, 429):
+            raise HttpError(f"GET {url} -> {resp.status_code}", status=resp.status_code,
+                            retryAfter=retryAfterSeconds(resp.headers.get("Retry-After")))
         if resp.status_code < 500 and resp.status_code != 429:
             return False
         time.sleep(2 ** attempt)

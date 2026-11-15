@@ -32,6 +32,17 @@ def test_theMostSpecificTokenPicksTheGroupEvenListedSecond():
     assert allows(text, "/made-up-b/x")
 
 
+def test_aTokenWithAVersionMatchesOnItsNameAlone():
+    text = "User-agent: *\nDisallow: /\n\nUser-agent: GluttonyPersonalCrawler/1.0\nDisallow: /private/\n"
+    assert allows(text, "/made-up-stew/")
+    assert not allows(text, "/private/x")
+
+
+def test_aLeadingByteOrderMarkIsIgnored():
+    text = "﻿User-agent: *\nDisallow: /private/\n"
+    assert not allows(text, "/private/x")
+
+
 def test_anotherCrawlersGroupIsNotOurs():
     text = "User-agent: OtherBot\nDisallow: /\n\nUser-agent: *\nDisallow: /private/\n"
     assert allows(text, "/made-up-stew/")

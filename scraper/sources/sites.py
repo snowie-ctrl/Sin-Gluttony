@@ -3,9 +3,9 @@ The recipe sites in rules/sites.json: what each one's robots.txt allows and
 which recipe pages its sitemaps list, with lastmod. Every request goes through
 net.crawl (GluttonyPersonalCrawler, one request per 5 s per host), and a 403
 or 429 stops the site for the pass as SiteStopped. robots.txt is read by
-robots.Rules (wildcards obeyed), and a page redirected into a path it disallows
-is not kept. The crawl takes the sites in turn and keeps each recipe page in
-pagecache. A listing is complete only when every sitemap was read: none failed,
+robots.Rules (wildcards obeyed), and a redirect off the host or into a path it
+disallows is never followed (net.crawl's mayFetch). The crawl takes the sites
+in turn and keeps each recipe page in pagecache. A listing is complete only when every sitemap was read: none failed,
 none blocked by robots.txt, on another host or cut off at MAX_SITEMAPS; only a
 complete listing replaces the saved one.
 """
@@ -113,19 +113,23 @@ def _local(tag):
 
 def _unpacked(data):
     """
-    The sitemap's bytes, gunzipped when gzipped. Unpacking stops at net.MAX_SITEMAP_BYTES (SitemapTooLarge), so a
-    small file cannot unpack into gigabytes. A plain sitemap is already whole in memory and is not capped here.
+    The sitemap's bytes, gunzipped when gzipped (every member of a multi-member gzip, in order). Unpacking stops at
+    net.MAX_SITEMAP_BYTES in all (SitemapTooLarge), so a small file cannot unpack into gigabytes. A plain sitemap is
+    already whole in memory and is not capped here. Bytes after the last member that are not a gzip are ignored.
     """
     if data[:2] != b"\x1f\x8b":
         return data
     cap = net.MAX_SITEMAP_BYTES
-    unzip = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    out = unzip.decompress(data, cap + 1)
-    if len(out) > cap or unzip.unconsumed_tail:
-        raise SitemapTooLarge(f"unpacks past {cap} bytes")
-    if not unzip.eof:
-        raise EOFError("gzip cut short")
-    return out
+    out, rest = bytearray(), data
+    while rest[:2] == b"\x1f\x8b":
+        unzip = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        out += unzip.decompress(rest, cap + 1 - len(out))      # never 0 (unlimited): out is at most cap here
+        if len(out) > cap:
+            raise SitemapTooLarge(f"unpacks past {cap} bytes")
+        if not unzip.eof:
+            raise EOFError("gzip cut short")
+        rest = unzip.unused_data
+    return bytes(out)
 
 
 def parseSitemap(data):
@@ -184,13 +188,8 @@ def sitemapEntries(site, robots, log=print, failures=None):
         if not robots.allows(AGENT, url):
             notRead(url, "robots.txt disallows it")
             continue
-        final = []
         try:
-            data = net.crawl(url, binary=True, finalUrl=final)
-            if final and not robots.allows(AGENT, final[-1]):
-                notRead(url, f"redirected to {final[-1]}, which robots.txt disallows")
-                continue
-            kind, entries = parseSitemap(data)
+            kind, entries = parseSitemap(net.crawl(url, binary=True, mayFetch=lambda to: robots.allows(AGENT, to)))
         except net.HttpError as e:
             if e.status in (403, 429):
                 raise refusal(e)
@@ -299,9 +298,13 @@ def _challenge(html):
 
 
 def _fetchOne(site, url, lastmod, result, siteState, run, now, log, robots):
-    final = []
     try:
-        html = net.crawl(url, finalUrl=final)
+        html = net.crawl(url, mayFetch=lambda to: robots.allows(AGENT, to))
+    except net.RedirectRefused as e:
+        # off host, or into a path robots.txt disallows: never asked, not kept, and no sign the site is down
+        log(f"{site['site']}: {url} not fetched ({e})")
+        result["errors"] += 1
+        return
     except net.HttpError as e:
         if e.status in (403, 429):
             raise refusal(e)
@@ -319,10 +322,6 @@ def _fetchOne(site, url, lastmod, result, siteState, run, now, log, robots):
         return
     run["failures"] = 0
     siteState.get("missing", {}).pop(url, None)
-    if final and not robots.allows(AGENT, final[-1]):
-        log(f"{site['site']}: {url} redirected to {final[-1]}, which robots.txt disallows; not kept")
-        result["errors"] += 1
-        return
     if not schemaOrg.hasRecipe(html):
         result["notRecipe"] += 1
         if schemaOrg.hasPageMetadata(html):

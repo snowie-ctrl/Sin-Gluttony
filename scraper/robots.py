@@ -39,7 +39,7 @@ class Rules:
     @classmethod
     def parse(cls, text):
         groups, sitemaps, current, collecting = [], [], None, False
-        for line in text.splitlines():
+        for line in text.removeprefix("﻿").splitlines():
             key, sep, value = line.split("#", 1)[0].partition(":")
             if not sep:
                 continue
@@ -51,7 +51,7 @@ class Rules:
                     current = ([], [], [None])
                     groups.append(current)
                     collecting = True
-                current[0].append(value.lower())
+                current[0].append(value.split("/", 1)[0].strip().lower())   # "Name/1.0" is matched as "Name"
             elif key in ("allow", "disallow", "crawl-delay"):
                 collecting = False
                 if current is None:
