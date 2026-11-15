@@ -7,13 +7,26 @@ have.
 Removals come only from a complete fetch of a source. If a source failed, or
 returned more than REMOVAL_GUARD fewer records than last pass (a capped free
 key, a broken dump), nothing of it is removed and the report says why.
+
+A recipe site removes a page that answered gone (404/410) on enough passes in
+a row, and, when this pass read the site's whole sitemap listing, every page
+missing from it. A listing that shrank by more than REMOVAL_GUARD since last
+time removes nothing that way. The old sources' keys are never touched by it.
+
+A site recipe also carries its description, the gate's hidden reason, its
+picture's width and its per-serving nutrition. Each goes in only when it has a
+value, so an old-source recipe's payload and hash are what they were.
 """
 import hashlib
 import json
 
 import adminApi
 import config
+import pagecache
 import store
+from sources import schemaSite
+
+NUTRIENTS = ("calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG", "sodiumMg")
 
 
 def searchText(recipe):
@@ -23,6 +36,15 @@ def searchText(recipe):
 def contentHash(payload):
     body = {k: v for k, v in payload.items() if k != "contentHash"}
     return hashlib.sha1(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def nutritionFor(recipe):
+    """The per-serving nutrition plutus stores, or None when there are no calories to show."""
+    values = recipe.nutrition or {}
+    if values.get("calories") is None:
+        return None
+    return dict({name: values.get(name) for name in NUTRIENTS},
+                **{"from": recipe.nutritionFrom, "flagged": bool(recipe.nutritionFlagged)})
 
 
 def payloadFor(recipe):
@@ -42,6 +64,9 @@ def payloadFor(recipe):
         "tags": recipe.tags,
         "facts": recipe.facts,
     }
+    extras = {"description": recipe.description, "hiddenReason": recipe.hiddenReason,
+              "imageWidth": recipe.imageWidth, "nutrition": nutritionFor(recipe)}
+    payload.update({name: value for name, value in extras.items() if value is not None})
     payload["contentHash"] = contentHash(payload)
     return payload
 
@@ -68,6 +93,32 @@ def removalsFor(publishedKeys, fetchResults, lastCounts, guard):
     return sorted(keys), notes, guarded
 
 
+def siteRemovals(publishedKeys, crawled, lastCounts, guard):
+    """(keys to mark removed, a note per site the guard held back, those sites) for the recipe sites crawled."""
+    keys, notes, guarded = set(), [], []
+    for site, result in sorted(crawled.items()):
+        bySourceId = {k.split(":", 1)[1]: k for k in publishedKeys if k.split(":", 1)[0] == site}
+        for url in result.get("goneUrls", []):
+            key = bySourceId.get(schemaSite.sourceIdFor(url))
+            if key:
+                keys.add(key)
+        if not result.get("complete"):
+            continue
+        listed = {schemaSite.sourceIdFor(url) for url, _ in pagecache.listing(site)}
+        last = lastCounts.get(site)
+        if not listed:
+            notes.append(f"{site}: the sitemap listing is empty, nothing removed for missing pages")
+            guarded.append(site)
+            continue
+        if last and len(listed) < last * (1 - guard):
+            notes.append(f"{site}: {len(listed)} pages listed against {last} last time, more than {guard:.0%} fewer, "
+                         "nothing removed for missing pages")
+            guarded.append(site)
+            continue
+        keys.update(key for sourceId, key in bySourceId.items() if sourceId not in listed)
+    return sorted(keys), notes, guarded
+
+
 def _publishedState(dry):
     state = store.readJson(config.PUBLISHED_FILE, None)
     if state is not None:
@@ -82,7 +133,8 @@ def _save(published):
     store.writeJson(config.PUBLISHED_FILE, {"recipes": published})
 
 
-def publish(recipes, fetchResults, lastCounts, log=print):
+def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
+    """removals, when given, is a (keys, notes, guarded) already worked out (the recipe sites' siteRemovals)."""
     dry = config.PUBLISH != "on"
     if not dry and not adminApi.configured():
         raise adminApi.AdminError("ADMIN_TOKEN and ADMIN_HOST must be set in .env")
@@ -93,7 +145,10 @@ def publish(recipes, fetchResults, lastCounts, log=print):
     for p in changed:
         counts = perSource.setdefault(p["source"], {"new": 0, "changed": 0})
         counts["changed" if p["key"] in published else "new"] += 1
-    removeKeys, notes, guarded = removalsFor(list(published), fetchResults, lastCounts, config.REMOVAL_GUARD)
+    if removals is not None:
+        removeKeys, notes, guarded = sorted(removals[0]), list(removals[1]), list(removals[2])
+    else:
+        removeKeys, notes, guarded = removalsFor(list(published), fetchResults, lastCounts, config.REMOVAL_GUARD)
     summary = {"dry": dry, "changed": len(changed), "perSource": perSource, "stored": 0, "failed": [],
                "removed": 0, "notes": notes, "guarded": guarded}
     if dry:

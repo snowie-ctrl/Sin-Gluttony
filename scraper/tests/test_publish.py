@@ -2,9 +2,11 @@ import pytest
 
 import adminApi
 import config
+import pagecache
 import publish
 import store
 from models import IngredientLine, Recipe, Step
+from sources import schemaSite
 
 
 def recipe(sourceId="1", source="mealdb", title="Toast"):
@@ -138,3 +140,104 @@ def test_publishingWithoutSettingsFailsFirst(monkeypatch):
     with pytest.raises(adminApi.AdminError, match="ADMIN_TOKEN and ADMIN_HOST"):
         publish.publish([recipe()], OK, {}, log=lambda *a: None)
     assert plutus.rsyncs == [] and plutus.posts == []
+
+
+# --- the new catalog: payload fields and site removals ---
+
+NUTRITION = {"calories": 420.0, "proteinG": 12.5, "carbsG": 50.0, "fatG": 18.0, "satFatG": 6.0, "fibreG": 4.0,
+             "sugarG": 9.0, "sodiumMg": 610.0}
+
+
+def siteRecipe(url="https://example.test/recipes/soup", nutrition=NUTRITION, flagged=False):
+    r = recipe(sourceId=schemaSite.sourceIdFor(url), source="budgetbytes", title="Soup")
+    r.description = "A warm soup."
+    r.hiddenReason = "small-photo"
+    r.imageWidth = 640
+    r.nutrition = dict(nutrition) if nutrition is not None else None
+    r.nutritionFrom = "source"
+    r.nutritionFlagged = flagged
+    return r
+
+
+def test_aSiteRecipeCarriesDescriptionHiddenReasonWidthAndNutrition():
+    payload = publish.payloadFor(siteRecipe())
+    assert payload["description"] == "A warm soup." and payload["hiddenReason"] == "small-photo"
+    assert payload["imageWidth"] == 640
+    assert payload["nutrition"] == dict(NUTRITION, **{"from": "source", "flagged": False})
+    assert publish.payloadFor(siteRecipe(flagged=True))["contentHash"] != payload["contentHash"]
+
+
+def test_nutritionWithoutCaloriesIsLeftOutAndMissingNutrientsAreNone():
+    assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition=None))
+    assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition={"proteinG": 3.0}))
+    partial = publish.payloadFor(siteRecipe(nutrition={"calories": 100.0, "fatG": 2.0}))["nutrition"]
+    assert partial == {"calories": 100.0, "proteinG": None, "carbsG": None, "fatG": 2.0, "satFatG": None,
+                       "fibreG": None, "sugarG": None, "sodiumMg": None, "from": "source", "flagged": False}
+
+
+def test_anOldSourceRecipesPayloadAndHashAreUnchanged():
+    payload = publish.payloadFor(recipe())
+    for name in ("description", "hiddenReason", "imageWidth", "nutrition"):
+        assert name not in payload
+    assert payload["contentHash"] == "fbe0b73d4aae52a5a7c16c48162a248bc035e3ab"     # the hash before this change
+
+
+def keyFor(site, url):
+    return f"{site}:{schemaSite.sourceIdFor(url)}"
+
+
+URLS = [f"https://example.test/recipes/{n}" for n in range(20)]
+
+
+def test_aCompleteListingMissingAPublishedPageRemovesIt():
+    pagecache.saveListing("budgetbytes", [(u, None) for u in URLS[:19]])
+    published = [keyFor("budgetbytes", u) for u in URLS]
+    keys, notes, guarded = publish.siteRemovals(
+        published, {"budgetbytes": {"ok": True, "complete": True, "listed": 19, "goneUrls": []}},
+        {"budgetbytes": 20}, 0.05)
+    assert keys == [keyFor("budgetbytes", URLS[19])] and notes == [] and guarded == []
+
+
+def test_anIncompleteListingRemovesOnlyGonePages():
+    pagecache.saveListing("budgetbytes", [(u, None) for u in URLS[:5]])
+    published = [keyFor("budgetbytes", u) for u in URLS]
+    keys, notes, guarded = publish.siteRemovals(
+        published, {"budgetbytes": {"ok": True, "complete": False, "listed": 5, "goneUrls": [URLS[2], URLS[7],
+                                                                                           "https://example.test/x"]}},
+        {"budgetbytes": 20}, 0.05)
+    assert keys == sorted([keyFor("budgetbytes", URLS[2]), keyFor("budgetbytes", URLS[7])])
+    assert guarded == []
+
+
+def test_aShrunkenListingRemovesNothingAndSaysSo():
+    pagecache.saveListing("budgetbytes", [(u, None) for u in URLS[:18]])
+    published = [keyFor("budgetbytes", u) for u in URLS]
+    keys, notes, guarded = publish.siteRemovals(
+        published, {"budgetbytes": {"ok": True, "complete": True, "listed": 18, "goneUrls": []}},
+        {"budgetbytes": 20}, 0.05)
+    assert keys == [] and guarded == ["budgetbytes"]
+    assert notes and "budgetbytes" in notes[0] and "more than 5% fewer" in notes[0]
+
+
+def test_anEmptyCompleteListingRemovesNothing():
+    published = [keyFor("budgetbytes", u) for u in URLS]
+    keys, notes, guarded = publish.siteRemovals(
+        published, {"budgetbytes": {"ok": True, "complete": True, "listed": 0, "goneUrls": []}}, {}, 0.05)
+    assert keys == [] and guarded == ["budgetbytes"] and notes
+
+
+def test_siteRemovalsLeaveOtherSitesAndOldSourcesAlone():
+    pagecache.saveListing("budgetbytes", [(URLS[0], None)])
+    pagecache.saveListing("difford", [])
+    published = [keyFor("budgetbytes", URLS[0]), keyFor("budgetbytes", URLS[1]), keyFor("difford", URLS[1]),
+                 keyFor("pinchofyum", URLS[1]), "mealdb:1", "wikibooks:Cookbook:Soup", "cocktaildb:9"]
+    keys, notes, guarded = publish.siteRemovals(
+        published, {"budgetbytes": {"ok": True, "complete": True, "listed": 1, "goneUrls": []}}, {}, 0.05)
+    assert keys == [keyFor("budgetbytes", URLS[1])]
+
+
+def test_publishUsesGivenRemovals(monkeypatch):
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {"difford:x": "h", "mealdb:7": "y"}})
+    summary = publish.publish([], {"mealdb": {"ok": True, "ids": []}}, {}, log=lambda *a: None,
+                              removals=(["difford:x"], [], []))
+    assert summary["dry"] is True and summary["wouldRemove"] == ["difford:x"] and summary["wouldRemoveCount"] == 1
