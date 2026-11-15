@@ -132,17 +132,26 @@ def mappingForTable(table, foods, rules, picks):
     return {table.rows[i]["name"]: fdcId for i, (fdcId, _) in resolved.items() if fdcId is not None}
 
 
-def syncList(table, resolved):
+def syncList(table, resolved, foods):
     """The mappings to send the server: only rows whose stored (fdcId, fdcFrom) differ.
 
-    A row stored as owner is never listed unless the resolved choice is the owner's too.
+    Safe against a thin cache: with no foods nothing is sent, and a stored id the cache merely
+    lacks is never cleared or replaced; a stored row changes only when its stored food is present
+    in foods (or it has no id yet). A row stored as owner is never listed unless the resolved
+    choice is the owner's too. So a file pick naming a food the cache lacks is used for nothing
+    but the estimate (resolveTable falls through to curated/rule): if the row is stored as owner
+    it is left alone; if it is not owner yet, the fallthrough id is written as curated/rule.
     """
+    if not foods:
+        return []
     out = []
     for ingredientId, (fdcId, source) in resolved.items():
         row = table.rows[ingredientId]
         if (row.get("fdcId"), row.get("fdcFrom")) == (fdcId, source):
             continue
         if row.get("fdcFrom") == "owner" and source != "owner":
+            continue
+        if row.get("fdcId") is not None and row["fdcId"] not in foods:
             continue
         out.append({"ingredientId": ingredientId, "fdcId": fdcId, "from": source})
     return out

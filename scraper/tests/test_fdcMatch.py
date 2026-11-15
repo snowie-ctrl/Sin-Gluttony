@@ -100,50 +100,51 @@ def test_db_owner_row_beats_curated(foods):
 
 def test_db_owner_none_means_no_mapping_and_nothing_sent(foods):
     table = _table(("onion", None, "owner"))
-    resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
+    rules = {"fdcMap": {"onion": {"fdcId": 900005}}}
+    resolved = fdcMatch.resolveTable(table, foods, rules, {})
     assert resolved == {1: (None, "owner")}
-    assert fdcMatch.mappingForTable(table, foods, {}, {}) == {}
-    assert fdcMatch.syncList(table, resolved) == []
+    assert fdcMatch.mappingForTable(table, foods, rules, {}) == {}
+    assert fdcMatch.syncList(table, resolved, foods) == []
 
 
 def test_owner_id_missing_from_foods_falls_through_but_owner_row_is_kept(foods):
     table = _table(("onion", 1, "owner"))
     resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
     assert resolved == {1: (900005, "curated")}
-    assert fdcMatch.syncList(table, resolved) == []
+    assert fdcMatch.syncList(table, resolved, foods) == []
 
 
 def test_curated_beats_settled_and_is_sent_as_curated(foods):
     table = _table(("onion", None, None))
     resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
     assert resolved == {1: (900005, "curated")}
-    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": 900005, "from": "curated"}]
+    assert fdcMatch.syncList(table, resolved, foods) == [{"ingredientId": 1, "fdcId": 900005, "from": "curated"}]
 
 
 def test_settled_match_is_a_rule_row(foods):
     table = _table(("onion", None, None))
     resolved = fdcMatch.resolveTable(table, foods, {}, {})
     assert resolved == {1: (900001, "rule")}
-    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": 900001, "from": "rule"}]
+    assert fdcMatch.syncList(table, resolved, foods) == [{"ingredientId": 1, "fdcId": 900001, "from": "rule"}]
 
 
 def test_stored_rule_row_that_no_longer_settles_is_cleared(foods):
     table = _table(("dragonfruit", 900001, "rule"))
     resolved = fdcMatch.resolveTable(table, foods, {}, {})
     assert resolved == {1: (None, None)}
-    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": None, "from": None}]
+    assert fdcMatch.syncList(table, resolved, foods) == [{"ingredientId": 1, "fdcId": None, "from": None}]
 
 
 def test_unchanged_row_is_not_sent(foods):
     table = _table(("onion", 900001, "rule"))
-    assert fdcMatch.syncList(table, fdcMatch.resolveTable(table, foods, {}, {})) == []
+    assert fdcMatch.syncList(table, fdcMatch.resolveTable(table, foods, {}, {}), foods) == []
 
 
 def test_sync_never_overwrites_a_stored_owner_row(foods):
     table = _table(("onion", 900003, "owner"))
-    assert fdcMatch.syncList(table, {1: (900001, "rule")}) == []
-    assert fdcMatch.syncList(table, {1: (None, None)}) == []
-    assert fdcMatch.syncList(table, {1: (900001, "owner")}) == [{"ingredientId": 1, "fdcId": 900001, "from": "owner"}]
+    assert fdcMatch.syncList(table, {1: (900001, "rule")}, foods) == []
+    assert fdcMatch.syncList(table, {1: (None, None)}, foods) == []
+    assert fdcMatch.syncList(table, {1: (900001, "owner")}, foods) == [{"ingredientId": 1, "fdcId": 900001, "from": "owner"}]
 
 
 def test_seed_rows_carry_no_fdc_id():
@@ -160,3 +161,30 @@ def test_mapping_for_table_matches_mapping_for_on_a_seed_table(foods):
     assert fdcMatch.mappingForTable(table, foods, rules, {}) == fdcMatch.mappingFor(names, foods, rules, {})
     picks = {"onion": None, "egg": 900001}
     assert fdcMatch.mappingForTable(table, foods, rules, picks) == fdcMatch.mappingFor(names, foods, rules, picks)
+
+
+def test_empty_cache_sends_nothing(foods):
+    table = _table(("onion", 900001, "rule"), ("egg", None, None))
+    resolved = fdcMatch.resolveTable(table, {}, {}, {})
+    assert fdcMatch.syncList(table, resolved, {}) == []
+
+
+def test_stored_id_missing_from_a_partial_cache_is_not_touched(foods):
+    table = _table(("onion", 123456, "rule"))
+    resolved = fdcMatch.resolveTable(table, foods, {}, {})
+    assert resolved == {1: (900001, "rule")}
+    assert fdcMatch.syncList(table, resolved, foods) == []
+
+
+def test_file_pick_missing_from_foods_falls_through_and_never_overwrites_owner_row(foods):
+    rules = {"fdcMap": {"onion": {"fdcId": 900005}}}
+    owner = _table(("onion", 900003, "owner"))
+    # the owner row's own id is valid, so it is the owner's choice after the unusable pick
+    assert fdcMatch.resolveTable(owner, foods, rules, {"onion": 1}) == {1: (900003, "owner")}
+    owner = _table(("onion", 123456, "owner"))
+    resolved = fdcMatch.resolveTable(owner, foods, rules, {"onion": 1})
+    assert resolved == {1: (900005, "curated")}
+    assert fdcMatch.syncList(owner, resolved, foods) == []
+    plain = _table(("onion", None, None))
+    resolved = fdcMatch.resolveTable(plain, foods, rules, {"onion": 1})
+    assert fdcMatch.syncList(plain, resolved, foods) == [{"ingredientId": 1, "fdcId": 900005, "from": "curated"}]
