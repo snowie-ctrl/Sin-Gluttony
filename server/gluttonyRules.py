@@ -9,7 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 INT_LIMIT = 2 ** 31 - 1
 SITE_SOURCES = ("bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "loveandlemons", "difford")
-SOURCES = ("mealdb", "cocktaildb", "wikibooks") + SITE_SOURCES
+OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")       # part 1's catalog, retired by gluttonySwitch.py
+SOURCES = OLD_SOURCES + SITE_SOURCES
 KINDS = ("food", "drink")
 FOOD_COURSES = ("breakfast", "starter", "main", "side", "dessert", "snack", "bread", "sauce")
 DRINK_COURSES = ("cocktail", "mocktail", "shot", "coffee/tea", "shake", "punch")
