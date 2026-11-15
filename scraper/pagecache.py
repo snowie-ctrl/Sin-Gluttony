@@ -17,6 +17,11 @@ import store
 LISTING = "listing.json"
 
 
+def sourceIdFor(url):
+    """A recipe site page's source id (its key is "<site>:<id>"): the first 20 hex digits of sha1(url)."""
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
+
+
 def _paths(site, url):
     folder = config.RAW_DIR / site
     name = hashlib.sha1(url.encode("utf-8")).hexdigest()

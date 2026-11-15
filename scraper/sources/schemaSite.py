@@ -4,13 +4,13 @@ page's schema.org Recipe and the site's recipe card, and this turns its answer
 into Gluttony's recipe shape. A field the page lacks stays None: the gate, not
 the extractor, decides what that costs the recipe.
 """
-import hashlib
 import re
 from urllib.parse import urljoin
 
 from recipe_scrapers import scrape_html
 
 import quantity
+from pagecache import sourceIdFor   # noqa: F401 (difford and the tests read it here too)
 from models import Recipe, Skipped, Step
 from sources import schemaOrg
 
@@ -28,10 +28,6 @@ def _safe(read):
     except Exception:   # its exception types vary by field and version; a missing field is never fatal
         return None
     return None if value in ("", [], {}) else value
-
-
-def sourceIdFor(url):
-    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
 
 
 def linesFrom(texts, units, group=None):

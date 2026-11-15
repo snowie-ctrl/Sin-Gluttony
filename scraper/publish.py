@@ -11,7 +11,9 @@ key, a broken dump), nothing of it is removed and the report says why.
 A recipe site removes a page that answered gone (404/410) on enough passes in
 a row, and, when this pass read the site's whole sitemap listing, every page
 missing from it. A listing that shrank by more than REMOVAL_GUARD since last
-time removes nothing that way. The old sources' keys are never touched by it.
+time removes nothing that way. Gone pages are removed even when the pass
+stopped the site early, since each gone answer was seen directly. The old
+sources (OLD_SOURCES) are skipped by construction, whatever is passed in.
 
 A site recipe also carries its description, the gate's hidden reason, its
 picture's width and its per-serving nutrition. Each goes in only when it has a
@@ -24,8 +26,8 @@ import adminApi
 import config
 import pagecache
 import store
-from sources import schemaSite
 
+OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")
 NUTRIENTS = ("calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG", "sodiumMg")
 
 
@@ -97,14 +99,16 @@ def siteRemovals(publishedKeys, crawled, lastCounts, guard):
     """(keys to mark removed, a note per site the guard held back, those sites) for the recipe sites crawled."""
     keys, notes, guarded = set(), [], []
     for site, result in sorted(crawled.items()):
+        if site in OLD_SOURCES:
+            continue
         bySourceId = {k.split(":", 1)[1]: k for k in publishedKeys if k.split(":", 1)[0] == site}
         for url in result.get("goneUrls", []):
-            key = bySourceId.get(schemaSite.sourceIdFor(url))
+            key = bySourceId.get(pagecache.sourceIdFor(url))
             if key:
                 keys.add(key)
         if not result.get("complete"):
             continue
-        listed = {schemaSite.sourceIdFor(url) for url, _ in pagecache.listing(site)}
+        listed = {pagecache.sourceIdFor(url) for url, _ in pagecache.listing(site)}
         last = lastCounts.get(site)
         if not listed:
             notes.append(f"{site}: the sitemap listing is empty, nothing removed for missing pages")

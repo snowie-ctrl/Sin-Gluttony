@@ -1,3 +1,7 @@
+import hashlib
+import importlib
+import sys
+
 import pytest
 
 import adminApi
@@ -238,6 +242,34 @@ def test_siteRemovalsLeaveOtherSitesAndOldSourcesAlone():
 
 def test_publishUsesGivenRemovals(monkeypatch):
     store.writeJson(config.PUBLISHED_FILE, {"recipes": {"difford:x": "h", "mealdb:7": "y"}})
-    summary = publish.publish([], {"mealdb": {"ok": True, "ids": []}}, {}, log=lambda *a: None,
-                              removals=(["difford:x"], [], []))
+    fetched = {"mealdb": {"ok": True, "ids": ["1"]}}      # removalsFor alone would remove mealdb:7
+    assert publish.removalsFor(["mealdb:7"], fetched, {}, 0.05)[0] == ["mealdb:7"]
+    summary = publish.publish([], fetched, {}, log=lambda *a: None, removals=(["difford:x"], [], []))
     assert summary["dry"] is True and summary["wouldRemove"] == ["difford:x"] and summary["wouldRemoveCount"] == 1
+    assert "mealdb:7" not in summary["wouldRemove"]
+
+
+def test_siteRemovalsNeverActOnAnOldSourceEvenIfAskedTo():
+    published = ["mealdb:1", "cocktaildb:2", "wikibooks:Cookbook:Soup"]
+    crawled = {name: {"ok": True, "complete": True, "listed": 0, "goneUrls": ["https://example.test/a"]}
+               for name in ("mealdb", "cocktaildb", "wikibooks")}
+    keys, notes, guarded = publish.siteRemovals(published, crawled, {}, 0.05)
+    assert keys == [] and notes == [] and guarded == []
+
+
+def test_importingPublishDoesNotNeedRecipeScrapers(monkeypatch):
+    """The old-catalog pass imports publish; the VM may not have recipe-scrapers installed."""
+    monkeypatch.setitem(sys.modules, "recipe_scrapers", None)      # any import of it now raises ImportError
+    for name in ("publish", "sources.schemaSite"):
+        monkeypatch.delitem(sys.modules, name, raising=False)       # restored after the test
+    monkeypatch.delattr(sys.modules["sources"], "schemaSite", raising=False)   # else "from sources import" finds it
+    fresh = importlib.import_module("publish")
+    assert fresh.siteRemovals and "sources.schemaSite" not in sys.modules
+    with pytest.raises(ImportError):
+        importlib.import_module("sources.schemaSite")              # the block is real
+    monkeypatch.delitem(sys.modules, "sources.schemaSite", raising=False)
+
+
+def test_siteSourceIdsAreTheSameEverywhere():
+    url = "https://example.test/recipes/soup"
+    assert schemaSite.sourceIdFor(url) == pagecache.sourceIdFor(url) == hashlib.sha1(url.encode()).hexdigest()[:20]
