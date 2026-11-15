@@ -280,7 +280,7 @@ def fdcMapProblem(data):
     if not isinstance(mappings, list) or not 1 <= len(mappings) <= 5000:
         return "mappings must be a list of 1 to 5000"
     for m in mappings:
-        if not isinstance(m, dict) or not _whole(m.get("ingredientId"), 1, INT_LIMIT) or m["ingredientId"] is None:
+        if not isinstance(m, dict) or m.get("ingredientId") is None or not _whole(m["ingredientId"], 1, INT_LIMIT):
             return "every mapping needs an ingredientId, a positive whole number"
         if "fdcId" not in m or not _whole(m["fdcId"], 1, INT_LIMIT):
             return "fdcId must be a positive whole number or null"

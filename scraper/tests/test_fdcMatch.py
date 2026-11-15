@@ -147,6 +147,20 @@ def test_sync_never_overwrites_a_stored_owner_row(foods):
     assert fdcMatch.syncList(table, {1: (900001, "owner")}, foods) == [{"ingredientId": 1, "fdcId": 900001, "from": "owner"}]
 
 
+def test_an_owner_pick_reaches_the_db_even_when_the_stored_rule_id_is_not_in_the_cache(foods):
+    table = _table(("onion", 1, "rule"), ("egg", 2, "curated"))    # ids 1 and 2 are not in the made-up foods
+    resolved = fdcMatch.resolveTable(table, foods, {}, {"onion": 900003, "egg": None})
+    assert resolved == {1: (900003, "owner"), 2: (None, "owner")}
+    assert fdcMatch.syncList(table, resolved, foods) == [{"ingredientId": 1, "fdcId": 900003, "from": "owner"},
+                                                         {"ingredientId": 2, "fdcId": None, "from": "owner"}]
+
+
+def test_a_stored_id_missing_from_the_cache_is_still_kept_against_a_rule_or_curated_choice(foods):
+    table = _table(("onion", 1, "rule"), ("egg", 2, "rule"))
+    assert fdcMatch.syncList(table, {1: (900001, "rule"), 2: (None, None)}, foods) == []
+    assert fdcMatch.syncList(table, {1: (900005, "curated")}, foods) == []
+
+
 def test_seed_rows_carry_no_fdc_id():
     import matching
     table = matching.IngredientTable.fromSeed([{"name": "onion"}], set())

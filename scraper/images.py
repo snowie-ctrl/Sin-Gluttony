@@ -16,7 +16,7 @@ from sources import wikiImages
 LARGE = 1200
 THUMB = 400
 QUALITY = 85
-OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")
+OLD_SOURCES = config.OLD_SOURCES
 
 
 def imageName(url):

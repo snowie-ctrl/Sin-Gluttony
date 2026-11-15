@@ -389,3 +389,63 @@ def test_withPublishOnAnEmptySyncListPostsNothing(newCatalog, monkeypatch):
 def test_aDryNewPassPostsNoMappings(newCatalog, monkeypatch):
     monkeypatch.setattr(fdcMatch, "syncList", lambda *a: (_ for _ in ()).throw(AssertionError("synced when dry")))
     assert pipeline.runPass("full", log=quiet)["outcome"] == "ok"
+
+
+def removalWorld(newCatalog, monkeypatch, publishOn):
+    """Site a's three pages are cached and published; A_MISSING has left a complete listing. The read is real
+    over the cache (one recipe per cached page), so a page left in the cache would be read and sent again."""
+    for url in (A_URL, A_SMALL, A_MISSING):
+        pagecache.save("sitea", url, "<html>made-up</html>", None)
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {f"sitea:{pagecache.sourceIdFor(u)}": "made-up-hash"
+                                                        for u in (A_URL, A_SMALL, A_MISSING)}})
+    monkeypatch.setattr(adaptSites, "adaptCached", lambda siteList, rules: (
+        [siteRecipe("sitea", meta["url"]) for meta, _ in pagecache.pages("sitea")], []))
+    monkeypatch.setattr(pipeline, "loadTable", lambda rules, log=print: matching.IngredientTable.fromSeed(
+        rules["ingredients"], set(rules["prepWords"]), set(rules["modifierWords"])))
+    posts = []
+    if publishOn:
+        monkeypatch.setattr(config, "PUBLISH", "on")
+        monkeypatch.setattr(adminApi, "configured", lambda: True)
+        monkeypatch.setattr(adminApi, "rsync", lambda src, dest: None)
+
+        def post(path, payload, timeout=120):
+            posts.append((path, payload))
+            if path == "/recipes/batch":
+                return {"stored": [r["key"] for r in payload["recipes"]], "failed": []}
+            if path == "/recipes/removed":
+                return {"removed": len(payload["keys"])}
+            return {}
+        monkeypatch.setattr(adminApi, "post", post)
+    return missing, posts
+
+
+def sentKeys(posts, path):
+    if path == "/recipes/batch":
+        return [r["key"] for p, payload in posts if p == path for r in payload["recipes"]]
+    return [k for p, payload in posts if p == path for k in payload["keys"]]
+
+
+def test_aRemovedSitePageIsDroppedFromTheCacheAndNeverSentAgain(newCatalog, monkeypatch):
+    missing, posts = removalWorld(newCatalog, monkeypatch, publishOn=True)
+    first = pipeline.runPass("full", log=quiet)
+    assert first["outcome"] == "ok", first["error"]
+    assert sentKeys(posts, "/recipes/removed") == [missing]
+    assert missing not in sentKeys(posts, "/recipes/batch")          # never re-posted in the pass that removes it
+    assert pagecache.meta("sitea", A_MISSING) is None and pagecache.load("sitea", A_MISSING) is None
+    assert pagecache.meta("sitea", A_URL) is not None
+    assert missing not in store.readJson(config.PUBLISHED_FILE)["recipes"]
+    for mode in ("retag", "full"):
+        posts.clear()
+        result = pipeline.runPass(mode, log=quiet)
+        assert result["outcome"] == "ok", result["error"]
+        assert missing not in sentKeys(posts, "/recipes/batch") + sentKeys(posts, "/recipes/removed")
+        assert missing not in store.readJson(config.PUBLISHED_FILE)["recipes"]
+
+
+def test_aDryPassDropsNothingFromTheCache(newCatalog, monkeypatch):
+    missing, _ = removalWorld(newCatalog, monkeypatch, publishOn=False)
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    assert result["publish"]["wouldRemove"] == [missing]
+    assert pagecache.load("sitea", A_MISSING) is not None and pagecache.meta("sitea", A_MISSING) is not None

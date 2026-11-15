@@ -61,6 +61,20 @@ def pages(site):
             yield info, html
 
 
+def urlsBySourceId(site):
+    """{source id: url} for every page of a site with a sidecar on disk."""
+    folder = config.RAW_DIR / site
+    metas = [store.readJson(path) for path in folder.glob("*.json") if path.name != LISTING]
+    return {sourceIdFor(m["url"]): m["url"] for m in metas if isinstance(m, dict) and m.get("url")}
+
+
+def drop(site, url):
+    """Forget a page: its .html.gz and its sidecar. A page plutus was told is removed must not be read again
+    from here (it would be published anew); if it comes back in the sitemap it is due and fetched afresh."""
+    for path in _paths(site, url):
+        path.unlink(missing_ok=True)
+
+
 def saveListing(site, entries):
     store.writeJson(config.RAW_DIR / site / LISTING, [[url, lastmod] for url, lastmod in entries])
 

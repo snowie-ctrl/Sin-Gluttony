@@ -226,7 +226,8 @@ def test_fdcMappingsAreOneGuardedUpdateEachAndOneCommit(client, useDb):
     {"mappings": "x"}, {"mappings": []}, {"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "rule"}] * 5001},
     {"mappings": [{"ingredientId": "1", "fdcId": 5, "from": "rule"}]},
     {"mappings": [{"ingredientId": 1, "fdcId": 5.5, "from": "rule"}]},
-    {"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "guess"}]}])
+    {"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "guess"}]},
+    {"mappings": [{"fdcId": 5, "from": "rule"}]}])
 def test_fdcRefusesBadMappings(client, useDb, data):
     conn = useDb()
     assert post(client, "/ingredients/fdc", data).status_code == 400

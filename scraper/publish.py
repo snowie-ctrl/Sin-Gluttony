@@ -14,10 +14,14 @@ missing from it. A listing that shrank by more than REMOVAL_GUARD since last
 time removes nothing that way. Gone pages are removed even when the pass
 stopped the site early, since each gone answer was seen directly. The old
 sources (OLD_SOURCES) are skipped by construction, whatever is passed in.
+Once plutus confirms a site removal, the page leaves the page cache, so no
+later pass reads it and sends it again; a key being removed is never also
+sent in the same pass.
 
 A site recipe also carries its description, the gate's hidden reason, its
 picture's width and its per-serving nutrition. Each goes in only when it has a
-value, so an old-source recipe's payload and hash are what they were.
+value, and never for an old-source recipe (whose picture does get a width), so
+an old-source recipe's payload and hash are what they were.
 """
 import hashlib
 import json
@@ -27,7 +31,8 @@ import config
 import pagecache
 import store
 
-OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")
+OLD_SOURCES = config.OLD_SOURCES
+MAX_NUTRIENT = 100000      # plutus refuses a per-serving nutrient above this, or below 0
 NUTRIENTS = ("calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG", "sodiumMg")
 
 
@@ -40,12 +45,17 @@ def contentHash(payload):
     return hashlib.sha1(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def _storable(value):
+    """A nutrient plutus can store (0 to 100,000, Ruling S10), else None: one wild number never refuses the recipe."""
+    return value if value is not None and 0 <= value <= MAX_NUTRIENT else None
+
+
 def nutritionFor(recipe):
-    """The per-serving nutrition plutus stores, or None when there are no calories to show."""
+    """The per-serving nutrition plutus stores, or None when there are no storable calories to show."""
     values = recipe.nutrition or {}
-    if values.get("calories") is None:
+    if _storable(values.get("calories")) is None:
         return None
-    return dict({name: values.get(name) for name in NUTRIENTS},
+    return dict({name: _storable(values.get(name)) for name in NUTRIENTS},
                 **{"from": recipe.nutritionFrom, "flagged": bool(recipe.nutritionFlagged)})
 
 
@@ -66,9 +76,10 @@ def payloadFor(recipe):
         "tags": recipe.tags,
         "facts": recipe.facts,
     }
-    extras = {"description": recipe.description, "hiddenReason": recipe.hiddenReason,
-              "imageWidth": recipe.imageWidth, "nutrition": nutritionFor(recipe)}
-    payload.update({name: value for name, value in extras.items() if value is not None})
+    if recipe.source not in OLD_SOURCES:     # an old-source payload and hash stay exactly as they were (Ruling P1)
+        extras = {"description": recipe.description, "hiddenReason": recipe.hiddenReason,
+                  "imageWidth": recipe.imageWidth, "nutrition": nutritionFor(recipe)}
+        payload.update({name: value for name, value in extras.items() if value is not None})
     payload["contentHash"] = contentHash(payload)
     return payload
 
@@ -138,6 +149,20 @@ def _save(published):
     store.writeJson(config.PUBLISHED_FILE, {"recipes": published})
 
 
+def _dropCached(keys, urlMaps):
+    """Drop each removed recipe-site page from the page cache once plutus has its removal, so no later pass or
+    re-tag reads it again and re-sends it (which would clear its RemovedAt). Old sources have no page cache."""
+    for key in keys:
+        site, sourceId = key.split(":", 1)
+        if site in OLD_SOURCES:
+            continue
+        if site not in urlMaps:
+            urlMaps[site] = pagecache.urlsBySourceId(site)
+        url = urlMaps[site].get(sourceId)
+        if url:
+            pagecache.drop(site, url)
+
+
 def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
     """removals, when given, is a (keys, notes, guarded) already worked out (the recipe sites' siteRemovals)."""
     dry = config.PUBLISH != "on"
@@ -145,15 +170,16 @@ def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
         raise adminApi.AdminError("ADMIN_TOKEN and ADMIN_HOST must be set in .env")
     payloads = [payloadFor(r) for r in recipes]
     published = publishedState(dry)
-    changed = [p for p in payloads if published.get(p["key"]) != p["contentHash"]]
-    perSource = {}
-    for p in changed:
-        counts = perSource.setdefault(p["source"], {"new": 0, "changed": 0})
-        counts["changed" if p["key"] in published else "new"] += 1
     if removals is not None:
         removeKeys, notes, guarded = sorted(removals[0]), list(removals[1]), list(removals[2])
     else:
         removeKeys, notes, guarded = removalsFor(list(published), fetchResults, lastCounts, config.REMOVAL_GUARD)
+    removing = set(removeKeys)      # a page this pass removes is never also sent (it would clear RemovedAt)
+    changed = [p for p in payloads if published.get(p["key"]) != p["contentHash"] and p["key"] not in removing]
+    perSource = {}
+    for p in changed:
+        counts = perSource.setdefault(p["source"], {"new": 0, "changed": 0})
+        counts["changed" if p["key"] in published else "new"] += 1
     summary = {"dry": dry, "changed": len(changed), "perSource": perSource, "stored": 0, "failed": [],
                "removed": 0, "notes": notes, "guarded": guarded}
     if dry:
@@ -174,6 +200,7 @@ def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
         summary["stored"] += len(answer.get("stored", []))
         summary["failed"] += answer.get("failed", [])
         _save(published)                    # after every batch, so a failure later keeps this progress
+    urlMaps = {}
     for start in range(0, len(removeKeys), 1000):
         chunk = removeKeys[start:start + 1000]
         answer = adminApi.post("/recipes/removed", {"keys": chunk})
@@ -181,6 +208,7 @@ def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
         for key in chunk:
             published.pop(key, None)
         _save(published)
+        _dropCached(chunk, urlMaps)
     if not changed and not removeKeys:
         _save(published)
     log(f"publish: {summary['stored']} stored, {len(summary['failed'])} refused, {summary['removed']} removed")

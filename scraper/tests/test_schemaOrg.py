@@ -68,6 +68,12 @@ def test_saltBecomesSodiumAndGramsOfSodiumBecomeMilligrams():
     assert schemaOrg.nutritionOf({"calories": "300", "sodiumContent": "0.45 g"})["sodiumMg"] == 450.0
 
 
+def test_saltGivenInMilligramsIsReadAsMilligrams():
+    assert schemaOrg.nutritionOf({"calories": "300", "saltContent": "1200 mg"})["sodiumMg"] == 471.6
+    assert schemaOrg.nutritionOf({"calories": "300", "saltContent": "1200mg"})["sodiumMg"] == 471.6
+    assert schemaOrg.nutritionOf({"calories": "300", "saltContent": "1.2"})["sodiumMg"] == 471.6     # bare: grams
+
+
 def test_noCaloriesMeansNoNutrition():
     assert schemaOrg.nutritionOf({"proteinContent": "10 g"}) is None
     assert schemaOrg.nutritionOf(None) is None

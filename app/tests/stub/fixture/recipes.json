@@ -21,7 +21,7 @@
     {"text": "Pour in the wine, bring to a simmer, then cover and cook gently for 1 hour.", "group": null},
     {"text": "Glaze the onions in butter and stir them through.", "group": null}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": [], "technique": []},
    "facts": {"complete": false, "contains": ["alcohol", "meat", "poultry"], "diets": []},
    "versions": [{"id": 2, "title": "Coq au Vin (slow cooker)", "source": "wikibooks", "hasImage": false}]},
   {"id": 2, "kind": "food", "title": "Coq au Vin (slow cooker)", "course": "main", "cuisine": "French",
@@ -39,7 +39,7 @@
     {"text": "Mix the sauce.", "group": "For the sauce"},
     {"text": "Cook on low for 5 ½ hours at about 90°C.", "group": "For the chicken"}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": [], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": [], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["alcohol", "poultry"], "diets": ["gluten-free", "dairy-free"]},
    "versions": [{"id": 1, "title": "Stub Coq au Vin", "source": "mealdb", "hasImage": true}]},
   {"id": 3, "kind": "drink", "title": "Stub Mojito", "course": "cocktail", "cuisine": null,
@@ -54,7 +54,7 @@
     {"line": "Soda water", "quantity": null, "quantityMax": null, "unit": null, "ingredientId": 205, "name": "soda water", "note": null, "optional": true, "group": null}
    ],
    "steps": [{"text": "Muddle the mint with the sugar, add the rum and ice, and top with soda.", "group": null}],
-   "tags": {"flavour": ["sweet", "sour"], "occasion": ["party"], "source": []},
+   "tags": {"flavour": ["sweet", "sour"], "occasion": ["party"], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["alcohol"], "diets": ["vegetarian", "vegan", "gluten-free", "dairy-free"]},
    "versions": []},
   {"id": 4, "kind": "food", "title": "Stub Spinach Eggs", "course": "breakfast", "cuisine": "British",
@@ -74,7 +74,7 @@
     {"text": "Heat the oven to 180°C.", "group": null},
     {"text": "Wilt the spinach in the butter, crack in the eggs and bake for 10 minutes.", "group": null}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": ["brunch", "basic"], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": ["brunch", "basic"], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["dairy", "egg"], "diets": ["vegetarian", "gluten-free"]},
    "versions": []}
  ]

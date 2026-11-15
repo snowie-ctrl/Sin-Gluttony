@@ -576,3 +576,10 @@ def test_signingOutEndsEverySessionOfThatDevice(client):
     client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": made})
     for token in (made, again):
         assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": token}).status_code == 401
+
+
+def test_everyDetailCarriesEveryTagTypeTheServerSends(client):
+    """The server groups a recipe's tags under all of gluttonyRules.TAG_TYPES, empty or not."""
+    for recipe in json.loads((stub.HERE / "fixture" / "recipes.json").read_text(encoding="utf-8"))["recipes"]:
+        tags = get(client, f"/recipes/{recipe['id']}").get_json()["data"]["tags"]
+        assert sorted(tags) == ["flavour", "occasion", "source", "technique"], recipe["id"]

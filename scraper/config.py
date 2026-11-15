@@ -49,6 +49,7 @@ SITE_STATE_FILE = RUN_DIR / "site-state.json"   # per recipe site: stops, Retry-
 SITES_FILE = RUN_DIR / "sites.json"             # per recipe site: counts, gate reasons and the alarm (GET /sites)
 
 # ========== SOURCES ==========
+OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")    # the old catalog; their payloads must not change shape
 # The free key "1" only: the owner pays for nothing the scraper uses.
 MEALDB_BASE = "https://www.themealdb.com/api/json/v1/1"
 COCKTAILDB_BASE = "https://www.thecocktaildb.com/api/json/v1/1"

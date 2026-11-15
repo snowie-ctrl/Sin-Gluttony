@@ -290,6 +290,8 @@ def test_nutritionRowOrdersTheValues(rules):
     ({"mappings": [{"ingredientId": 1, "fdcId": "5", "from": "rule"}]}, False),
     ({"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "guess"}]}, False),
     ({"mappings": [{"ingredientId": 1, "fdcId": 5}]}, False),
+    ({"mappings": [{"fdcId": 5, "from": "rule"}]}, False),
+    ({"mappings": [{"ingredientId": None, "fdcId": 5, "from": "rule"}]}, False),
 ])
 def test_fdcMapProblem(rules, data, ok):
     assert (rules.fdcMapProblem(data) is None) is ok

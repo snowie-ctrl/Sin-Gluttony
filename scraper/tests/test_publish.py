@@ -179,8 +179,24 @@ def test_nutritionWithoutCaloriesIsLeftOutAndMissingNutrientsAreNone():
                        "fibreG": None, "sugarG": None, "sodiumMg": None, "from": "source", "flagged": False}
 
 
+def test_aNutrientOutsideWhatPlutusStoresIsLeftOut():
+    wild = publish.payloadFor(siteRecipe(nutrition=dict(NUTRITION, sodiumMg=250000.0, fatG=-1.0)))["nutrition"]
+    assert wild["sodiumMg"] is None and wild["fatG"] is None and wild["proteinG"] == 12.5
+    edges = publish.payloadFor(siteRecipe(nutrition=dict(NUTRITION, sodiumMg=100000.0, sugarG=0.0)))["nutrition"]
+    assert edges["sodiumMg"] == 100000.0 and edges["sugarG"] == 0.0
+
+
+def test_caloriesOutsideWhatPlutusStoresSendNoNutrition():
+    assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition=dict(NUTRITION, calories=100001.0)))
+    assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition=dict(NUTRITION, calories=-5.0)))
+
+
 def test_anOldSourceRecipesPayloadAndHashAreUnchanged():
-    payload = publish.payloadFor(recipe())
+    r = recipe()
+    r.imageWidth = 1200          # images.ensureImages records a width for old-source pictures too
+    r.description, r.hiddenReason = "Made-up.", "small-photo"
+    r.nutrition, r.nutritionFrom = dict(NUTRITION), "source"
+    payload = publish.payloadFor(r)
     for name in ("description", "hiddenReason", "imageWidth", "nutrition"):
         assert name not in payload
     assert payload["contentHash"] == "fbe0b73d4aae52a5a7c16c48162a248bc035e3ab"     # the hash before this change
@@ -270,6 +286,43 @@ def test_importingPublishDoesNotNeedRecipeScrapers(monkeypatch):
     monkeypatch.delitem(sys.modules, "sources.schemaSite", raising=False)
 
 
+def test_imagesAndPublishShareOneListOfOldSources():
+    import images
+    assert publish.OLD_SOURCES is config.OLD_SOURCES and images.OLD_SOURCES is config.OLD_SOURCES
+    assert config.OLD_SOURCES == ("mealdb", "cocktaildb", "wikibooks")
+
+
 def test_siteSourceIdsAreTheSameEverywhere():
     url = "https://example.test/recipes/soup"
     assert schemaSite.sourceIdFor(url) == pagecache.sourceIdFor(url) == hashlib.sha1(url.encode()).hexdigest()[:20]
+
+
+def test_aKeyBeingRemovedIsNeverAlsoSent(monkeypatch):
+    plutus = FakePlutus(monkeypatch)
+    r = siteRecipe()
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {r.key: "old-hash"}})
+    summary = publish.publish([r], {}, {}, log=lambda *a: None, removals=([r.key], [], []))
+    assert [p for p, _ in plutus.posts] == ["/recipes/removed"] and summary["changed"] == 0
+
+
+def test_aPostedSiteRemovalDropsThePageFromTheCacheButAnOldSourceIsLeftAlone(monkeypatch):
+    FakePlutus(monkeypatch)
+    url = "https://example.test/recipes/gone"
+    pagecache.save("budgetbytes", url, "<html>made-up</html>", None)
+    key = keyFor("budgetbytes", url)
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {key: "h", "mealdb:7": "y"}})
+    publish.publish([], {}, {}, log=lambda *a: None, removals=([key, "mealdb:7"], [], []))
+    assert pagecache.meta("budgetbytes", url) is None and pagecache.load("budgetbytes", url) is None
+
+
+def test_aFailedRemovalPostKeepsThePageCached(monkeypatch):
+    plutus = FakePlutus(monkeypatch)
+    url = "https://example.test/recipes/gone"
+    pagecache.save("budgetbytes", url, "<html>made-up</html>", None)
+
+    def failing(path, payload, timeout=120):
+        raise adminApi.AdminError("POST /recipes/removed failed after 3 attempts")
+    monkeypatch.setattr(adminApi, "post", failing)
+    with pytest.raises(adminApi.AdminError):
+        publish.publish([], {}, {}, log=lambda *a: None, removals=([keyFor("budgetbytes", url)], [], []))
+    assert pagecache.load("budgetbytes", url) is not None
