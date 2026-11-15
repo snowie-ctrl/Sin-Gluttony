@@ -28,5 +28,6 @@
  {"name": "vegan butter", "item": "dairy", "why": "A plant-based spread; no milk."},
  {"name": "garri", "item": "dairy", "why": "\"Milk tin\" is the measure (an evaporated-milk tin of garri); garri is cassava."},
  {"name": "soda extract", "item": "gluten", "why": "Root beer extract is flavouring; no grain."},
- {"name": "flaxseed", "item": "egg", "why": "A flax egg is ground flaxseed and water, an egg substitute."}
+ {"name": "flaxseed", "item": "egg", "why": "A flax egg is ground flaxseed and water, an egg substitute."},
+ {"name": "cream of coconut", "item": "dairy", "why": "Sweetened coconut cream; no milk in it."}
 ]
