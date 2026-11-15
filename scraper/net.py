@@ -34,6 +34,7 @@ MIN_INTERVAL = {                # seconds between requests to the same host
 }
 DEFAULT_INTERVAL = 1.0
 CRAWL_INTERVAL = 5.0            # seconds between requests to a recipe site's host
+MAX_SITEMAP_BYTES = 50 * 1024 * 1024    # a sitemap unpacked past this is refused (sources/sites.py reads it)
 RETRIES = 3
 
 _session = requests.Session()
@@ -143,7 +144,7 @@ def request(method, url, *, params=None, payload=None, cacheHours=None, timeout=
     raise HttpError(f"{method} {url} failed after {retries} attempt(s) ({lastError})", status=lastStatus)
 
 
-def crawl(url, *, binary=False, timeout=20, retries=2):
+def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None):
     """
     One request to a recipe site, as GluttonyPersonalCrawler, at most one per
     CRAWL_INTERVAL per host. Any 4xx (403 and 429 included) raises at once with
@@ -151,6 +152,10 @@ def crawl(url, *, binary=False, timeout=20, retries=2):
     a site that refuses is stopped by the caller, never waited out here. A 5xx
     or a dropped connection is tried `retries` times. Returns the page's text,
     or its bytes with binary=True (sitemaps, which may be gzipped).
+    Redirects are followed on the same host only: one that ends on another host
+    raises HttpError (status None), because that host's robots.txt was never
+    read. finalUrl, when a list, gets the URL the answer came from appended, so
+    the caller can check it against robots.txt too.
     """
     host = urlsplit(url).hostname
     _crawlHosts.add(host)
@@ -165,6 +170,10 @@ def crawl(url, *, binary=False, timeout=20, retries=2):
             if not last:
                 time.sleep(2 ** attempt)
             continue
+        # an answer from another host (its 404 or 403 included) is not this site's answer
+        final = getattr(resp, "url", None) or url
+        if (urlsplit(final).hostname or "").lower() != (host or "").lower():
+            raise HttpError(f"GET {url} redirected off host (to {final})", status=None)
         if resp.status_code >= 500:
             lastError, lastStatus = f"{resp.status_code} server error", resp.status_code
             if not last:
@@ -173,6 +182,8 @@ def crawl(url, *, binary=False, timeout=20, retries=2):
         if resp.status_code >= 400:
             raise HttpError(f"GET {url} -> {resp.status_code}", status=resp.status_code,
                             retryAfter=retryAfterSeconds(resp.headers.get("Retry-After")))
+        if finalUrl is not None:
+            finalUrl.append(final)
         if binary:
             return resp.content
         if "charset=" not in (resp.headers.get("Content-Type") or "").lower():

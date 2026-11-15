@@ -158,3 +158,27 @@ def test_picturesFromACrawledHostGetTheCrawlersNameAndPace(monkeypatch, tmp_path
     assert seen[1][1] is None
     assert net._interval("www.example-recipes.test") == 5.0
     assert net._interval("images.example-cdn.test") == net.DEFAULT_INTERVAL
+
+
+def redirected(status, body, finalUrl):
+    response = FakeResponse(status, body)
+    response.url = finalUrl
+    return response
+
+
+def test_aRedirectOffHostIsRefused(monkeypatch):
+    fakeSession(monkeypatch, [redirected(200, "<html>Made-up</html>", "https://elsewhere.example.test/made-up/")])
+    with pytest.raises(net.HttpError, match="redirected off host") as error:
+        net.crawl("https://www.example-recipes.test/made-up-stew/")
+    assert error.value.status is None
+
+
+def test_aRedirectOnTheSameHostIsFollowedAndItsUrlHandedBack(monkeypatch):
+    fakeSession(monkeypatch, [redirected(200, "<html>Made-up</html>", "https://WWW.Example-Recipes.test/made-up-new/")])
+    final = []
+    assert net.crawl("https://www.example-recipes.test/made-up-stew/", finalUrl=final) == "<html>Made-up</html>"
+    assert final == ["https://WWW.Example-Recipes.test/made-up-new/"]
+
+
+def test_theSitemapCapIsFiftyMegabytes():
+    assert net.MAX_SITEMAP_BYTES == 50 * 1024 * 1024

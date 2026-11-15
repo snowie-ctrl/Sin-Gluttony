@@ -2,21 +2,24 @@
 The recipe sites in rules/sites.json: what each one's robots.txt allows and
 which recipe pages its sitemaps list, with lastmod. Every request goes through
 net.crawl (GluttonyPersonalCrawler, one request per 5 s per host), and a 403
-or 429 stops the site for the pass as SiteStopped. The crawl takes the sites in
-turn and keeps each recipe page in pagecache.
+or 429 stops the site for the pass as SiteStopped. robots.txt is read by
+robots.Rules (wildcards obeyed), and a page redirected into a path it disallows
+is not kept. The crawl takes the sites in turn and keeps each recipe page in
+pagecache. A listing is complete only when every sitemap was read: none failed,
+none blocked by robots.txt, on another host or cut off at MAX_SITEMAPS; only a
+complete listing replaces the saved one.
 """
-import gzip
 import re
 import time
 import xml.etree.ElementTree as ET
 import zlib
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
-from urllib.robotparser import RobotFileParser
 
 import config
 import net
 import pagecache
+import robots as robotsTxt
 import store
 from sources import schemaOrg
 
@@ -67,6 +70,10 @@ def loadSites(rules):
     return enabled
 
 
+class SitemapTooLarge(ValueError):
+    """A sitemap that unpacks past net.MAX_SITEMAP_BYTES."""
+
+
 class SiteStopped(Exception):
     """A site that refused, walled us off or says no in robots.txt: nothing more is asked of it this pass."""
     def __init__(self, reason, retryAfter=None):
@@ -89,30 +96,43 @@ def robotsFor(site):
     stops it too, because rules we could not read cannot be obeyed.
     """
     url = f"https://{site['host']}/robots.txt"
-    robots = RobotFileParser(url)
     try:
         text = net.crawl(url)
     except net.HttpError as e:
         if e.status in (403, 429):
             raise refusal(e)
         if e.status is not None and 400 <= e.status < 500:
-            robots.parse([])
-            return robots
+            return robotsTxt.Rules.parse("")
         raise SiteStopped(f"robots.txt unreachable ({e})")
-    robots.parse(text.splitlines())
-    return robots
+    return robotsTxt.Rules.parse(text)
 
 
 def _local(tag):
     return tag.rsplit("}", 1)[-1]
 
 
+def _unpacked(data):
+    """
+    The sitemap's bytes, gunzipped when gzipped. Unpacking stops at net.MAX_SITEMAP_BYTES (SitemapTooLarge), so a
+    small file cannot unpack into gigabytes. A plain sitemap is already whole in memory and is not capped here.
+    """
+    if data[:2] != b"\x1f\x8b":
+        return data
+    cap = net.MAX_SITEMAP_BYTES
+    unzip = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = unzip.decompress(data, cap + 1)
+    if len(out) > cap or unzip.unconsumed_tail:
+        raise SitemapTooLarge(f"unpacks past {cap} bytes")
+    if not unzip.eof:
+        raise EOFError("gzip cut short")
+    return out
+
+
 def parseSitemap(data):
     """('sitemapindex' or 'urlset', [(loc, lastmod or None)]) from a sitemap's bytes, gzipped or not."""
     if isinstance(data, str):
         data = data.encode("utf-8")
-    if data[:2] == b"\x1f\x8b":
-        data = gzip.decompress(data)
+    data = _unpacked(data)
     root = ET.fromstring(data)
     entries = []
     for item in root:
@@ -140,9 +160,16 @@ def _iso(when):
 def sitemapEntries(site, robots, log=print, failures=None):
     """
     Every recipe page the site's sitemaps list (indexes followed) and robots.txt
-    allows, as (url, lastmod or None): newest first, pages without lastmod last. A sitemap that could not be
-    read is appended to `failures` (when given), so the caller knows the listing is incomplete.
+    allows, as (url, lastmod or None): newest first, pages without lastmod last. A sitemap not read (failed,
+    unreadable, too large, disallowed by robots.txt, on another host, or past MAX_SITEMAPS) has a reason appended
+    to `failures` (when given), so the caller knows the listing is incomplete.
     """
+    failures = [] if failures is None else failures
+
+    def notRead(url, why):
+        log(f"{site['site']}: sitemap {url} not read ({why})")
+        failures.append(f"{url}: {why}")
+
     pattern = re.compile(site["recipeUrl"])
     childFilter = re.compile(site["sitemapFilter"]) if site.get("sitemapFilter") else None
     queue, seen, found = list(site["sitemaps"]), set(), {}
@@ -150,26 +177,30 @@ def sitemapEntries(site, robots, log=print, failures=None):
         url = queue.pop(0)
         if url in seen:
             continue
-        if urlsplit(url).hostname != site["host"]:
-            # this host's robots.txt cannot vouch for another host
-            log(f"{site['site']}: sitemap {url} skipped (other host)")
-            continue
-        if not robots.can_fetch(AGENT, url):
-            continue
         seen.add(url)
+        if (urlsplit(url).hostname or "").lower() != site["host"]:
+            notRead(url, "other host")       # this host's robots.txt cannot vouch for another host
+            continue
+        if not robots.allows(AGENT, url):
+            notRead(url, "robots.txt disallows it")
+            continue
+        final = []
         try:
-            kind, entries = parseSitemap(net.crawl(url, binary=True))
+            data = net.crawl(url, binary=True, finalUrl=final)
+            if final and not robots.allows(AGENT, final[-1]):
+                notRead(url, f"redirected to {final[-1]}, which robots.txt disallows")
+                continue
+            kind, entries = parseSitemap(data)
         except net.HttpError as e:
             if e.status in (403, 429):
                 raise refusal(e)
-            log(f"{site['site']}: sitemap {url} skipped ({e})")
-            if failures is not None:
-                failures.append(url)
+            notRead(url, str(e))
+            continue
+        except SitemapTooLarge as e:
+            notRead(url, f"too large: {e}")
             continue
         except (ET.ParseError, OSError, EOFError, zlib.error) as e:
-            log(f"{site['site']}: sitemap {url} unreadable ({type(e).__name__})")
-            if failures is not None:
-                failures.append(url)
+            notRead(url, f"unreadable: {type(e).__name__}")
             continue
         if kind == "sitemapindex":
             queue += [loc for loc, _ in entries if childFilter is None or childFilter.search(loc)]
@@ -179,9 +210,13 @@ def sitemapEntries(site, robots, log=print, failures=None):
                 when = _iso(parseLastmod(lastmod))
                 if loc not in found or (when or "") > (found[loc] or ""):
                     found[loc] = when
+    left = {url for url in queue if url not in seen}
+    if left:
+        log(f"{site['site']}: {len(left)} sitemap(s) not read (past MAX_SITEMAPS, {MAX_SITEMAPS})")
+        failures.append(f"{len(left)} sitemap(s) past MAX_SITEMAPS ({MAX_SITEMAPS})")
     if not found:
         raise SiteStopped("no recipe pages in the sitemaps")
-    allowed = sorted((url, when) for url, when in found.items() if robots.can_fetch(AGENT, url))
+    allowed = sorted((url, when) for url, when in found.items() if robots.allows(AGENT, url))
     if not allowed:
         raise SiteStopped("robots.txt disallows the recipe pages")
     allowed.sort(key=lambda entry: entry[1] or "", reverse=True)   # stable: URL order within the same lastmod
@@ -206,7 +241,9 @@ def choose(entries, pages, priority=frozenset()):
 
 def _newResult(name):
     return {"site": name, "ok": True, "stopReason": None, "listed": 0, "planned": 0, "due": 0, "fetched": 0,
-            "notRecipe": 0, "gone": 0, "errors": 0}
+            "notRecipe": 0, "gone": 0, "errors": 0,
+            "complete": False,      # the listing was read whole this pass (no sitemap failed): see sitemapEntries
+            "goneUrls": []}         # pages answering 404/410 on GONE_AFTER passes in a row, as of this pass
 
 
 def _closing(name, result, log):
@@ -224,13 +261,13 @@ def _stopped(result, siteState, stop, now):
 
 
 def _plan(site, siteState, pages, priority, log, now):
-    """(listing, chosen, due) for this pass, or SiteStopped."""
+    """(listing, chosen, due, robots, complete) for this pass, or SiteStopped."""
     notBefore = siteState.get("notBefore")
     if notBefore and now() < notBefore:
         raise SiteStopped("waiting for the Retry-After a 429 asked for")
     siteState.pop("notBefore", None)
     robots = robotsFor(site)
-    delay = robots.crawl_delay(AGENT)
+    delay = robots.crawlDelay(AGENT)
     if delay and float(delay) > net.CRAWL_INTERVAL:
         net.MIN_INTERVAL[site["host"]] = float(delay)       # robots.txt asks for more room than 5 s: it gets it
     failures = []
@@ -251,7 +288,7 @@ def _plan(site, siteState, pages, priority, log, now):
                 if url not in known or url in priority or isDue(lastmod, {"lastmod": known[url]}, again)]
     chosen = choose(eligible, pages, priority)
     due = [(url, lastmod) for url, lastmod in chosen if isDue(lastmod, pagecache.meta(site["site"], url), recheck)]
-    return entries, chosen, due
+    return entries, chosen, due, robots, not failures
 
 
 def _challenge(html):
@@ -261,9 +298,10 @@ def _challenge(html):
     return bool(WALL_MARKERS.search((title.group(1) if title else "") + " " + html[start:start + BODY_SCAN]))
 
 
-def _fetchOne(site, url, lastmod, result, siteState, run, now, log):
+def _fetchOne(site, url, lastmod, result, siteState, run, now, log, robots):
+    final = []
     try:
-        html = net.crawl(url)
+        html = net.crawl(url, finalUrl=final)
     except net.HttpError as e:
         if e.status in (403, 429):
             raise refusal(e)
@@ -271,7 +309,8 @@ def _fetchOne(site, url, lastmod, result, siteState, run, now, log):
             missing = siteState.setdefault("missing", {})
             missing[url] = missing.get(url, 0) + 1
             if missing[url] >= GONE_AFTER:
-                result["gone"] += 1         # milestone 3 marks these RemovedAt; here they are counted
+                result["gone"] += 1         # the publish step marks these RemovedAt
+                result["goneUrls"].append(url)
             return
         result["errors"] += 1
         run["failures"] += 1
@@ -280,6 +319,10 @@ def _fetchOne(site, url, lastmod, result, siteState, run, now, log):
         return
     run["failures"] = 0
     siteState.get("missing", {}).pop(url, None)
+    if final and not robots.allows(AGENT, final[-1]):
+        log(f"{site['site']}: {url} redirected to {final[-1]}, which robots.txt disallows; not kept")
+        result["errors"] += 1
+        return
     if not schemaOrg.hasRecipe(html):
         result["notRecipe"] += 1
         if schemaOrg.hasPageMetadata(html):
@@ -310,21 +353,21 @@ def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time):
     """
     state = store.readJson(config.SITE_STATE_FILE, {}) or {}
     bySite = {site["site"]: site for site in siteList}
-    results, queues, runs = {}, {}, {}
+    results, queues, runs, rules = {}, {}, {}, {}
     try:
         for site in siteList:
             name = site["site"]
             siteState = state.setdefault(name, {})
             result = results[name] = _newResult(name)
             try:
-                entries, chosen, due = _plan(site, siteState, pages, priority, log, now)
+                entries, chosen, due, rules[name], complete = _plan(site, siteState, pages, priority, log, now)
             except SiteStopped as stop:
                 _stopped(result, siteState, stop, now)
                 log(f"{name}: stopped ({stop.reason})")
                 _closing(name, result, log)
                 continue
             siteState.pop("lastStop", None)
-            result.update(listed=len(entries), planned=len(chosen), due=len(due))
+            result.update(listed=len(entries), planned=len(chosen), due=len(due), complete=complete)
             log(f"{name}: {len(entries)} recipe pages listed, {len(due)} of the first {len(chosen)} due")
             if due:
                 queues[name], runs[name] = list(due), {"notRecipe": 0, "failures": 0}
@@ -334,7 +377,8 @@ def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time):
             for name in list(queues):
                 url, lastmod = queues[name].pop(0)
                 try:
-                    _fetchOne(bySite[name], url, lastmod, results[name], state[name], runs[name], now, log)
+                    _fetchOne(bySite[name], url, lastmod, results[name], state[name], runs[name], now, log,
+                              rules[name])
                 except SiteStopped as stop:
                     _stopped(results[name], state[name], stop, now)
                     log(f"{name}: stopped ({stop.reason})")
