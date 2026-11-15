@@ -72,14 +72,16 @@ def test_cookModeRecipesComeBesideTheListedOnes(userClient, useDb):
     assert conn.cur.statements("SELECT r.RecipeID, r.UpdatedAt")[0][1] == (UID, UID, 2, 7, 9)
 
 
-def test_aRemovedRecipeStaysForItsSaverButAnExtraOneTheyNoLongerKeepGoes(userClient, useDb):
-    # 7 is on a list: still theirs. 9 was only opened in cook mode, and its source removed it: no longer theirs.
-    # 12 was opened in cook mode and devoured, so it is kept (keptBy) and stays.
-    useDb(fetchall=[LISTS, ITEMS, [recipeRow(2), recipeRow(7, removed=True), recipeRow(9, removed=True),
-                                   recipeRow(12, removed=True)], []],
-          fetchone=[{"Kept": 0}, {"Kept": 1}])
+def test_theManifestLeavesOutEveryUnshownRecipeSoTheAppDropsItsCopy(userClient, useDb):
+    # The database answers only shown recipes; whether one is kept no longer matters (spec section 6).
+    conn = useDb(fetchall=[LISTS, ITEMS, [recipeRow(2)], []])
     data = userClient.get(f"{A}/saved/manifest?extra=9,12").get_json()["data"]
-    assert [(r["id"], r["removed"]) for r in data["recipes"]] == [(2, False), (7, True), (12, True)]
+    assert [(r["id"], r["removed"]) for r in data["recipes"]] == [(2, False)]
+    shown = "r.RemovedAt IS NULL AND r.HiddenReason IS NULL"
+    items = conn.cur.statements("SELECT li.ListID")[0][0]
+    assert "JOIN Recipes r ON r.RecipeID = li.RecipeID" in items and shown in items
+    assert shown in conn.cur.statements("SELECT r.RecipeID, r.UpdatedAt")[0][0]
+    assert not conn.cur.statements("SELECT EXISTS")
 
 
 def test_nothingKeptAsksNothingMore(userClient, useDb):

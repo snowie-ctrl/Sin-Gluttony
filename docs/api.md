@@ -47,6 +47,14 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 `q` (text), `sort` (`relevance`, `quickest`, `shuffle`; relevance only with `q`), `page`, `pageSize` (≤ 60),
 `profile` (`on`, the default, or `off`). Lists are comma separated.
 
+- **Values:** `flavour` is `sweet`, `savoury`, `spicy`, `sour`, `bitter`; `occasion` is `weeknight`, `party`,
+  `holiday`, `brunch`, `basic` (a basic everyone should know: pancakes, a vinaigrette). A recipe's `source` is
+  one of the recipe sites, `bbcgoodfood`, `budgetbytes`, `recipetineats`, `pinchofyum`, `loveandlemons`,
+  `difford`, or one of the older sources, `mealdb`, `cocktaildb`, `wikibooks`.
+- **Shown recipes:** only a recipe that is neither removed (its source dropped it) nor hidden (it failed the
+  catalog's checks: no photo, a small photo, no time, no servings, an unread ingredient line, no nutrition) is
+  shown, anywhere and to anyone (see "Removed and hidden recipes").
+
 - **The profile:** unless `profile=off`, the account's saved diets and avoids are added to `diet` and `avoid`.
   Only `Complete` recipes can meet a diet or avoid an allergen, whether asked for or saved.
 - `data: {total, page, pageSize, recipes: [tile]}`; a tile is
@@ -55,11 +63,11 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 
 | Route | Answer |
 |---|---|
-| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage, craving, devouredCount, stars}]`, credit fields), plus `removed` and `mine` (see "What you keep"). `404` when missing, or removed and not kept by this person. |
-| `GET /filters` | `data: {kinds, courses, cuisines, difficulties, flavours, occasions, diets: [{value, count}], avoid: [...]}`, whole-catalog counts |
+| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source, technique}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage, craving, devouredCount, stars}]` (shown recipes only), credit fields), plus `description` (text or null), `nutrition`, `removed` (always `false`) and `mine` (see "What you keep"). `technique` is how a drink is made: `shaken`, `stirred`, `built`, `blended`, `thrown`. `nutrition` is per serving, or null when the recipe has none: `{calories, proteinG, carbsG, fatG, satFatG, fibreG, sugarG, sodiumMg, from, flagged}`; each value is a number or null, `from` is `source` (the site's own figures) or `estimate` (worked out from the ingredients), and `flagged` is true when the calories fell outside the usual per-serving range for the course (still shown). `404` when missing, removed or hidden, for everyone. |
+| `GET /filters` | `data: {kinds, courses, cuisines, difficulties, flavours, occasions, diets: [{value, count}], avoid: [...]}`, counts of shown recipes |
 | `GET /ingredients?q=` | `data: [{id, name}]`, up to 20; `q` 1–60 characters |
 | `GET /random` | the `/recipes` filters (`sort`, `page` ignored); `data: {recipe: tile or null}` |
-| `GET /images/<id>`, `GET /thumbs/<id>` | JPEG (1200 px, 400 px); `404` without one |
+| `GET /images/<id>`, `GET /thumbs/<id>` | JPEG (1200 px, 400 px); `404` without one, or for a removed or hidden recipe |
 
 ## Home
 
@@ -72,8 +80,8 @@ again: [tile]}`. Every tile carries the flags.
 - They are ordered by a hash of recipe, account and date, so a person sees the same pick all day. `pick` is the
   first; `picks` are the next eight.
 - `cravings` is the first 12 of the person's Cravings, in their order; `again` the 12 recipes they devoured most
-  recently. Both are the person's own: the profile does not filter them, and a removed recipe stays, with
-  `removed: true`.
+  recently. Both are the person's own: the profile does not filter them. A removed or hidden recipe leaves both
+  rows (their tiles keep `removed`, always `false`).
 
 ## What you keep (milestone 2)
 
@@ -86,10 +94,15 @@ the person's id, so someone else's id, like an unknown one, is `404`, never `403
 - **The `mine` block:** `/recipes/<id>` adds `mine: {craving, lists: [listId], devoured: [{id, on}], stars, note}`.
   `lists` holds the person's own lists (not Cravings, which is `craving`); `devoured` is newest first; `on` is
   `YYYY-MM-DD`; `note` is the text or null.
-- **Removed recipes:** a recipe part 1 has removed never appears in `/recipes`, `/random`, Home's picks or `versions`.
-  Its detail and pictures answer only to a person who has it in a list (Cravings included), has devoured it, or has
-  a note on it; the detail then has `removed: true` (`false` otherwise). Everyone else gets `404`. Tiles from the
-  person's own lists and history carry `removed` too.
+- **Removed and hidden recipes:** a recipe that is removed (its source dropped it) or hidden (it failed the
+  catalog's checks) is shown nowhere, to anyone, even a person who keeps it: not in `/recipes`, `/random`,
+  `/filters`' counts, Home's rows, `versions`, `/lists/<id>/recipes`, `/devoured` or the manifest, and its detail
+  and pictures are `404`. Adding one to a list, marking it Devoured, starring it or noting it is `404 "no such
+  recipe"`, as for a missing recipe. The person's rows stay in the database: taking it off a list
+  (`/lists/items/remove`) and removing a mark (`/devoured/remove`) still work, and if the recipe is listed again
+  it comes back everywhere, with everything the person kept on it. List counts and `total`s count shown recipes
+  only (the 2000-recipe limit counts every row). `removed` stays in tiles, the detail and the manifest, always
+  `false`, so older app builds keep working.
 
 ### Lists
 
@@ -160,9 +173,9 @@ What the app keeps for use without a server. `?extra=<id,...>` names up to 200 r
 `data: {lists: [{id, title, kind, recipeIds}], recipes: [{id, updatedAt, removed, mine}]}`:
 
 - `lists` in `/lists`' order (Cravings first), each with its recipes in the list's own order.
-- `recipes`, by id: every recipe on a list, and every `extra` one the person may still see. A removed recipe stays
-  while the person keeps it (`removed: true`); an `extra` recipe its source removed, which they don't keep, is left
-  out, and the app deletes its copy.
+- `recipes`, by id: every shown recipe on a list, and every shown `extra` one. A removed or hidden recipe is left
+  out of `recipes` and of the lists' `recipeIds`, whoever keeps it, and the app deletes its copy; it returns if the
+  recipe is listed again. `removed` is always `false`.
 - `updatedAt` is when part 1 last changed the recipe (`YYYY-MM-DDTHH:MM:SS`). The app fetches the detail and picture
   again when it differs from the one stored with its copy.
 - `mine` is what the person keeps on the recipe, exactly as `/recipes/<id>` gives it (`{craving, lists, devoured,

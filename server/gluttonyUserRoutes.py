@@ -303,7 +303,9 @@ def ownList(cur, uid, listId, lock=False):
 
 
 def listCount(cur, listId):
-    cur.execute("SELECT COUNT(*) AS n FROM ListItems WHERE ListID = %s", (listId,))
+    """How many of the list's recipes are shown; a removed or hidden one stays on the list but is not counted."""
+    cur.execute("SELECT COUNT(*) AS n FROM ListItems li JOIN Recipes r ON r.RecipeID = li.RecipeID "
+                f"WHERE li.ListID = %s AND {rules.SHOWN}", (listId,))
     return int((cur.fetchone() or {}).get("n") or 0)
 
 
@@ -326,8 +328,9 @@ def moveAfter(cur, table, idColumn, scope, scopeParams, movedId, anchorIndex):
 @gluttonyUserBP.route("/lists", methods=["GET"])
 def lists():
     with database() as (conn, cur):
-        cur.execute("SELECT l.ListID, l.Title, l.Kind, COUNT(li.RecipeID) AS Count FROM Lists l "
-                    "LEFT JOIN ListItems li ON li.ListID = l.ListID WHERE l.UserID = %s "
+        cur.execute("SELECT l.ListID, l.Title, l.Kind, COUNT(r.RecipeID) AS Count FROM Lists l "
+                    "LEFT JOIN ListItems li ON li.ListID = l.ListID "
+                    f"LEFT JOIN Recipes r ON r.RecipeID = li.RecipeID AND {rules.SHOWN} WHERE l.UserID = %s "
                     "GROUP BY l.ListID, l.Title, l.Kind, l.OrderIndex "
                     "ORDER BY l.Kind = 'custom', l.OrderIndex, l.ListID", (session.requestUID(),))
         rows = cur.fetchall()
@@ -441,12 +444,14 @@ def addToList():
             return fail("no such list", 404)
         if not kept.visibleRecipe(cur, uid, recipeId):
             return fail("no such recipe", 404)
-        cur.execute("SELECT COUNT(*) AS n, COALESCE(MIN(OrderIndex), 0) AS low, SUM(RecipeID = %s) AS here "
-                    "FROM ListItems WHERE ListID = %s", (recipeId, listId))
+        # The cap counts every row the list holds; the count the app is told counts the shown ones, as /lists does.
+        cur.execute("SELECT COUNT(*) AS n, COALESCE(MIN(li.OrderIndex), 0) AS low, SUM(li.RecipeID = %s) AS here, "
+                    f"SUM({rules.SHOWN}) AS shown FROM ListItems li JOIN Recipes r ON r.RecipeID = li.RecipeID "
+                    "WHERE li.ListID = %s", (recipeId, listId))
         found = cur.fetchone() or {}
-        count = int(found.get("n") or 0)
+        count = int(found.get("shown") or 0)
         if not int(found.get("here") or 0):
-            if count >= rules.MAX_LIST_ITEMS:
+            if int(found.get("n") or 0) >= rules.MAX_LIST_ITEMS:
                 return fail(f"a list holds at most {rules.MAX_LIST_ITEMS} recipes", 400)
             cur.execute("INSERT INTO ListItems (ListID, RecipeID, OrderIndex) VALUES (%s, %s, %s)",
                         (listId, recipeId, int(found.get("low") or 0) - 1))
@@ -506,8 +511,8 @@ def reorderItems():
 
 @gluttonyUserBP.route("/lists/<int:listId>/recipes", methods=["GET"])
 def listRecipes(listId):
-    """A list's recipes, a page at a time, in the person's order. A recipe part 1 has removed stays, marked removed:
-    the person kept it, so it is theirs to open."""
+    """A list's shown recipes, a page at a time, in the person's order. A removed or hidden one stays on the list
+    in the database but is left out here (spec section 6), and comes back if it is listed again."""
     page, pageSize, problem = rules.pageArgs(request.args)
     if problem:
         return fail(problem, 400)
@@ -517,8 +522,8 @@ def listRecipes(listId):
         if not row:
             return fail("no such list", 404)
         total = listCount(cur, listId)
-        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt FROM ListItems li "
-                    "JOIN Recipes r ON r.RecipeID = li.RecipeID WHERE li.ListID = %s "
+        cur.execute(f"SELECT {rules.TILE_COLUMNS} FROM ListItems li "
+                    f"JOIN Recipes r ON r.RecipeID = li.RecipeID WHERE li.ListID = %s AND {rules.SHOWN} "
                     "ORDER BY li.OrderIndex, li.AddedAt DESC, r.RecipeID LIMIT %s OFFSET %s",
                     (listId, pageSize, (page - 1) * pageSize))
         tiles = kept.attachTileFlags(cur, uid, [kept.savedTile(r) for r in cur.fetchall()])
@@ -622,7 +627,7 @@ HISTORY_ORDER = {"recent": "d.MadeOn DESC, d.DevouredID DESC",
 @gluttonyUserBP.route("/devoured", methods=["GET"])
 def devouredHistory():
     """Every time the person made something, newest first or best-starred first, a page at a time. Each tile is one
-    mark, with its day and id; a recipe part 1 has removed stays, marked removed."""
+    mark, with its day and id. Marks on a removed or hidden recipe are left out (and not counted)."""
     page, pageSize, problem = rules.pageArgs(request.args)
     if problem:
         return fail(problem, 400)
@@ -631,12 +636,13 @@ def devouredHistory():
         return fail("sort must be recent or stars", 400)
     uid = session.requestUID()
     with database() as (conn, cur):
-        cur.execute("SELECT COUNT(*) AS n FROM Devoured WHERE UserID = %s", (uid,))
+        cur.execute("SELECT COUNT(*) AS n FROM Devoured d JOIN Recipes r ON r.RecipeID = d.RecipeID "
+                    f"WHERE d.UserID = %s AND {rules.SHOWN}", (uid,))
         total = int((cur.fetchone() or {}).get("n") or 0)
-        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt, d.DevouredID, d.MadeOn FROM Devoured d "
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, d.DevouredID, d.MadeOn FROM Devoured d "
                     "JOIN Recipes r ON r.RecipeID = d.RecipeID "
                     "LEFT JOIN Ratings t ON t.UserID = d.UserID AND t.RecipeID = d.RecipeID "
-                    f"WHERE d.UserID = %s ORDER BY {HISTORY_ORDER[sort]} LIMIT %s OFFSET %s",
+                    f"WHERE d.UserID = %s AND {rules.SHOWN} ORDER BY {HISTORY_ORDER[sort]} LIMIT %s OFFSET %s",
                     (uid, pageSize, (page - 1) * pageSize))
         tiles = [dict(kept.savedTile(r), devouredId=r["DevouredID"], on=rules.isoDate(r["MadeOn"]))
                  for r in cur.fetchall()]
@@ -803,8 +809,8 @@ def savedManifest():
     has moved on. Each recipe also carries the person's own `mine` block, as /recipes/<id> gives it: a star, a note,
     a mark or a list changed on another device reaches this device's copy without fetching the recipe again, and a
     mark or list removal (which leaves no row to date) is seen too. `extra` names recipes the app opened in cook
-    mode, which it keeps beside them; one the person may no longer see (its source removed it, and they don't keep
-    it) is left out, and the app lets its copy go."""
+    mode, which it keeps beside them. A removed or hidden recipe is left out of both, whoever keeps it (spec
+    section 6), and the app lets its copy go; it comes back if it is listed again."""
     extra, problem = rules.extraIds(request.args.get("extra"))
     if problem:
         return fail(problem, 400)
@@ -816,7 +822,8 @@ def savedManifest():
                  for row in cur.fetchall()]
         byId = {entry["id"]: entry for entry in lists}
         cur.execute("SELECT li.ListID, li.RecipeID FROM ListItems li JOIN Lists l ON l.ListID = li.ListID "
-                    "WHERE l.UserID = %s ORDER BY li.ListID, li.OrderIndex, li.AddedAt DESC, li.RecipeID", (uid,))
+                    f"JOIN Recipes r ON r.RecipeID = li.RecipeID WHERE l.UserID = %s AND {rules.SHOWN} "
+                    "ORDER BY li.ListID, li.OrderIndex, li.AddedAt DESC, li.RecipeID", (uid,))
         for row in cur.fetchall():
             byId[row["ListID"]]["recipeIds"].append(row["RecipeID"])
         listed = {rid for entry in lists for rid in entry["recipeIds"]}
@@ -826,11 +833,11 @@ def savedManifest():
             marks = ", ".join(["%s"] * len(ids))
             # The person's stars and note ride along with each recipe's row; a cleared rating or a deleted note is
             # a row with no value (schema-part2.sql), read as null, as mineOf reads it.
-            cur.execute("SELECT r.RecipeID, r.UpdatedAt, r.RemovedAt, t.Stars, NULLIF(n.Text, '') AS Note "
+            cur.execute("SELECT r.RecipeID, r.UpdatedAt, t.Stars, NULLIF(n.Text, '') AS Note "
                         "FROM Recipes r "
                         "LEFT JOIN Ratings t ON t.UserID = %s AND t.RecipeID = r.RecipeID "
                         "LEFT JOIN Notes n ON n.UserID = %s AND n.RecipeID = r.RecipeID "
-                        f"WHERE r.RecipeID IN ({marks}) ORDER BY r.RecipeID", (uid, uid, *ids))
+                        f"WHERE r.RecipeID IN ({marks}) AND {rules.SHOWN} ORDER BY r.RecipeID", (uid, uid, *ids))
             rows = cur.fetchall()
             cur.execute(f"SELECT RecipeID, DevouredID, MadeOn FROM Devoured WHERE UserID = %s AND RecipeID IN ({marks}) "
                         "ORDER BY RecipeID, MadeOn DESC, DevouredID DESC", (uid, *ids))
@@ -843,10 +850,7 @@ def savedManifest():
             custom = [(entry["id"], set(entry["recipeIds"])) for entry in lists if entry["kind"] == "custom"]
             for row in rows:
                 rid = row["RecipeID"]
-                removed = row["RemovedAt"] is not None
-                if removed and rid not in listed and not kept.keptBy(cur, uid, rid):
-                    continue
                 mine = {"craving": rid in cravings, "lists": [listId for listId, held in custom if rid in held],
                         "devoured": devoured.get(rid, []), "stars": row["Stars"], "note": row["Note"]}
-                recipes.append({"id": rid, "updatedAt": stamp(row["UpdatedAt"]), "removed": removed, "mine": mine})
+                recipes.append({"id": rid, "updatedAt": stamp(row["UpdatedAt"]), "removed": False, "mine": mine})
     return ok({"lists": lists, "recipes": recipes})

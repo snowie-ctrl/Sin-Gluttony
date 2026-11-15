@@ -26,6 +26,10 @@ HIDDEN_REASONS = ("no-photo", "small-photo", "no-time", "no-servings", "unparsed
 NUTRIENTS = (("calories", "Calories"), ("proteinG", "ProteinG"), ("carbsG", "CarbsG"), ("fatG", "FatG"),
              ("satFatG", "SatFatG"), ("fibreG", "FibreG"), ("sugarG", "SugarG"), ("sodiumMg", "SodiumMg"))
 FDC_FROM = ("owner", "curated", "rule")
+# A recipe is shown, anywhere and to anyone, only while it is neither removed nor hidden by the gate (spec section 6).
+# SHOWN is for queries that name Recipes as r; SHOWN_PLAIN for those that don't alias it.
+SHOWN = "r.RemovedAt IS NULL AND r.HiddenReason IS NULL"
+SHOWN_PLAIN = "RemovedAt IS NULL AND HiddenReason IS NULL"
 CONTAINS_ITEMS = ("meat", "poultry", "fish", "shellfish", "dairy", "egg", "gluten", "tree-nut", "peanut", "soy",
                   "sesame", "alcohol", "honey")
 DIETS = ("vegetarian", "vegan", "gluten-free", "dairy-free")
@@ -390,7 +394,7 @@ def likeEscape(text):
 
 def recipeWhere(f, includeSets=(), excludeIds=()):
     """The WHERE clause over `Recipes r LEFT JOIN RecipeFacts fa`. Within a filter any value may match; across filters all must."""
-    clauses, params = ["r.RemovedAt IS NULL"], []
+    clauses, params = [SHOWN], []
 
     def marks(values):
         return ", ".join(["%s"] * len(values))
@@ -499,13 +503,26 @@ def number(value):
     return int(value) if value.is_integer() else value
 
 
+def isShown(row):
+    """Whether a Recipes row may be shown: SHOWN, for a row already read."""
+    return row.get("RemovedAt") is None and row.get("HiddenReason") is None
+
+
+def nutritionOf(row):
+    """A RecipeNutrition row as the recipe page gives it (per serving), or None when the recipe has none."""
+    if not row:
+        return None
+    values = {key: number(row[column]) for key, column in NUTRIENTS}
+    return dict(values, **{"from": row["NutritionFrom"], "flagged": bool(row["Flagged"])})
+
+
 def tile(row):
     return {"id": row["RecipeID"], "kind": row["Kind"], "title": row["Title"], "course": row["Course"],
             "cuisine": row["Cuisine"], "totalMinutes": row["TotalMinutes"], "timeFrom": row["TimeFrom"],
             "difficulty": row["Difficulty"], "hasImage": bool(row["ImagePath"]), "source": row["Source"]}
 
 
-def recipeDetail(row, ingredients, steps, tags, contains, diets, versions):
+def recipeDetail(row, ingredients, steps, tags, contains, diets, versions, nutrition=None):
     grouped = {kind: [] for kind in TAG_TYPES}
     for tag in tags:
         grouped.setdefault(tag["Type"], []).append(tag["Tag"])
@@ -517,6 +534,7 @@ def recipeDetail(row, ingredients, steps, tags, contains, diets, versions):
         "alcohol": row["Alcohol"], "glass": row["Glass"], "hasImage": bool(row["ImagePath"]),
         "imageCredit": row["ImageCredit"], "videoUrl": row["VideoUrl"], "source": row["Source"],
         "sourceUrl": row["SourceUrl"], "licence": row["Licence"], "credit": row["Credit"],
+        "description": row.get("Description"), "nutrition": nutritionOf(nutrition),
         "ingredients": [{"line": i["Line"], "quantity": number(i["Quantity"]), "quantityMax": number(i["QuantityMax"]),
                          "unit": i["Unit"], "ingredientId": i["IngredientID"], "name": i["Name"], "note": i["Note"],
                          "optional": bool(i["Optional"]), "group": i["GroupHeading"]} for i in ingredients],

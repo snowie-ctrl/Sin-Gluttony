@@ -95,12 +95,42 @@ def test_recipeWhereBuildsEveryFilter(rules):
     f = {"kind": "food", "course": ["main"], "maxMinutes": 30, "flavour": ["sweet"], "diet": ["vegan"],
          "avoid": ["peanut"], "q": "toast", "sort": "relevance", "page": 1, "pageSize": 24}
     sql, params = rules.recipeWhere(f, includeSets=[{1, 2}], excludeIds={9})
-    assert sql.startswith("r.RemovedAt IS NULL AND r.Kind = %s AND r.Course IN (%s)")
+    assert sql.startswith("r.RemovedAt IS NULL AND r.HiddenReason IS NULL AND r.Kind = %s AND r.Course IN (%s)")
     assert "r.TotalMinutes IS NOT NULL AND r.TotalMinutes <= %s" in sql
     assert "fa.Complete = 1" in sql
     assert "NOT EXISTS (SELECT 1 FROM RecipeContains c WHERE c.RecipeID = r.RecipeID AND c.Item IN (%s))" in sql
     assert "MATCH(r.SearchText) AGAINST (%s IN BOOLEAN MODE)" in sql
     assert params == ["food", "main", 30, "flavour", "sweet", "vegan", "peanut", 1, 2, 9, "+toast*"]
+
+
+def test_onlyShownRecipesAreEverFound(rules):
+    assert rules.SHOWN == "r.RemovedAt IS NULL AND r.HiddenReason IS NULL"
+    assert rules.recipeWhere({}) == (rules.SHOWN, [])
+    assert rules.isShown({"RemovedAt": None, "HiddenReason": None})
+    assert not rules.isShown({"RemovedAt": None, "HiddenReason": "small-photo"})
+    assert not rules.isShown({"RemovedAt": "2026-10-20", "HiddenReason": None})
+
+
+DETAIL_ROW = {"RecipeID": 7, "Kind": "food", "Title": "Cheese Toast", "Course": "main", "Cuisine": None, "Servings": 2,
+              "ServingsFrom": "source", "PrepMinutes": None, "CookMinutes": None, "TotalMinutes": 10,
+              "TimeFrom": "rule", "Difficulty": 1, "DifficultyFrom": "rule", "Alcohol": None, "Glass": None,
+              "ImagePath": None, "ImageCredit": None, "VideoUrl": None, "Source": "budgetbytes",
+              "SourceUrl": "https://example.test/x", "Licence": None, "Credit": None, "Complete": 1,
+              "Description": "A quick supper."}
+
+
+def test_recipeDetailCarriesDescriptionNutritionAndTechnique(rules):
+    from decimal import Decimal
+    nutrition = {"Calories": Decimal("420.00"), "ProteinG": Decimal("18.50"), "CarbsG": Decimal("40.00"),
+                 "FatG": Decimal("20.00"), "SatFatG": Decimal("6.00"), "FibreG": None, "SugarG": Decimal("7.25"),
+                 "SodiumMg": Decimal("650.00"), "NutritionFrom": "estimate", "Flagged": 1}
+    detail = rules.recipeDetail(DETAIL_ROW, [], [], [{"Type": "technique", "Tag": "shaken"}], [], [], [], nutrition)
+    assert detail["description"] == "A quick supper."
+    assert detail["nutrition"] == {"calories": 420, "proteinG": 18.5, "carbsG": 40, "fatG": 20, "satFatG": 6,
+                                   "fibreG": None, "sugarG": 7.25, "sodiumMg": 650, "from": "estimate",
+                                   "flagged": True}
+    assert detail["tags"] == {"flavour": [], "occasion": [], "source": [], "technique": ["shaken"]}
+    assert rules.recipeDetail(DETAIL_ROW, [], [], [], [], [], [])["nutrition"] is None
 
 
 def test_aShortSearchFallsBackToTheTitle(rules):

@@ -367,11 +367,13 @@ def steps(media):
     def remove(client, state):
         check(call(client, "POST", f"{A}/recipes/removed", {"keys": ["mealdb:smoke-1"]})["removed"] == 1, "not removed")
         check(call(client, "GET", f"{R}/recipes?q=smoke%20toast")["data"]["total"] == 0, "a removed recipe is shown")
-        detail = call(client, "GET", f"{R}/recipes/{state['recipeId']}")["data"]
-        check(detail["removed"] is True, "the saver lost a removed recipe")
-        listed = call(client, "GET", f"{R}/lists/{state['list']}/recipes")["data"]["recipes"]
-        check(listed and listed[0]["removed"] is True, f"the list lost a removed recipe: {listed}")
-        call(client, "GET", f"{R}/images/{state['recipeId']}")
+        # Spec section 6: a removed recipe is shown nowhere, not even to the person who saved it.
+        call(client, "GET", f"{R}/recipes/{state['recipeId']}", expect=404)
+        call(client, "GET", f"{R}/images/{state['recipeId']}", expect=404)
+        listed = call(client, "GET", f"{R}/lists/{state['list']}/recipes")["data"]
+        check(listed["recipes"] == [] and listed["total"] == 0, f"the list still shows a removed recipe: {listed}")
+        kept = call(client, "GET", f"{R}/saved/manifest")["data"]["recipes"]
+        check(all(r["id"] != state["recipeId"] for r in kept), f"the manifest still holds a removed recipe: {kept}")
         own = client.environ_base["HTTP_X_SESSION_TOKEN"]
         client.environ_base["HTTP_X_SESSION_TOKEN"] = state["strangerToken"]
         try:
@@ -379,7 +381,7 @@ def steps(media):
             call(client, "GET", f"{R}/images/{state['recipeId']}", expect=404)
         finally:
             client.environ_base["HTTP_X_SESSION_TOKEN"] = own
-        return "removed: hidden from the catalog and strangers, still the saver's"
+        return "removed: gone from the catalog, the saver's list and manifest, and 404 for everyone"
 
     def signout(client, state):
         call(client, "POST", f"{R}/auth/logout", {"fingerprint": state["fingerprint"]})

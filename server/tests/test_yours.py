@@ -6,7 +6,7 @@ from conftest import UID
 
 A = "/api/gluttony"
 CID = "6f1c2b9e-3d4a-4b5c-8d7e-9f0a1b2c3d4e"
-VISIBLE = {"RecipeID": 7, "RemovedAt": None, "ImagePath": None}
+VISIBLE = {"RecipeID": 7, "RemovedAt": None, "HiddenReason": None, "ImagePath": None}
 TILE = {"RecipeID": 7, "Kind": "food", "Title": "Cheese Toast", "Course": "main", "Cuisine": None,
         "TotalMinutes": 10, "TimeFrom": "rule", "Difficulty": 1, "ImagePath": None, "Source": "mealdb",
         "RemovedAt": None}
@@ -123,13 +123,17 @@ def test_someoneElsesMarkIs404(userClient, useDb):
 
 def test_theHistoryIsNewestFirstWithADayPerMark(userClient, useDb):
     rows = [dict(TILE, DevouredID=42, MadeOn=date(2026, 10, 27)),
-            dict(TILE, DevouredID=41, MadeOn=date(2026, 9, 1), RemovedAt=datetime(2026, 10, 20))]
+            dict(TILE, DevouredID=41, MadeOn=date(2026, 9, 1))]
     conn = useDb(fetchone=[{"n": 2}], fetchall=[rows, []])
     data = userClient.get(f"{A}/devoured").get_json()["data"]
     assert data["total"] == 2 and data["page"] == 1 and data["pageSize"] == 24
     assert [(t["devouredId"], t["on"], t["removed"]) for t in data["recipes"]] == [(42, "2026-10-27", False),
-                                                                                    (41, "2026-09-01", True)]
+                                                                                    (41, "2026-09-01", False)]
     sql, params = conn.cur.statements("SELECT r.RecipeID")[0]
+    assert "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in sql
+    count, countParams = conn.cur.statements("SELECT COUNT(*) AS n FROM Devoured")[0]
+    assert "JOIN Recipes r" in count and "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in count
+    assert countParams == (UID,)
     assert "ORDER BY d.MadeOn DESC, d.DevouredID DESC" in sql and params == (UID, 24, 0)
 
 
@@ -204,3 +208,18 @@ def test_starsAndNotesNeedARecipeThePersonCanSee(userClient, useDb):
 def test_yoursNeedsASession(anonUserClient):
     assert anonUserClient.get(f"{A}/devoured").status_code == 401
     assert post(anonUserClient, "/rating", {"recipeId": 7, "stars": 3}).status_code == 401
+
+
+@pytest.mark.parametrize("gone", [{"HiddenReason": "unparsed-line"}, {"RemovedAt": datetime(2026, 10, 20)}])
+def test_anUnshownRecipeIsNotMarked(userClient, useDb, gone):
+    conn = useDb(fetchone=[dict(VISIBLE, **gone)])
+    answer = post(userClient, "/devoured/add", {"recipeId": 7, "on": "2026-10-27", "clientId": CID})
+    assert answer.status_code == 404 and answer.get_json()["message"] == "no such recipe"
+    assert "HiddenReason" in conn.cur.executed[0][0] and not conn.cur.statements("INSERT")
+
+
+def test_aMarkOnAnUnshownRecipeCanStillBeRemoved(userClient, useDb):
+    # Un-devour reads only the person's mark, so a hidden recipe never leaves a mark stuck.
+    conn = useDb(fetchone=[{"RecipeID": 7}, {"n": 0}])
+    assert post(userClient, "/devoured/remove", {"id": 41}).status_code == 200
+    assert not conn.cur.statements("SELECT RecipeID, RemovedAt")
