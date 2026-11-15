@@ -8,7 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 INT_LIMIT = 2 ** 31 - 1
-SOURCES = ("mealdb", "cocktaildb", "wikibooks")
+SITE_SOURCES = ("bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "loveandlemons", "difford")
+SOURCES = ("mealdb", "cocktaildb", "wikibooks") + SITE_SOURCES
 KINDS = ("food", "drink")
 FOOD_COURSES = ("breakfast", "starter", "main", "side", "dessert", "snack", "bread", "sauce")
 DRINK_COURSES = ("cocktail", "mocktail", "shot", "coffee/tea", "shake", "punch")
@@ -16,8 +17,15 @@ COURSES = FOOD_COURSES + DRINK_COURSES
 ALCOHOL = ("alcoholic", "non-alcoholic", "optional")
 FROM = ("source", "rule")
 FLAVOURS = ("sweet", "savoury", "spicy", "sour", "bitter")
-OCCASIONS = ("weeknight", "party", "holiday", "brunch")
-TAG_TYPES = ("flavour", "occasion", "source")
+OCCASIONS = ("weeknight", "party", "holiday", "brunch", "basic")
+TAG_TYPES = ("flavour", "occasion", "source", "technique")
+TECHNIQUES = ("shaken", "stirred", "built", "blended", "thrown")
+# The gate's first failing check; a recipe with none of these is listed.
+HIDDEN_REASONS = ("no-photo", "small-photo", "no-time", "no-servings", "unparsed-line", "no-nutrition")
+# Per-serving nutrients: the payload key and its RecipeNutrition column, in column order.
+NUTRIENTS = (("calories", "Calories"), ("proteinG", "ProteinG"), ("carbsG", "CarbsG"), ("fatG", "FatG"),
+             ("satFatG", "SatFatG"), ("fibreG", "FibreG"), ("sugarG", "SugarG"), ("sodiumMg", "SodiumMg"))
+FDC_FROM = ("owner", "curated", "rule")
 CONTAINS_ITEMS = ("meat", "poultry", "fish", "shellfish", "dairy", "egg", "gluten", "tree-nut", "peanut", "soy",
                   "sesame", "alcohol", "honey")
 DIETS = ("vegetarian", "vegan", "gluten-free", "dairy-free")
@@ -33,17 +41,18 @@ MAX_KEYS = 1000
 HOME_COURSES = ("main", "breakfast")
 HOME_PICKS = 8
 
-RECIPE_COLUMNS = ("Source", "SourceID", "Kind", "Title", "DishKey", "Course", "Cuisine", "Servings", "ServingsFrom",
+RECIPE_COLUMNS = ("Source", "SourceID", "Kind", "Title", "Description", "DishKey", "Course", "Cuisine", "Servings", "ServingsFrom",
                   "PrepMinutes", "CookMinutes", "TotalMinutes", "TimeFrom", "Difficulty", "DifficultyFrom",
-                  "Alcohol", "Glass", "ImagePath", "ImageCredit", "VideoUrl", "SourceUrl", "Licence", "Credit",
-                  "SearchText", "ContentHash")
-_FIELDS = ("source", "sourceId", "kind", "title", "dishKey", "course", "cuisine", "servings", "servingsFrom",
+                  "Alcohol", "Glass", "ImagePath", "ImageWidth", "ImageCredit", "VideoUrl", "SourceUrl", "Licence",
+                  "Credit", "HiddenReason", "SearchText", "ContentHash")
+_FIELDS = ("source", "sourceId", "kind", "title", "description", "dishKey", "course", "cuisine", "servings", "servingsFrom",
            "prepMinutes", "cookMinutes", "totalMinutes", "timeFrom", "difficulty", "difficultyFrom", "alcohol",
-           "glass", "imagePath", "imageCredit", "videoUrl", "sourceUrl", "licence", "credit", "searchText",
-           "contentHash")
-_LIMITS = {"title": 255, "dishKey": 255, "cuisine": 40, "glass": 60, "imageCredit": 500, "videoUrl": 500,
+           "glass", "imagePath", "imageWidth", "imageCredit", "videoUrl", "sourceUrl", "licence", "credit",
+           "hiddenReason", "searchText", "contentHash")
+_LIMITS = {"title": 255, "description": 5000, "dishKey": 255, "cuisine": 40, "glass": 60, "imageCredit": 500, "videoUrl": 500,
            "sourceUrl": 500, "licence": 60, "credit": 500, "searchText": 4000}
-CHILD_TABLES = ("RecipeIngredients", "RecipeSteps", "RecipeTags", "RecipeFacts", "RecipeContains", "RecipeDiets")
+CHILD_TABLES = ("RecipeIngredients", "RecipeSteps", "RecipeTags", "RecipeFacts", "RecipeContains", "RecipeDiets",
+                "RecipeNutrition")
 TILE_COLUMNS = ("r.RecipeID, r.Kind, r.Title, r.Course, r.Cuisine, r.TotalMinutes, r.TimeFrom, r.Difficulty, "
                 "r.ImagePath, r.Source")
 
@@ -95,6 +104,24 @@ def _factsProblem(facts):
     return None
 
 
+def _nutritionProblem(n):
+    if n is None:
+        return None
+    if not isinstance(n, dict):
+        return "nutrition must be an object or null"
+    for key, _ in NUTRIENTS:
+        value = n.get(key)
+        if value is None and key != "calories":
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100000:
+            return f"nutrition.{key} must be a number from 0 to 100000" + ("" if key == "calories" else " or null")
+    if n.get("from") not in ("source", "estimate"):
+        return "nutrition.from must be source or estimate"
+    if not isinstance(n.get("flagged"), bool):
+        return "nutrition.flagged must be true or false"
+    return None
+
+
 def recipeProblem(r):
     if not isinstance(r, dict):
         return "each recipe must be an object"
@@ -120,6 +147,15 @@ def recipeProblem(r):
             return f"{name} must be source, rule or null"
     if r.get("alcohol") not in (None, *ALCOHOL):
         return f"alcohol must be one of {', '.join(ALCOHOL)} or null"
+    if r.get("description") is not None and not isinstance(r["description"], str):
+        return "description must be text or null"
+    if r.get("hiddenReason") not in (None, *HIDDEN_REASONS):
+        return f"hiddenReason must be one of {', '.join(HIDDEN_REASONS)} or null"
+    if not _whole(r.get("imageWidth"), 1, 100000):
+        return "imageWidth must be a whole number from 1 to 100000 or null"
+    problem = _nutritionProblem(r.get("nutrition"))
+    if problem:
+        return problem
     if r.get("imagePath") is not None and not IMAGE_NAME.fullmatch(str(r["imagePath"])):
         return "imagePath must be a picture name the scraper made"
     for name in ("licence", "credit", "searchText"):
@@ -150,6 +186,8 @@ def recipeProblem(r):
             return f"flavour takes only {', '.join(FLAVOURS)}"
         if tag["type"] == "occasion" and tag["tag"] not in OCCASIONS:
             return f"occasion takes only {', '.join(OCCASIONS)}"
+        if tag["type"] == "technique" and tag["tag"] not in TECHNIQUES:
+            return f"technique takes only {', '.join(TECHNIQUES)}"
     return _factsProblem(r.get("facts"))
 
 
@@ -173,6 +211,10 @@ def keysProblem(keys):
 
 def recipeRow(r):
     return tuple(clip(r.get(field), _LIMITS[field]) if field in _LIMITS else r.get(field) for field in _FIELDS)
+
+
+def nutritionRow(recipeId, n):
+    return (recipeId, *(n.get(key) for key, _ in NUTRIENTS), n["from"], 1 if n["flagged"] else 0)
 
 
 def ingredientRow(recipeId, position, line):
@@ -227,6 +269,20 @@ def mapProblem(data):
     if create.get("category") is not None and not _text(create["category"], 40):
         return "create.category must be 1 to 40 characters"
     return _containsProblem(create.get("contains", []))
+
+
+def fdcMapProblem(data):
+    mappings = data.get("mappings") if isinstance(data, dict) else None
+    if not isinstance(mappings, list) or not 1 <= len(mappings) <= 5000:
+        return "mappings must be a list of 1 to 5000"
+    for m in mappings:
+        if not isinstance(m, dict) or not _whole(m.get("ingredientId"), 1, INT_LIMIT) or m["ingredientId"] is None:
+            return "every mapping needs an ingredientId, a positive whole number"
+        if "fdcId" not in m or not _whole(m["fdcId"], 1, INT_LIMIT):
+            return "fdcId must be a positive whole number or null"
+        if "from" not in m or m["from"] not in (None, *FDC_FROM):
+            return f"from must be one of {', '.join(FDC_FROM)} or null"
+    return None
 
 
 # ---- the read API ----

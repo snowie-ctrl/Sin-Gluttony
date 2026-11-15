@@ -203,3 +203,69 @@ def test_extraIdsAreUpTo200RecipeIds(rules):
     problem = "extra must be up to 200 recipe ids, comma separated"
     for bad in ("a", "1,,2", "0", "-1", "1.5", ",".join(str(i) for i in range(1, 202)), "9999999999"):
         assert rules.extraIds(bad) == (None, problem), bad
+
+
+def test_aSiteRecipeWithTheCatalogFieldsIsAccepted(rules):
+    assert rules.recipeProblem(samples.siteRecipe()) is None
+    assert rules.recipeProblem(samples.siteRecipe(nutrition=None, hiddenReason=None, description=None,
+                                                  imageWidth=None)) is None
+
+
+@pytest.mark.parametrize("changes, words", [
+    ({"hiddenReason": "blurry"}, "hiddenReason"),
+    ({"imageWidth": 0}, "imageWidth"),
+    ({"nutrition": {**samples.NUTRITION, "from": "guess"}}, "nutrition.from"),
+    ({"nutrition": {**samples.NUTRITION, "calories": None}}, "nutrition.calories"),
+    ({"nutrition": {**samples.NUTRITION, "fatG": -1}}, "nutrition.fatG"),
+    ({"nutrition": {**samples.NUTRITION, "flagged": "yes"}}, "nutrition.flagged"),
+    ({"description": 5}, "description"),
+])
+def test_badCatalogFieldsNameTheField(rules, changes, words):
+    problem = rules.recipeProblem(samples.siteRecipe(**changes))
+    assert problem and words in problem
+
+
+def test_techniqueTagsAndTheBasicOccasion(rules):
+    good = samples.siteRecipe(tags=[{"type": "technique", "tag": "shaken", "origin": "rule"},
+                                    {"type": "occasion", "tag": "basic", "origin": "rule"}])
+    assert rules.recipeProblem(good) is None
+    bad = samples.siteRecipe(tags=[{"type": "technique", "tag": "juggled", "origin": "rule"}])
+    assert "technique" in rules.recipeProblem(bad)
+
+
+def test_siteKeysAreAccepted(rules):
+    assert rules.keysProblem(["difford:abc"]) is None
+    assert rules.SOURCES == ("mealdb", "cocktaildb", "wikibooks") + rules.SITE_SOURCES
+
+
+def test_recipeRowCarriesTheCatalogFieldsInColumnOrder(rules):
+    row = rules.recipeRow(samples.siteRecipe(description="d" * 6000))
+    column = rules.RECIPE_COLUMNS.index
+    assert len(row) == len(rules.RECIPE_COLUMNS)
+    assert row[column("Description")] == "d" * 5000
+    assert row[column("HiddenReason")] == "no-nutrition" and row[column("ImageWidth")] == 1200
+
+
+def test_nutritionRowOrdersTheValues(rules):
+    assert rules.nutritionRow(9, samples.NUTRITION) == (9, 420, 18.5, 40, 20, 6, 4, 7, 650, "estimate", 1)
+    assert rules.nutritionRow(9, {"calories": 1, "from": "source", "flagged": False}) == \
+        (9, 1, None, None, None, None, None, None, None, "source", 0)
+
+
+@pytest.mark.parametrize("data, ok", [
+    ({"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "owner"}]}, True),
+    ({"mappings": [{"ingredientId": 1, "fdcId": None, "from": None}]}, True),
+    ({"mappings": []}, False), ({"mappings": "x"}, False), ([], False),
+    ({"mappings": [{"ingredientId": 0, "fdcId": 5, "from": "rule"}]}, False),
+    ({"mappings": [{"ingredientId": 1, "fdcId": "5", "from": "rule"}]}, False),
+    ({"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "guess"}]}, False),
+    ({"mappings": [{"ingredientId": 1, "fdcId": 5}]}, False),
+])
+def test_fdcMapProblem(rules, data, ok):
+    assert (rules.fdcMapProblem(data) is None) is ok
+
+
+def test_fdcMapTakesAtMost5000(rules):
+    one = {"ingredientId": 1, "fdcId": 5, "from": "rule"}
+    assert rules.fdcMapProblem({"mappings": [one] * 5000}) is None
+    assert rules.fdcMapProblem({"mappings": [one] * 5001})

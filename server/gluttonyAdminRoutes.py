@@ -103,6 +103,10 @@ def storeRecipe(cur, r):
         cur.execute("INSERT INTO RecipeContains (RecipeID, Item) VALUES (%s, %s)", (recipeId, item))
     for diet in sorted(set(facts["diets"])):
         cur.execute("INSERT INTO RecipeDiets (RecipeID, Diet) VALUES (%s, %s)", (recipeId, diet))
+    if r.get("nutrition"):
+        cur.execute(f"INSERT INTO RecipeNutrition (RecipeID, {', '.join(col for _, col in rules.NUTRIENTS)}, "
+                    "NutritionFrom, Flagged) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    rules.nutritionRow(recipeId, r["nutrition"]))
     return recipeId
 
 
@@ -161,16 +165,23 @@ def state():
 @gluttonyAdminBP.route("/stats", methods=["GET"])
 def stats():
     with database() as (conn, cur):
-        cur.execute("SELECT Source, Kind, COUNT(*) AS n FROM Recipes WHERE RemovedAt IS NULL "
+        cur.execute("SELECT Source, Kind, COUNT(*) AS n FROM Recipes WHERE RemovedAt IS NULL AND HiddenReason IS NULL "
                     "GROUP BY Source, Kind ORDER BY Source, Kind")
         rows = cur.fetchall()
-        cur.execute("SELECT SUM(r.RemovedAt IS NULL) AS total, SUM(r.RemovedAt IS NOT NULL) AS removed, "
-                    "SUM(r.RemovedAt IS NULL AND fa.Complete = 1) AS complete "
+        cur.execute("SELECT SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NULL) AS total, "
+                    "SUM(r.RemovedAt IS NOT NULL) AS removed, "
+                    "SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NOT NULL) AS hidden, "
+                    "SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NULL AND fa.Complete = 1) AS complete "
                     "FROM Recipes r LEFT JOIN RecipeFacts fa ON fa.RecipeID = r.RecipeID")
         totals = cur.fetchone() or {}
+        cur.execute("SELECT HiddenReason, COUNT(*) AS n FROM Recipes WHERE RemovedAt IS NULL "
+                    "AND HiddenReason IS NOT NULL GROUP BY HiddenReason ORDER BY HiddenReason")
+        hiddenRows = cur.fetchall()
     return jsonify({"status": "ok", "total": int(totals.get("total") or 0), "removed": int(totals.get("removed") or 0),
                     "complete": int(totals.get("complete") or 0),
-                    "bySource": [{"source": r["Source"], "kind": r["Kind"], "count": r["n"]} for r in rows]})
+                    "hidden": int(totals.get("hidden") or 0),
+                    "bySource": [{"source": r["Source"], "kind": r["Kind"], "count": r["n"]} for r in rows],
+                    "hiddenByReason": [{"reason": r["HiddenReason"], "count": r["n"]} for r in hiddenRows]})
 
 
 # ---- the ingredient table ----
@@ -178,7 +189,7 @@ def stats():
 @gluttonyAdminBP.route("/ingredients", methods=["GET"])
 def ingredients():
     with database() as (conn, cur):
-        cur.execute("SELECT IngredientID, Name, ParentID, Category, Origin FROM Ingredients ORDER BY IngredientID")
+        cur.execute("SELECT IngredientID, Name, ParentID, Category, Origin, FdcID, FdcFrom FROM Ingredients ORDER BY IngredientID")
         rows = cur.fetchall()
         cur.execute("SELECT IngredientID, Item FROM IngredientContains ORDER BY IngredientID, Item")
         contains = cur.fetchall()
@@ -190,6 +201,7 @@ def ingredients():
     return jsonify({"status": "ok",
                     "ingredients": [{"id": r["IngredientID"], "name": r["Name"], "parentId": r["ParentID"],
                                      "category": r["Category"], "origin": r["Origin"],
+                                     "fdcId": r["FdcID"], "fdcFrom": r["FdcFrom"],
                                      "contains": items.get(r["IngredientID"], [])} for r in rows],
                     "aliases": [{"alias": a["Alias"], "ingredientId": a["IngredientID"]} for a in aliases]})
 
@@ -236,6 +248,24 @@ def ingredientsSeed():
                         (ids.get(parents[name]), ids[name]))
         conn.commit()
     return jsonify({"status": "ok", "added": added, "updated": updated, "kept": kept})
+
+
+@gluttonyAdminBP.route("/ingredients/fdc", methods=["POST"])
+def ingredientsFdc():
+    data = body()
+    problem = rules.fdcMapProblem(data)
+    if problem:
+        return error(problem)
+    updated = 0
+    with database() as (conn, cur):
+        for m in data["mappings"]:
+            # The owner's pick is never overwritten by a curated or rule one; only another owner pick replaces it.
+            cur.execute("UPDATE Ingredients SET FdcID = %s, FdcFrom = %s WHERE IngredientID = %s "
+                        "AND (FdcFrom IS NULL OR FdcFrom <> 'owner' OR %s = 'owner')",
+                        (m["fdcId"], m["from"], m["ingredientId"], m["from"]))
+            updated += cur.rowcount
+        conn.commit()
+    return jsonify({"status": "ok", "updated": updated})
 
 
 @gluttonyAdminBP.route("/ingredients/unknown", methods=["GET"])
