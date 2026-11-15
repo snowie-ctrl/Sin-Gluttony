@@ -159,7 +159,7 @@ def test_writeStoresTheRowsWithModeAndTime():
 
 # ---------- lastPassAt, and a site not crawled this pass (controller ruling) ----------
 
-CARRIED = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason", "pictureStop", "listingComplete",
+CARRIED = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason", "listingComplete",
            "extraction", "alarm", "lastPassAt")
 
 
@@ -190,6 +190,7 @@ def test_aSiteNotCrawledCarriesItsCrawlFieldsAndRecomputesItsGateFields():
         assert healthy[field] == before["madeuphealthy"][field], field
     assert healthy["lastPassAt"] == "1970-01-12T13:46:40+00:00"
     assert (healthy["recipes"], healthy["shown"]) == (12, 10)
+    assert before["madeuphealthy"]["pictureStop"] == "429" and healthy["pictureStop"] is None   # this pass's images
     assert healthy["hidden"]["no-time"] == 1 and healthy["calibration"] is None
     assert siteState["madeuphealthy"]["lastRate"] == 0.5       # not judged: it was not crawled
     assert rows[0]["lastPassAt"] == "1970-01-19T13:46:40+00:00"

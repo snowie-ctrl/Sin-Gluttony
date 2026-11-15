@@ -2,7 +2,8 @@
 The Gluttony scraper's loop. It waits for Surrogate's requests (Run now,
 Re-tag) and, with SCHEDULE=on, runs the weekly pass. `--once full|retag` runs
 one pass and exits; the dry run and manual checks use it, and `--no-images`
-skips pictures when building the seed on a dev machine.
+skips pictures when building the seed on a dev machine (never for publishing: every
+recipe-site recipe would be hidden as no-photo).
 `--dry-run [--pages N] [--no-fetch] [--server-table]` is the dry run over the recipe sites; it never
 publishes. `--pages 0` means every page, and `--server-table` reads plutus's ingredient table (read only):
 together they are M4's full trial. A run request naming a site (Surrogate's crawl of one site, CATALOG=new)
@@ -66,7 +67,8 @@ def runOnce(mode, log=print, images=True, site=None):
     report = pipeline.runPass(mode, log, stopRequested=lambda: config.STOP_FILE.exists(), images=images, site=site)
     config.STOP_FILE.unlink(missing_ok=True)
     state = store.readJson(config.STATE_FILE, {}) or {}
-    if mode == "full" and site is None:     # a pass of one site does not stand in for the weekly pass
+    onlyOneSite = site is not None and config.CATALOG == "new"     # (CATALOG=old ignores site: a full pass)
+    if mode == "full" and not onlyOneSite:      # a pass of one recipe site does not stand in for the weekly pass
         if report["outcome"] == "failed":
             state["failedAt"] = report["endedAt"]
         else:
@@ -81,7 +83,9 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Gluttony's recipe scraper")
     parser.add_argument("--once", choices=("full", "retag"), help="run one pass and exit")
-    parser.add_argument("--no-images", action="store_true", help="skip pictures (building the seed on a dev machine)")
+    parser.add_argument("--no-images", action="store_true",
+                        help="skip pictures (building the seed on a dev machine); never for publishing: with "
+                             "PUBLISH=on every recipe-site recipe would be hidden as no-photo")
     parser.add_argument("--dry-run", action="store_true",
                         help="crawl the recipe sites, run the gate and write reports/dryrun-<date>/; never publishes")
     parser.add_argument("--pages", type=int, default=200, help="with --dry-run: recipe pages per site (0: all)")

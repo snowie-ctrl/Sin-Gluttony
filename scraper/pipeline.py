@@ -158,6 +158,7 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     rules = rulesData.load()
     siteList = sites.loadSites(rules)
     crawled = {}
+    result["sources"] = {}      # a re-tag crawls nothing; report readers still find the key
     if mode == "full":
         stage("crawl", site or "")
         # the crawl looks for the stop before every request and saves the site state however it ends
@@ -224,12 +225,14 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     siteCounts = state.get("siteCounts", {})
     publishedKeys = list(publish.publishedState(config.PUBLISH != "on"))
     removals = publish.siteRemovals(publishedKeys, crawled, siteCounts, config.REMOVAL_GUARD)
-    result["publish"] = publish.publish(recipes, {}, {}, log, removals=removals)
+    summary = result["publish"] = publish.publish(recipes, {}, {}, log, removals=removals)
     if mode == "full":
-        # the size of each site's last complete listing, which the next pass's guard compares against
+        # The baseline the next pass's guard compares against: a complete, non-empty listing the guard let through.
+        # A guarded or empty listing never becomes it, so a shrink stays held back pass after pass (as the old pass).
+        guarded = set(summary.get("guarded", []))
         for name, crawlResult in crawled.items():
-            if crawlResult.get("complete"):
-                siteCounts[name] = crawlResult.get("listed", 0)
+            if crawlResult.get("complete") and crawlResult.get("listed", 0) > 0 and name not in guarded:
+                siteCounts[name] = crawlResult["listed"]
         state["siteCounts"] = siteCounts
         store.writeJson(config.STATE_FILE, state)
     return result

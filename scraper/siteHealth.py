@@ -12,9 +12,10 @@ run/site-state.json, updated here whenever a pass is judged).
 
 Each row says when its site was last crawled (lastPassAt). A site this pass
 did not crawl (a re-tag, or a full pass of another one site) keeps what its
-last crawl found, from the previous run/sites.json: the counts, stop, picture
-stop, listing, extraction, alarm and lastPassAt. What the gate decides
-(cached, recipes, shown, hidden, skipped, calibration) is worked out afresh.
+last crawl found, from the previous run/sites.json: the counts, stop,
+listing, extraction, alarm and lastPassAt. What the gate and this pass's
+pictures decide (cached, recipes, shown, hidden, skipped, calibration,
+pictureStop) is worked out afresh.
 """
 from datetime import datetime, timezone
 
@@ -27,7 +28,8 @@ JUDGE_PAGES = 10        # fewer fetched pages than this is too few to judge
 LOW_RATE = 0.5          # under this share of fetched pages giving a recipe is red
 MAX_FALL = 0.20         # a fall of more than this from the last judged rate is red
 # what a site's crawl decides: carried over from the previous sites.json for a site not crawled this pass
-CRAWL_FIELDS = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason", "pictureStop",
+# (pictureStop is not one: every pass with pictures runs the images stage for every site)
+CRAWL_FIELDS = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason",
                 "listingComplete", "extraction", "alarm", "lastPassAt")
 
 
@@ -109,7 +111,7 @@ def summarise(siteList, crawled, recipes, skipped, siteState, startedAt, picture
             row.update({field: value for field, value in (previous.get(name) or {}).items()
                         if field in CRAWL_FIELDS})
             if name not in previous:        # never crawled: nothing found yet, so nothing to alarm about
-                row.update(stopReason=None, pictureStop=None, listingComplete=False,
+                row.update(stopReason=None, listingComplete=False,
                            extraction={"pages": 0, "recipes": 0, "rate": None}, alarm={"red": False, "why": None})
         rows.append(row)
     return rows

@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timezone
 
 import config
@@ -67,9 +68,22 @@ def test_aRetagLeavesTheScheduleAlone(monkeypatch):
 
 
 def test_aOneSitePassPassesItsSiteAndLeavesTheScheduleAlone(monkeypatch):
+    monkeypatch.setattr(config, "CATALOG", "new")
     seen = fakePass(monkeypatch, "ok")
     main.runOnce("full", log=lambda *a: None, site="difford")
     assert seen["site"] == "difford" and store.readJson(config.STATE_FILE) == {}
+
+
+def test_underTheOldCatalogASiteNamedRunIsAnOrdinaryFullPass(monkeypatch):
+    fakePass(monkeypatch, "ok")
+    main.runOnce("full", log=lambda *a: None, site="difford")
+    assert store.readJson(config.STATE_FILE) == {"lastFullAt": 100.0}
+
+
+def test_noImagesSaysItIsNeverForPublishing(capsys):
+    with pytest.raises(SystemExit):
+        main.main(["--help"])
+    assert "never for publishing" in " ".join(capsys.readouterr().out.split())
 
 
 def test_onceRunsOnePassAndSaysHowItWent(monkeypatch):

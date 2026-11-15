@@ -153,7 +153,7 @@ def siteRecipe(site, url, width=1200):
 def newCatalog(monkeypatch):
     """CATALOG=new over two made-up sites; site a has a complete listing, site b was blocked."""
     monkeypatch.setattr(config, "CATALOG", "new")
-    world = {"crawls": [], "reads": 0}
+    world = {"crawls": [], "reads": 0, "listing": [(A_URL, None), (A_SMALL, None)]}
     realLoad = rulesData.load
 
     def load(folder=None):
@@ -165,8 +165,9 @@ def newCatalog(monkeypatch):
 
     def crawl(siteList, pages, log=print, priority=frozenset(), now=None, only=None, stopRequested=None):
         world["crawls"].append({"pages": pages, "priority": priority, "only": only, "stop": stopRequested})
-        pagecache.saveListing("sitea", [(A_URL, None), (A_SMALL, None)])
-        result = {"sitea": {"site": "sitea", "ok": True, "stopReason": None, "listed": 2, "planned": 2, "due": 2,
+        pagecache.saveListing("sitea", world["listing"])
+        listed = len(world["listing"])
+        result = {"sitea": {"site": "sitea", "ok": True, "stopReason": None, "listed": listed, "planned": 2, "due": 2,
                             "fetched": 2, "notRecipe": 0, "gone": 0, "errors": 0, "complete": True, "goneUrls": []},
                   "siteb": {"site": "siteb", "ok": False, "stopReason": "blocked (403)", "listed": 7, "planned": 0,
                             "due": 0, "fetched": 0, "notRecipe": 0, "gone": 0, "errors": 0, "complete": False,
@@ -269,13 +270,37 @@ def test_aNewFullPassRemovesWhatLeftACompleteListingAndKeepsItsCount(newCatalog)
     assert state["siteCounts"] == {"sitea": 2} and state["lastFullAt"] == 5.0     # site b: listing incomplete
 
 
-def test_aShrunkListingIsGuardedButBecomesTheLastCompleteCount(newCatalog):
+def test_aShrunkListingIsGuardedAndKeepsTheLastCount(newCatalog):
     missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
     store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
     store.writeJson(config.STATE_FILE, {"siteCounts": {"sitea": 100}})
     result = pipeline.runPass("full", log=quiet)
     assert result["publish"]["wouldRemoveCount"] == 0 and result["publish"]["guarded"] == ["sitea"]
-    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 2}
+    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 100}
+
+
+def test_aListingShrunkTwiceIsStillGuardedOnTheSecondPass(newCatalog):
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
+    store.writeJson(config.STATE_FILE, {"siteCounts": {"sitea": 100}})
+    for _ in range(2):
+        result = pipeline.runPass("full", log=quiet)
+        assert result["publish"]["wouldRemoveCount"] == 0 and result["publish"]["guarded"] == ["sitea"]
+    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 100}
+
+
+def test_anEmptyListingNeverBecomesTheBaseline(newCatalog):
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
+    store.writeJson(config.STATE_FILE, {"siteCounts": {"sitea": 100}})
+    newCatalog["listing"] = []
+    first = pipeline.runPass("full", log=quiet)
+    assert first["publish"]["wouldRemoveCount"] == 0 and first["publish"]["guarded"] == ["sitea"]
+    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 100}
+    newCatalog["listing"] = [(A_URL, None), (A_SMALL, None)]                # then a small listing: still held back
+    second = pipeline.runPass("full", log=quiet)
+    assert second["publish"]["wouldRemoveCount"] == 0 and second["publish"]["guarded"] == ["sitea"]
+    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 100}
 
 
 def test_aNewRetagCrawlsNothingRemovesNothingAndKeepsTheCrawlFields(newCatalog, monkeypatch):
@@ -295,15 +320,25 @@ def test_aNewRetagCrawlsNothingRemovesNothingAndKeepsTheCrawlFields(newCatalog, 
     assert result["outcome"] == "ok", result["error"]
     assert newCatalog["crawls"] == [] and newCatalog["reads"] == 2
     assert seen["removals"] == ([], [], []) and result["publish"]["wouldRemoveCount"] == 0
+    assert result["sources"] == {}
     after = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"]
     assert [row["lastPassAt"] for row in after] == [row["lastPassAt"] for row in before]
     assert [row["listed"] for row in after] == [2, 7]
 
 
 def test_aPassOfOneSiteCrawlsOnlyThatSite(newCatalog):
-    result = pipeline.runPass("full", log=quiet, site="difford")
+    pipeline.runPass("full", log=quiet)
+    before = {row["site"]: row for row in json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"]}
+    newCatalog["crawls"].clear()
+    other = f"siteb:{pagecache.sourceIdFor('https://www.site-b.test/made-up-gone/')}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {other: "made-up-hash"}})
+    result = pipeline.runPass("full", log=quiet, site="sitea")
     assert result["outcome"] == "ok", result["error"]
-    assert newCatalog["crawls"][0]["only"] == "difford"
+    assert newCatalog["crawls"][0]["only"] == "sitea" and list(result["sources"]) == ["sitea"]
+    after = {row["site"]: row for row in json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"]}
+    assert (after["siteb"]["listed"], after["siteb"]["lastPassAt"], after["siteb"]["alarm"]) == \
+        (before["siteb"]["listed"], before["siteb"]["lastPassAt"], before["siteb"]["alarm"])
+    assert result["publish"]["wouldRemoveCount"] == 0
 
 
 def test_aStopDuringTheCrawlEndsThePassBeforeReading(newCatalog, monkeypatch):
