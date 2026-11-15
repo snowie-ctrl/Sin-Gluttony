@@ -32,7 +32,6 @@ BASICS = [
     ("boiled eggs", r"(?:soft-|hard-)?boiled-eggs?"),
     ("poached eggs", r"poached-eggs?"),
     ("omelette", r"omelet(?:te)?s?"),
-    ("toast", r"^(?:buttered-|cinnamon-)?toast$"),
     ("porridge", r"^(?:perfect-|classic-|simple-|basic-)?(?:porridge|oatmeal)$"),
     ("pancakes", r"^(?:classic-|easy-|fluffy-|perfect-|basic-)?pancakes?(?:-recipe)?$"),
     ("french toast", r"french-toast"),
@@ -40,7 +39,6 @@ BASICS = [
     ("granola", r"^(?:homemade-|easy-|simple-)?granola$"),
     ("boiled rice", r"(?:boiled|steamed|perfect|fluffy|basic)-(?:white-|basmati-)?rice|how-to-cook-(?:white-|basmati-)?rice"),
     ("fried rice", r"^(?:easy-|egg-|simple-|classic-)?fried-rice$"),
-    ("pasta", r"how-to-cook-pasta|^(?:simple-|basic-|plain-|easy-)?pasta$"),
     ("spaghetti bolognese", r"spaghetti-bolognese|bolognese"),
     ("macaroni cheese", r"^(?:classic-|easy-|best-|baked-|homemade-|ultimate-)?mac(?:aroni)?-(?:and-|n-)?cheese$"),
     ("tomato pasta", r"^(?:fresh-|simple-|easy-)?tomato-pasta(?:-sauce)?$|pasta-(?:al-)?pomodoro"),
@@ -58,7 +56,6 @@ BASICS = [
     ("roast vegetables", r"roast(?:ed)?-vegetables|roast(?:ed)-veg"),
     ("broccoli", r"(?:steamed|roast|roasted)-broccoli"),
     ("green beans", r"^(?:simple-|easy-|sauteed-|steamed-)?green-beans$"),
-    ("burgers", r"^(?:beef-|classic-|perfect-)?burgers?$"),
     ("meatballs", r"^(?:baked-|homemade-|oven-baked-|classic-|easy-|beef-)?meatballs$"),
     ("chilli con carne", r"chil(?:l)?i-con-carne"),
     ("stir fry", r"^(?:simple-|quick-|easy-)?stir-fry(?:-recipe)?$"),
@@ -80,7 +77,6 @@ BASICS = [
     ("chocolate chip cookies", r"chocolate-chip-cookies"),
     ("sponge cake", r"^(?:classic-|easy-|best-|simple-|ultimate-)?(?:victoria-sponge(?:-cake)?|vanilla-cake|sponge-cake)$"),
     ("smoothie", r"^(?:banana-|berry-|fruit-|breakfast-|green-|best-green-)?smoothie(?:-recipe)?$"),
-    ("bacon sandwich", r"^(?:classic-|best-|ultimate-)?bacon-(?:sandwich|sarnie|butty)$"),
 ]
 
 
