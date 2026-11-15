@@ -42,6 +42,7 @@ def safeModes(monkeypatch):
     monkeypatch.setattr(config, "UPLOAD_HOST", "")
     monkeypatch.setattr(config, "PUBLISH", "dry")
     monkeypatch.setattr(config, "SCHEDULE", "off")
+    monkeypatch.setattr(config, "CATALOG", "old")
     monkeypatch.setattr(config, "CONTROL_TOKEN", "test-control-token")
 
 

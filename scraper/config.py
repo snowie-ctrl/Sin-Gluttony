@@ -67,6 +67,7 @@ BATCH_SIZE = 50
 
 # ========== MODES ==========
 PUBLISH = _env("PUBLISH", "dry")      # "on" sends to plutus; "dry" runs every stage but sending
+CATALOG = _env("CATALOG", "old")       # "old": TheMealDB/TheCocktailDB/Wikibooks as before; "new": the recipe sites (spec 2026-11-13)
 SCHEDULE = _env("SCHEDULE", "off")    # "on" runs the weekly pass by itself
 REMOVAL_GUARD = 0.05                  # a source shrinking by more than this share removes nothing
 FAILED_RETRY_HOURS = 6                # a failed weekly pass is tried again after this long

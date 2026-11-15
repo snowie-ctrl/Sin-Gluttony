@@ -21,8 +21,10 @@ import fdc
 import fdcMatch
 import progress
 import report
+import rulesData
 import schedule
 import store
+from sources import sites as siteRules
 
 app = Flask(__name__)
 
@@ -49,13 +51,13 @@ def status():
     return jsonify({"status": "ok", "running": progress.isRunning(), "current": progress.read(),
                     "lastRun": report.lastRun(), "pending": [r.get("kind") for r in controlRequests.pending()],
                     "schedule": {"on": config.SCHEDULE == "on", "nextDue": schedule.nextDue(now).isoformat()},
-                    "publish": config.PUBLISH})
+                    "publish": config.PUBLISH, "catalog": config.CATALOG})
 
 
-def _ask(kind, message):
+def _ask(kind, message, site=None):
     if progress.isRunning() or controlRequests.pending():
         return error("a pass is already running or waiting", 409)
-    controlRequests.ask(kind)
+    controlRequests.ask(kind, site)
     return jsonify({"status": "ok", "message": message}), 202
 
 
@@ -148,6 +150,41 @@ def contractDaily():
     except ValueError:
         days = 30
     return jsonify(contractView.dailyDoc(_runs(), days, date.today()))
+
+
+# ========== SITES PAGE ==========
+# Surrogate's Sites page (new catalog): per-site health from run/sites.json,
+# a re-gate over the cache and a full pass of one site. Both requests only
+# queue; the scraper's loop acts on them.
+
+def _newCatalogOnly():
+    if config.CATALOG != "new":
+        return error("the new catalog is not on (CATALOG=old)", 409)
+    return None
+
+
+@app.post("/regate")
+def regate():
+    return _newCatalogOnly() or _ask("retag", "a re-gate starts within a few seconds")
+
+
+@app.post("/crawl/<site>")
+def crawl(site):
+    refused = _newCatalogOnly()
+    if refused:
+        return refused
+    if site not in {entry["site"] for entry in siteRules.loadSites(rulesData.load())}:
+        return error("no such site, or it is not enabled in rules/sites.json", 404)
+    return _ask("run", f"a full pass of {site} starts within a few seconds", site)
+
+
+@app.get("/sites")
+def sites():
+    saved = store.readJson(config.SITES_FILE, None)
+    saved = saved if isinstance(saved, dict) else {}
+    rows = saved.get("sites")
+    return jsonify({"status": "ok", "catalog": config.CATALOG, "generatedAt": saved.get("generatedAt"),
+                    "mode": saved.get("mode"), "sites": rows if isinstance(rows, list) else []})
 
 
 # ========== FDC MAPPING ==========

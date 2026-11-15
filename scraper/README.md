@@ -55,7 +55,7 @@ The "newer USDA release" monthly check is left to milestone 4 (on the VM, with t
 Foundation before SR Legacy). A pick of `null` means no FDC food fits. Milestone 3 copies the result into
 `Ingredients.FdcID`.
 
-**Control API, the contract for Surrogate's FDC mapping page.** The page sits beside ingredient mapping, lists the
+**Control API, the contract for Surrogate's FDC mapping and Sites pages.** The FDC page sits beside ingredient mapping, lists the
 queue by unlocks, shows each ingredient's candidates with a search box, and offers a "no FDC food fits" button (a
 `null` pick). All routes need the `X-Control-Token` header. A pick takes effect on the next pass or dry run; the API
 never starts one.
@@ -69,3 +69,15 @@ never starts one.
 - `POST /fdc/pick` with `{"ingredient": str, "fdcId": int | null}` returns `{"status": "ok"}`. 400 for a missing,
   empty or over-100-character `ingredient` or an `fdcId` that is not a whole number or null; 404 when `fdcId` is not
   an imported food.
+
+The Sites page (new catalog) uses three more routes. `/status` also carries `"catalog": "old" | "new"`.
+
+- `POST /regate` queues a re-tag (read, tag, nutrition, gate and publish over the cache) and returns 202
+  `{"status": "ok", "message": "a re-gate starts within a few seconds"}`.
+- `POST /crawl/<site>` queues a full pass of that one site (`{"kind": "run", "site": site}`) and returns 202. 404 for a
+  site that is not enabled in `rules/sites.json`.
+- Both answer 409 `"a pass is already running or waiting"` when busy, and 409
+  `"the new catalog is not on (CATALOG=old)"` under `CATALOG=old` (checked first).
+- `GET /sites` returns `{"status": "ok", "catalog", "generatedAt": iso | null, "mode": "pass" | "dryrun" | null,
+  "sites": [row]}` from `run/sites.json`, written by the pass and the dry run; empty when the file is missing or
+  unreadable. Each row is as `siteHealth.py` writes it.
