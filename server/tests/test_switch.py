@@ -301,3 +301,64 @@ def test_mainReportsAFailureAndExitsOne(switch, useDb, capsys):
     useDb(fetchall=queue(**KEPT), failOn="INSERT INTO Ratings")
     assert switch.main(["--apply"]) == 1
     assert "switch: failed, nothing was changed: RuntimeError" in capsys.readouterr().out
+
+
+# ---- per kind ----
+
+DRINKS = dict(retired=[old(1), old(2, dish="mojito", kind="drink", source="cocktaildb"),
+                       old(3, dish="negroni", kind="drink", source="cocktaildb")],
+              candidates=[new(500)],
+              lists=[{"ListID": 3, "RecipeID": 1, "OrderIndex": 0}, {"ListID": 3, "RecipeID": 2, "OrderIndex": 1}],
+              held=([], [], []))
+
+
+def test_aDryRunReportsCountsPerKindAndNeverRefuses(switch, useDb):
+    conn = useDb(fetchall=queue(**DRINKS))
+    report = switch.switch(apply=False, now=NOW)
+    assert written(conn) == []
+    assert report["kinds"] == {"drink": {"shown": 0, "old": 2, "referenced": 1, "matched": 0},
+                               "food": {"shown": 1, "old": 1, "referenced": 1, "matched": 1}}
+    assert list(report["kinds"]) == ["drink", "food"]
+    lines = switch.reportLines(report, listing=False)
+    assert "drink: 0 shown site recipes; 2 old recipes, 1 kept, 0 with a match" in lines
+    assert "food: 1 shown site recipes; 1 old recipes, 1 kept, 1 with a match" in lines
+
+
+def test_applyRefusesWhenAKindWithOldRecipesHasNoShownRecipe(switch, useDb):
+    conn = useDb(fetchall=queue(**DRINKS))
+    with pytest.raises(switch.Refused, match="no drink site recipe is shown.*--without drink"):
+        switch.switch(apply=True, now=NOW)
+    assert written(conn) == [] and conn.commits == 0 and conn.rollbacks == 1 and conn.closed
+
+
+def test_withoutLetsAKindWithNothingShownBeRetired(switch, useDb):
+    conn = useDb(fetchall=queue(**DRINKS))
+    report = switch.switch(apply=True, now=NOW, without=("drink",))
+    assert report["applied"] is True and conn.commits == 1
+    sqls = [s for s, _ in written(conn)]
+    assert sqls == ["UPDATE ListItems SET RecipeID = %s WHERE ListID = %s AND RecipeID = %s",
+                    "UPDATE Recipes SET RemovedAt = NOW() WHERE Source IN (%s, %s, %s) AND RemovedAt IS NULL"]
+    assert report["ListItems"] == {"moved": 1, "merged": 0, "notMoved": 1}
+
+
+def test_aKindWithNoOldRecipesNeedsNothingShown(switch, useDb):
+    useDb(fetchall=queue(retired=[old(1)], candidates=[new(500)]))
+    assert switch.switch(apply=True, now=NOW)["applied"] is True
+
+
+def test_mainPassesWithoutThrough(switch, useDb, capsys):
+    conn = useDb(fetchall=queue(**DRINKS))
+    assert switch.main(["--apply"]) == 1
+    assert "--without drink" in capsys.readouterr().out and written(conn) == []
+    conn = useDb(fetchall=queue(**DRINKS))
+    assert switch.main(["--apply", "--without", "drink"]) == 0
+    assert conn.commits == 1
+
+
+def test_theOldRecipesLineSaysWhatARunDidOrWouldDo(switch, useDb):
+    useDb(fetchall=queue(**KEPT))
+    dry = switch.reportLines(switch.switch(apply=False, now=NOW), listing=False)
+    assert "old recipes: 2 (2 would be retired by --apply, the rest already removed)" in dry
+    useDb(fetchall=queue(**KEPT))
+    done = switch.reportLines(switch.switch(apply=True, now=NOW), listing=False)
+    assert "old recipes: 2 (2 retired by this run, the rest already removed)" in done

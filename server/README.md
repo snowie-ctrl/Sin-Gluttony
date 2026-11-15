@@ -203,7 +203,8 @@ longer shows. A joined note that would pass 2,000 characters is left where it is
 It reads and writes in one transaction, with the old recipes and every row that references one locked. Without
 `--apply` it is a dry run: it reports and writes nothing. It is safe to run again: a recipe already retired keeps
 its first `RemovedAt`, and a reference still on a retired recipe moves once a match has been published. `--apply`
-refuses (exit 1, nothing changed) while no site recipe is shown.
+refuses (exit 1, nothing changed) while no site recipe is shown, or while a kind that has old recipes has none
+shown and is not named with `--without KIND`.
 
 The steps run in this order. Each waits for the owner's go-ahead at the time.
 
@@ -211,19 +212,31 @@ The steps run in this order. Each waits for the owner's go-ahead at the time.
    `sudo mysqldump --single-transaction --routines gluttonyDB > ~/gluttonyDB-before-switch-<date>.sql` and
    `sudo cp -a /pool/appFiles/gluttony ~/gluttony-files-before-switch-<date>`. Check the dump ends with
    `-- Dump completed`. This backup is the undo for everything below.
-2. **Publish the new catalog (VM 103).** The weekly loop is off. In `~/Gluttony/.env` set `CATALOG=new` and
-   `PUBLISH=on`. Then either a full pass, `.venv/bin/python main.py --once full`, or, to publish what the full trial
-   already fetched, a re-gate over the cache, `.venv/bin/python main.py --once retag`. Check the pass's report (no
-   site stopped; the FDC mappings were sent) and `GET /api/gluttony-admin/stats` on the LAN: the six site sources
-   have shown recipes, with the counts the trial led you to expect.
+2. **Publish the new catalog (VM 103).** Wait until the full trial has finished: the pass below takes
+   `run/scraper.lock`, so stop the trial's tmux window first if it is still up. The weekly loop is off. In
+   `~/Gluttony/.env` set `CATALOG=new` and `PUBLISH=on`. Then either a full pass,
+   `.venv/bin/python main.py --once full`, or, to publish what the full trial already fetched, a re-gate over the
+   cache, `.venv/bin/python main.py --once retag`. Check the pass's report (no site stopped; the FDC mappings were
+   sent), then `GET /api/gluttony-admin/stats` on the LAN with the admin token in the `X-Admin-Token` header. Go or
+   no-go per kind:
+   - food: go when the meal sites have shown recipes, with the counts the trial led you to expect.
+   - drinks: go only if Difford's was crawled and has shown recipes. Today it refuses the crawler (403), so drinks
+     are out for now: no drink is shown, and step 3 needs `--without drink`.
 3. **The switch (Claude or the owner, on plutus).** Copy `gluttonySwitch.py` and the current `gluttonyRules.py`
    into `/database/API/util/` (it needs `OLD_SOURCES`), then:
    - dry run: `cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --list`. Read the report: how
      many old recipes people kept, how many have a match, and per table how many references move, merge and stay.
-     `--list` names each kept old recipe and the new `RecipeID` it goes to (or `no match`).
+     One line per kind (`food`, `drink`) shows its shown site recipes, old recipes, kept old recipes and how many
+     of those have a match: that is what each kind will keep. `--list` names each kept old recipe and the new
+     `RecipeID` it goes to (or `no match`).
    - for real, when the dry run looks right: `cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --apply`.
-     The first line says `switch: applied`. A failure prints `switch: failed, nothing was changed: ...` and rolls
-     back.
+     While no drink is shown, `--apply` refuses (exit 1, nothing changed) unless the owner passes `--without drink`:
+     `cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --apply --without drink`. That retires
+     the TheCocktailDB drinks with nothing to move people's drink items to: they stay on the retired recipes and
+     disappear from the app (the backup undoes it). The first line says `switch: applied`. A failure prints
+     `switch: failed, nothing was changed: ...` and rolls back.
+   - run it when nobody is using the app: it locks the rows it reads. A failure (for example a lock conflict)
+     changes nothing and the command can simply be run again.
    No restart is needed: the server already hides every retired recipe.
 4. **Live checks (Claude).** `server/liveCheck.py` as in "Milestone 4: the rollout", step 11, with a fresh check
    key. Then by hand in the app: Browse shows only site recipes; Saved shows the moved items on their new recipes,

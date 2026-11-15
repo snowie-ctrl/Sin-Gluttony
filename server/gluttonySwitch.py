@@ -4,6 +4,7 @@ published (server/README.md, "The catalog switch"):
 
     cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --list     # dry run: reports, writes nothing
     cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --apply    # the switch, in one transaction
+    ... --apply --without drink     # also when no drink site recipe is shown: the old drinks are retired unmoved
 
 Every TheMealDB, TheCocktailDB and Wikibooks recipe gets RemovedAt. None is deleted: the user tables cascade on
 delete. What people kept on one (list entries, Devoured marks, stars, notes) moves to the shown site recipe with the
@@ -30,7 +31,8 @@ NOTE_LIMIT = 2000        # Notes.Text is VARCHAR(2000); a longer join would abor
 # ---- which new recipe ----
 
 def matchKey(dishKey, kind):
-    """DishKey and Kind as MySQL's utf8mb4_0900_ai_ci compares them: case and accents ignored."""
+    """DishKey and Kind folded for matching: case and accents ignored (close to MySQL's utf8mb4_0900_ai_ci) and
+    surrounding spaces ignored. Matching runs in Python only; MySQL is never asked to compare them."""
     folded = unicodedata.normalize("NFKD", dishKey or "").casefold()
     return "".join(c for c in folded if not unicodedata.combining(c)).strip(), kind
 
@@ -209,8 +211,23 @@ def readState(cur):
             "existing": existing}
 
 
-def switch(apply, now):
-    """The report; with apply, the moves and the retirement are committed together, otherwise rolled back."""
+def kindCounts(retired, candidates, referenced, targets):
+    """{Kind: shown site recipes, old recipes, kept old recipes, kept ones with a match}, kinds sorted."""
+    byId = {r["RecipeID"]: r for r in retired}
+    kinds = sorted({r["Kind"] for r in retired} | {r["Kind"] for r in candidates})
+    result = {}
+    for kind in kinds:
+        kept = [rid for rid in referenced if byId[rid]["Kind"] == kind]
+        result[kind] = {"shown": sum(c["Kind"] == kind for c in candidates),
+                        "old": sum(r["Kind"] == kind for r in retired),
+                        "referenced": len(kept),
+                        "matched": sum(rid in targets for rid in kept)}
+    return result
+
+
+def switch(apply, now, without=()):
+    """The report; with apply, the moves and the retirement are committed together, otherwise rolled back. With
+    apply it refuses while a kind that has old recipes has no shown site recipe, unless named in without."""
     conn = DBUtils.initConnection("gluttony")
     try:
         conn.autocommit = False
@@ -226,6 +243,7 @@ def switch(apply, now):
             "referenced": len(referenced),
             "matched": sum(rid in state["targets"] for rid in referenced),
             "several": sum(rid in state["several"] for rid in referenced),
+            "kinds": kindCounts(state["retired"], state["candidates"], referenced, state["targets"]),
             "mapping": [(byId[rid], state["targets"].get(rid)) for rid in referenced],
             "applied": False,
         })
@@ -234,6 +252,12 @@ def switch(apply, now):
             return report
         if not state["candidates"]:
             raise Refused("no site recipe is shown: publish the new catalog first")
+        bare = [k for k, c in report["kinds"].items() if c["old"] and not c["shown"] and k not in without]
+        if bare:
+            names = " and ".join(bare)
+            flags = " ".join(f"--without {k}" for k in bare)
+            raise Refused(f"no {names} site recipe is shown: publish them first, or pass {flags} to retire the "
+                          f"old {names} recipes anyway")
         for sql, params in writes:
             cur.execute(sql, params)
         cur.execute(f"UPDATE Recipes SET RemovedAt = NOW() WHERE Source IN ({_in(rules.OLD_SOURCES)}) "
@@ -253,9 +277,12 @@ def switch(apply, now):
 def reportLines(report, listing):
     lines = ["switch: applied" if report["applied"]
              else "switch: dry run, nothing was written (run again with --apply to switch)"]
-    lines.append(f"old recipes: {report['retired']} ({report['newlyRetired']} retired by this run, "
-                 f"the rest already removed)")
+    did = "retired by this run" if report["applied"] else "would be retired by --apply"
+    lines.append(f"old recipes: {report['retired']} ({report['newlyRetired']} {did}, the rest already removed)")
     lines.append(f"shown site recipes: {report['shown']}")
+    for kind, c in report["kinds"].items():
+        lines.append(f"{kind}: {c['shown']} shown site recipes; {c['old']} old recipes, {c['referenced']} kept, "
+                     f"{c['matched']} with a match")
     lines.append(f"old recipes people kept: {report['referenced']}, {report['matched']} with a match "
                  f"({report['several']} chosen among several)")
     for table in TABLES:
@@ -276,11 +303,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Retire the old catalog and move what people kept (spec §5)")
     parser.add_argument("--apply", action="store_true", help="switch for real; without it nothing is written")
     parser.add_argument("--list", action="store_true", help="also list each kept old recipe and where it goes")
+    parser.add_argument("--without", action="append", default=[], metavar="KIND",
+                        help="with --apply, retire this kind's old recipes although no site recipe of that kind "
+                             "is shown (repeatable, e.g. --without drink)")
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     now = now.replace(microsecond=now.microsecond // 1000 * 1000)     # DATETIME(3)
     try:
-        report = switch(args.apply, now)
+        report = switch(args.apply, now, tuple(args.without))
     except Refused as e:
         print(f"switch: refused, nothing was changed: {e}")
         return 1
