@@ -8,89 +8,10 @@ import progress
 import publish
 import rulesData
 import store
-from sources import thedb, wikibooks
-
-MEAL = {"idMeal": "1", "strMeal": "Cheese Toast", "strCategory": "Breakfast", "strArea": "British",
-        "strInstructions": "Toast the bread. Melt the cheese.", "strIngredient1": "Bread", "strMeasure1": "2 slices",
-        "strIngredient2": "Cheddar", "strMeasure2": "50g", "strIngredient3": "Yuzu", "strMeasure3": "1"}
-DRINK = {"idDrink": "2", "strDrink": "Gin Fizz", "strCategory": "Ordinary Drink", "strAlcoholic": "Alcoholic",
-         "strGlass": "Highball glass", "strInstructions": "Shake and strain.", "strIngredient1": "Gin",
-         "strMeasure1": "2 oz", "strIngredient2": "Soda water", "strMeasure2": "Top up"}
-PAGE = "{{recipe summary|Difficulty=2|Time=20 minutes}}\n== Ingredients ==\n* 2 eggs\n== Procedure ==\n# Fry the eggs.\n"
-
-
-@pytest.fixture
-def sources(monkeypatch):
-    calls = []
-    def allRecords(db):
-        calls.append(db.source)
-        return {"1": MEAL} if db.source == "mealdb" else {"2": DRINK}
-    def fetch(previous=None, log=print):
-        calls.append("wikibooks")
-        store.writeJson(store.rawPath("wikibooks", "Cookbook:Fried Eggs"),
-                        {"source": "wikibooks", "sourceId": "Cookbook:Fried Eggs", "wikitext": PAGE})
-        store.writeJson(store.rawPath("wikibooks", "Cookbook:Eggs"),
-                        {"source": "wikibooks", "sourceId": "Cookbook:Eggs", "wikitext": "{{cookdp}} Eggs."})
-        return {"source": "wikibooks", "ok": True, "ids": ["Cookbook:Eggs", "Cookbook:Fried Eggs"], "error": None,
-                "dumpDate": "20261001"}
-    monkeypatch.setattr(thedb, "allRecords", allRecords)
-    monkeypatch.setattr(wikibooks, "fetch", fetch)
-    monkeypatch.setattr(images, "ensureImages", lambda recipes, allowDownload, log=print, onProgress=None:
-                        {"made": 0, "failed": 0})
-    return calls
 
 
 def quiet(*args):
     pass
-
-
-def test_aDryFullPassReadsEverySourceAndReports(sources):
-    result = pipeline.runPass("full", log=quiet)
-    assert result["outcome"] == "ok" and result["recipes"] == 3
-    assert result["sources"] == {"mealdb": {"ok": True, "records": 1, "error": None},
-                                 "cocktaildb": {"ok": True, "records": 1, "error": None},
-                                 "wikibooks": {"ok": True, "records": 2, "error": None}}
-    assert result["skippedByReason"] == {"topic page": 1}
-    assert result["unknownIngredients"][0]["name"] == "yuzu"
-    assert result["publish"]["dry"] is True and result["publish"]["changed"] == 3
-    assert result["calibration"]["difficulty"]["n"] == 1
-    assert len(config.NORMALISED_FILE.read_text(encoding="utf-8").splitlines()) == 3
-    assert store.readJson(config.STATE_FILE)["counts"] == {"mealdb": 1, "cocktaildb": 1, "wikibooks": 2}
-    assert progress.read() == {"state": "idle", "updatedAt": progress.read()["updatedAt"]}
-    assert config.LAST_REPORT_FILE.exists()
-
-
-def test_aRetagFetchesNothingAndRemovesNothing(sources, monkeypatch):
-    pipeline.runPass("full", log=quiet)
-    sources.clear()
-    seen = {}
-    real = publish.publish
-
-    def recording(recipes, fetchResults, lastCounts, log=print):
-        seen["fetchResults"] = fetchResults
-        return real(recipes, fetchResults, lastCounts, log)
-    monkeypatch.setattr(publish, "publish", recording)
-    result = pipeline.runPass("retag", log=quiet)
-    assert result["outcome"] == "ok" and result["recipes"] == 3
-    assert sources == [] and seen["fetchResults"] == {}
-
-
-def test_aStopBeforePublishingPublishesNothing(sources, monkeypatch):
-    def refuse(*args, **kwargs):
-        raise AssertionError("published after a stop")
-    monkeypatch.setattr(publish, "publish", refuse)
-    result = pipeline.runPass("full", log=quiet, stopRequested=lambda: True)
-    assert result["outcome"] == "stopped"
-
-
-def test_aFailureEndsThePassWithItsReason(sources, monkeypatch):
-    monkeypatch.setattr(config, "PUBLISH", "on")
-    def fail(*args, **kwargs):
-        raise adminApi.AdminError("POST /ingredients/seed failed after 3 attempts")
-    monkeypatch.setattr(adminApi, "post", fail)
-    result = pipeline.runPass("full", log=quiet)
-    assert result["outcome"] == "failed" and "ingredients/seed" in result["error"]
-    assert progress.read()["state"] == "idle"
 
 
 def test_loadTableSeedsPlutusThenReadsItsTable(monkeypatch):
@@ -116,11 +37,9 @@ def test_loadTableGivesTheDrySeedTableTheModifierWords():
     assert plain is not None and table.match(f"{modifier} salt")[0] == plain[0]
 
 
-# ---------- the new catalog (CATALOG=new): the recipe sites ----------
+# ---------- the recipe sites ----------
 
-import importlib
 import json
-import sys
 
 import adaptSites
 import fdc
@@ -151,8 +70,7 @@ def siteRecipe(site, url, width=1200):
 
 @pytest.fixture
 def newCatalog(monkeypatch):
-    """CATALOG=new over two made-up sites; site a has a complete listing, site b was blocked."""
-    monkeypatch.setattr(config, "CATALOG", "new")
+    """Two made-up sites; site a has a complete listing, site b was blocked."""
     world = {"crawls": [], "reads": 0, "listing": [(A_URL, None), (A_SMALL, None)]}
     realLoad = rulesData.load
 
@@ -186,28 +104,28 @@ def newCatalog(monkeypatch):
     return world
 
 
-def test_theOldCatalogRunsTheOldPassAndNoSiteCode(sources, monkeypatch):
+def test_aStopBeforePublishingPublishesNothing(newCatalog, monkeypatch):
     def refuse(*args, **kwargs):
-        raise AssertionError("site code ran under CATALOG=old")
-    monkeypatch.setattr(pipeline, "runSitesPass", refuse)
-    monkeypatch.setattr(sites, "crawl", refuse)
-    monkeypatch.setattr(adaptSites, "adaptCached", refuse)
-    result = pipeline.runPass("full", log=quiet, site="difford")
-    assert result["outcome"] == "ok" and result["recipes"] == 3 and "mealdb" in sources
+        raise AssertionError("published after a stop")
+    monkeypatch.setattr(publish, "publish", refuse)
+    result = pipeline.runPass("full", log=quiet, stopRequested=lambda: True)
+    assert result["outcome"] == "stopped"
 
 
-def test_theOldCatalogPassNeedsNoRecipeScrapers(sources, monkeypatch):
-    """The VM's old-catalog pass imports pipeline; recipe-scrapers is needed only by the recipe sites."""
-    monkeypatch.setitem(sys.modules, "recipe_scrapers", None)      # any import of it now raises ImportError
-    for name in ("pipeline", "adaptSites", "dryrun", "sources.schemaSite", "sources.difford"):
-        monkeypatch.delitem(sys.modules, name, raising=False)       # restored after the test
-    for name in ("schemaSite", "difford"):
-        monkeypatch.delattr(sys.modules["sources"], name, raising=False)
-    fresh = importlib.import_module("pipeline")
-    assert fresh.runPass("full", log=quiet)["outcome"] == "ok"
-    assert "sources.schemaSite" not in sys.modules and "adaptSites" not in sys.modules
-    for name in ("pipeline", "sources.schemaSite"):
-        monkeypatch.delitem(sys.modules, name, raising=False)
+def test_aFailureEndsThePassWithItsReason(newCatalog, monkeypatch):
+    monkeypatch.setattr(config, "PUBLISH", "on")
+    def fail(*args, **kwargs):
+        raise adminApi.AdminError("POST /ingredients/seed failed after 3 attempts")
+    monkeypatch.setattr(adminApi, "post", fail)
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "failed" and "ingredients/seed" in result["error"]
+    assert progress.read()["state"] == "idle"
+
+
+def test_aPassSaysItIsTheNewCatalog(newCatalog):
+    result = pipeline.runPass("full", log=quiet, site="sitea")
+    assert (result["catalog"], result["site"]) == ("new", "sitea")
+    assert pipeline.runPass("retag", log=quiet)["catalog"] == "new"
 
 
 def test_aNewFullPassRunsNutritionBeforeTheGateForEveryRecipe(newCatalog, monkeypatch):
@@ -312,9 +230,9 @@ def test_aNewRetagCrawlsNothingRemovesNothingAndKeepsTheCrawlFields(newCatalog, 
     seen = {}
     real = publish.publish
 
-    def recording(recipes, fetchResults, lastCounts, log=print, removals=None):
+    def recording(recipes, log=print, removals=None):
         seen["removals"] = removals
-        return real(recipes, fetchResults, lastCounts, log, removals=removals)
+        return real(recipes, log, removals=removals)
     monkeypatch.setattr(publish, "publish", recording)
     result = pipeline.runPass("retag", log=quiet)
     assert result["outcome"] == "ok", result["error"]
@@ -449,3 +367,18 @@ def test_aDryPassDropsNothingFromTheCache(newCatalog, monkeypatch):
     assert result["outcome"] == "ok", result["error"]
     assert result["publish"]["wouldRemove"] == [missing]
     assert pagecache.load("sitea", A_MISSING) is not None and pagecache.meta("sitea", A_MISSING) is not None
+
+
+def test_theRetiredCatalogsRecipesOnPlutusAreNeitherRemovedNorSent(newCatalog, monkeypatch):
+    """After the switch plutus still holds the old catalog's retired rows: no pass touches them."""
+    missing, posts = removalWorld(newCatalog, monkeypatch, publishOn=True)
+    retired = ["mealdb:7", "cocktaildb:9", "wikibooks:Cookbook:Made-up Soup"]
+    published = store.readJson(config.PUBLISHED_FILE)["recipes"]
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": dict(published, **{key: "old-hash" for key in retired})})
+    for mode in ("full", "retag"):
+        posts.clear()
+        result = pipeline.runPass(mode, log=quiet)
+        assert result["outcome"] == "ok", result["error"]
+        touched = sentKeys(posts, "/recipes/batch") + sentKeys(posts, "/recipes/removed")
+        assert not set(retired) & set(touched)
+    assert all(key in store.readJson(config.PUBLISHED_FILE)["recipes"] for key in retired)

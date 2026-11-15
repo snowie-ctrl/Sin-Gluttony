@@ -63,8 +63,8 @@ class Recipe:
     cuisine: str | None = None
     alcohol: str | None = None
     glass: str | None = None
-    # What the source said that rules read later: category, area, tags,
-    # categories, timeText, difficultyRating, cuisineText, imageFile, iba.
+    # What the source said that rules read later. The recipe sites set category, cuisineText, tags and (Difford's)
+    # method; tagging also reads area, categories, timeText and difficultyRating when a source gives them.
     hints: dict = field(default_factory=dict)
     tags: list = field(default_factory=list)        # [{"type", "tag", "origin"}]
     facts: dict | None = None                       # {"complete", "contains", "diets"}

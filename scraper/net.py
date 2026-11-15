@@ -1,5 +1,5 @@
 # Copied from Artemis/Pageturner/net.py at 7acc9ec; changes: Gluttony's hosts and User-Agent, 1 s default interval,
-# 3 tries, config read at call time, downloadLarge for the Wikibooks dump, crawl() for the recipe sites.
+# 3 tries, config read at call time, crawl() for the recipe sites.
 """
 Polite HTTP for every outside service: a per-host rate limit, retries with
 backoff (honouring Retry-After on 429), and an optional on-disk cache so dry
@@ -25,13 +25,7 @@ import config
 USER_AGENT = "Gluttony-catalog/1.0 (private recipe catalog for a few friends)"
 # The recipe sites see the crawler's own name and where to read about it. Never a browser's name.
 CRAWLER_AGENT = "GluttonyPersonalCrawler/1.0 (+https://github.com/snowie-ctrl/Sin-Gluttony)"
-MIN_INTERVAL = {                # seconds between requests to the same host
-    "www.themealdb.com": 1.0,
-    "www.thecocktaildb.com": 1.0,
-    "dumps.wikimedia.org": 1.0,
-    "en.wikibooks.org": 1.0,
-    "upload.wikimedia.org": 1.0,
-}
+MIN_INTERVAL = {}               # seconds between requests to the same host, when not DEFAULT_INTERVAL
 DEFAULT_INTERVAL = 1.0
 CRAWL_INTERVAL = 5.0            # seconds between requests to a recipe site's host
 MAX_REDIRECTS = 5               # hops crawl() follows before it gives up
@@ -260,40 +254,3 @@ def download(url, destPath, timeout=30, *, refusals=False):
             return False
         time.sleep(2 ** attempt)
     return False
-
-
-def downloadLarge(url, destPath, timeout=60, onProgress=None):
-    """
-    Stream a big file (the Wikibooks dump, about 200 MB) to disk without
-    holding it in memory. It is written beside the target and moved into place
-    at the end, so an interrupted download never looks finished.
-    onProgress(bytesSoFar) is called after each chunk. Raises HttpError.
-    """
-    host = urlsplit(url).hostname
-    partial = destPath.with_name(destPath.name + ".part")
-    lastError = None
-    for attempt in range(RETRIES):
-        _throttle(host)
-        try:
-            with _session.get(url, stream=True, timeout=timeout) as resp:
-                if resp.status_code != 200:
-                    lastError = f"{resp.status_code}"
-                    if resp.status_code < 500 and resp.status_code != 429:
-                        break
-                    time.sleep(2 ** attempt)
-                    continue
-                destPath.parent.mkdir(parents=True, exist_ok=True)
-                done = 0
-                with open(partial, "wb") as out:
-                    for chunk in resp.iter_content(1 << 20):
-                        out.write(chunk)
-                        done += len(chunk)
-                        if onProgress:
-                            onProgress(done)
-            os.replace(partial, destPath)
-            return
-        except requests.RequestException as e:
-            lastError = f"{type(e).__name__}: {e}"
-            time.sleep(2 ** attempt)
-    partial.unlink(missing_ok=True)
-    raise HttpError(f"GET {url} failed ({lastError})")

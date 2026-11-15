@@ -26,9 +26,9 @@ def test_a_running_pass_shows_its_progress():
 
 
 def test_failed_pass_off_schedule_and_dead_worker():
-    failed = dict(WAITING, lastRun=dict(WAITING["lastRun"], outcome="failed", error="wikibooks timed out"))
+    failed = dict(WAITING, lastRun=dict(WAITING["lastRun"], outcome="failed", error="madeupsite timed out"))
     doc = view.statusDoc(failed, True, 0)
-    assert (doc["light"], doc["reason"], doc["needsYou"]) == ("attention", "the last pass failed: wikibooks timed out", 1)
+    assert (doc["light"], doc["reason"], doc["needsYou"]) == ("attention", "the last pass failed: madeupsite timed out", 1)
     assert view.statusDoc(dict(WAITING, schedule={"on": False}), True, 0)["light"] == "yellow"
     assert view.statusDoc(WAITING, False, 0)["light"] == "red"
     assert view.statusDoc(WAITING, None, 0)["light"] == "green"

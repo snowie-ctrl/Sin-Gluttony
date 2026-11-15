@@ -42,7 +42,7 @@ def durations(text):
 
 
 def parseTimeText(text):
-    """(prep, cook, total) from a Wikibooks Time field, or None when it names no duration."""
+    """(prep, cook, total) from a stated time text (hints["timeText"]), or None when it names no duration."""
     labels = list(_LABEL.finditer(text or ""))
     if not labels:
         total = sum(durations(text))
@@ -126,14 +126,10 @@ def applyCuisine(recipe, rules):
 
 
 def applyCourse(recipe, rules):
-    maps = rules["courses"]
-    if recipe.source == "wikibooks":
-        mapped = [maps["wikibooks"].get(c.lower()) for c in recipe.hints.get("categories", [])]
-    else:
-        mapped = [maps.get(recipe.source, {}).get((recipe.hints.get("category") or "").lower())]
+    # rules/courses.json maps a source's own category to a course, per source ({source: {category: course}}).
+    mapped = rules["courses"].get(recipe.source, {}).get((recipe.hints.get("category") or "").lower())
     fits = _DRINK_COURSES if recipe.kind == "drink" else _FOOD_COURSES
-    # A course that does not fit the kind is a mis-categorised page: skip it, take the first that fits.
-    course = next((c for c in mapped if c in fits), None)
+    course = mapped if mapped in fits else None     # a course that does not fit the kind is a mis-categorised page
     if recipe.kind == "drink":
         if recipe.alcohol is None and recipe.facts:
             if "alcohol" in recipe.facts["contains"]:

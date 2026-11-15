@@ -14,7 +14,7 @@ TABLE = matching.IngredientTable.fromSeed([
 
 
 def recipe(*names):
-    return Recipe(source="wikibooks", sourceId="x", kind="food", title="x",
+    return Recipe(source="madeupsite", sourceId="x", kind="food", title="x",
                   ingredients=[IngredientLine(line=n, name=n) for n in names], steps=[Step(text="Cook.")])
 
 

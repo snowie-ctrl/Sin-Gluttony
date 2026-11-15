@@ -4,24 +4,20 @@ changed: each recipe's content hash is compared with the last one plutus
 confirmed. Pictures go first, so no recipe ever names a picture plutus doesn't
 have.
 
-Removals come only from a complete fetch of a source. If a source failed, or
-returned more than REMOVAL_GUARD fewer records than last pass (a capped free
-key, a broken dump), nothing of it is removed and the report says why.
-
 A recipe site removes a page that answered gone (404/410) on enough passes in
 a row, and, when this pass read the site's whole sitemap listing, every page
 missing from it. A listing that shrank by more than REMOVAL_GUARD since last
 time removes nothing that way. Gone pages are removed even when the pass
-stopped the site early, since each gone answer was seen directly. The old
-sources (OLD_SOURCES) are skipped by construction, whatever is passed in.
-Once plutus confirms a site removal, the page leaves the page cache, so no
+stopped the site early, since each gone answer was seen directly. Only the
+sites this pass crawled are looked at, so a recipe of the retired old catalog
+(mealdb:, cocktaildb:, wikibooks: keys still in plutus's /state) is never
+removed or sent again from here. Once plutus confirms a site removal, the page leaves the page cache, so no
 later pass reads it and sends it again; a key being removed is never also
 sent in the same pass.
 
-A site recipe also carries its description, the gate's hidden reason, its
+A recipe also carries its description, the gate's hidden reason, its
 picture's width and its per-serving nutrition. Each goes in only when it has a
-value, and never for an old-source recipe (whose picture does get a width), so
-an old-source recipe's payload and hash are what they were.
+value.
 """
 import hashlib
 import json
@@ -31,7 +27,6 @@ import config
 import pagecache
 import store
 
-OLD_SOURCES = config.OLD_SOURCES
 MAX_NUTRIENT = 100000      # plutus refuses a per-serving nutrient above this, or below 0
 NUTRIENTS = ("calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG", "sodiumMg")
 
@@ -76,42 +71,17 @@ def payloadFor(recipe):
         "tags": recipe.tags,
         "facts": recipe.facts,
     }
-    if recipe.source not in OLD_SOURCES:     # an old-source payload and hash stay exactly as they were (Ruling P1)
-        extras = {"description": recipe.description, "hiddenReason": recipe.hiddenReason,
-                  "imageWidth": recipe.imageWidth, "nutrition": nutritionFor(recipe)}
-        payload.update({name: value for name, value in extras.items() if value is not None})
+    extras = {"description": recipe.description, "hiddenReason": recipe.hiddenReason,
+              "imageWidth": recipe.imageWidth, "nutrition": nutritionFor(recipe)}
+    payload.update({name: value for name, value in extras.items() if value is not None})
     payload["contentHash"] = contentHash(payload)
     return payload
-
-
-def removalsFor(publishedKeys, fetchResults, lastCounts, guard):
-    """(keys to mark removed, a note per source that removes nothing, the sources the guard held back)."""
-    keys, notes, guarded = [], [], []
-    for source, result in sorted(fetchResults.items()):
-        if not result.get("ok"):
-            notes.append(f"{source}: fetch failed, nothing removed")
-            continue
-        ids = set(result.get("ids", []))
-        if not ids:
-            notes.append(f"{source}: fetch returned no records, nothing removed")
-            guarded.append(source)
-            continue
-        last = lastCounts.get(source)
-        if last and len(ids) < last * (1 - guard):
-            notes.append(f"{source}: {len(ids)} records against {last} last pass, more than {guard:.0%} fewer, "
-                         "nothing removed")
-            guarded.append(source)
-            continue
-        keys += [k for k in publishedKeys if k.split(":", 1)[0] == source and k.split(":", 1)[1] not in ids]
-    return sorted(keys), notes, guarded
 
 
 def siteRemovals(publishedKeys, crawled, lastCounts, guard):
     """(keys to mark removed, a note per site the guard held back, those sites) for the recipe sites crawled."""
     keys, notes, guarded = set(), [], []
     for site, result in sorted(crawled.items()):
-        if site in OLD_SOURCES:
-            continue
         bySourceId = {k.split(":", 1)[1]: k for k in publishedKeys if k.split(":", 1)[0] == site}
         for url in result.get("goneUrls", []):
             key = bySourceId.get(pagecache.sourceIdFor(url))
@@ -151,11 +121,9 @@ def _save(published):
 
 def _dropCached(keys, urlMaps):
     """Drop each removed recipe-site page from the page cache once plutus has its removal, so no later pass or
-    re-tag reads it again and re-sends it (which would clear its RemovedAt). Old sources have no page cache."""
+    re-tag reads it again and re-sends it (which would clear its RemovedAt)."""
     for key in keys:
         site, sourceId = key.split(":", 1)
-        if site in OLD_SOURCES:
-            continue
         if site not in urlMaps:
             urlMaps[site] = pagecache.urlsBySourceId(site)
         url = urlMaps[site].get(sourceId)
@@ -163,17 +131,14 @@ def _dropCached(keys, urlMaps):
             pagecache.drop(site, url)
 
 
-def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
-    """removals, when given, is a (keys, notes, guarded) already worked out (the recipe sites' siteRemovals)."""
+def publish(recipes, log=print, removals=None):
+    """removals is the (keys, notes, guarded) siteRemovals worked out; None (a re-tag's case too) removes nothing."""
     dry = config.PUBLISH != "on"
     if not dry and not adminApi.configured():
         raise adminApi.AdminError("ADMIN_TOKEN and ADMIN_HOST must be set in .env")
     payloads = [payloadFor(r) for r in recipes]
     published = publishedState(dry)
-    if removals is not None:
-        removeKeys, notes, guarded = sorted(removals[0]), list(removals[1]), list(removals[2])
-    else:
-        removeKeys, notes, guarded = removalsFor(list(published), fetchResults, lastCounts, config.REMOVAL_GUARD)
+    removeKeys, notes, guarded = (sorted(removals[0]), list(removals[1]), list(removals[2])) if removals else ([], [], [])
     removing = set(removeKeys)      # a page this pass removes is never also sent (it would clear RemovedAt)
     changed = [p for p in payloads if published.get(p["key"]) != p["contentHash"] and p["key"] not in removing]
     perSource = {}

@@ -1,4 +1,3 @@
-import config
 import store
 
 
@@ -14,13 +13,6 @@ def test_aMissingOrBrokenFileGivesTheDefault(tmp_path):
     broken = tmp_path / "broken.json"
     broken.write_text("{not json", encoding="utf-8")
     assert store.readJson(broken) is None
-
-
-def test_rawPathKeepsPlainIdsAndHashesTitles():
-    assert store.rawPath("mealdb", "52772") == config.RAW_DIR / "mealdb" / "52772.json"
-    hashed = store.rawPath("wikibooks", "Cookbook:Grilled Cheese/Sandwich")
-    assert hashed.parent == config.RAW_DIR / "wikibooks"
-    assert hashed.name == store.safeName("Cookbook:Grilled Cheese/Sandwich") + ".json"
 
 
 def test_writeLinesWritesOneObjectPerLine(tmp_path):

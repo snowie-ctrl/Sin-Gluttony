@@ -11,7 +11,7 @@ def test_dishKeyIgnoresAccentsAndFillerWords():
 
 
 def test_numberedPagesAreVersionsOfOneDish():
-    # Wikibooks numbers its variations: "Banana Bread", "Banana Bread II", "Banana Bread III".
+    # A source may number its variations: "Banana Bread", "Banana Bread II", "Banana Bread III".
     keys = {linking.dishKey(t, FILLER) for t in ("Banana Bread", "Banana Bread I", "Banana Bread II",
                                                  "Banana Bread III", "Banana Bread IV", "Banana Bread X")}
     assert keys == {"banana bread"}

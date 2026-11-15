@@ -1,8 +1,8 @@
 """
 Dish keys: recipes that share one are versions of the same dish ("other ways
 to make this"). The key is the title in plain lower case, with words like
-"easy" and "classic" dropped and plurals made singular. Wikibooks numbers its
-variations ("Banana Bread II"), so a trailing roman numeral is dropped too.
+"easy" and "classic" dropped and plurals made singular. A trailing roman
+numeral ("Banana Bread II", a numbered variation) is dropped too.
 """
 from matching import plainText, singular
 

@@ -54,7 +54,17 @@ def status():
                     "publish": config.PUBLISH, "catalog": config.CATALOG})
 
 
+def _retiredCatalog():
+    """409 when CATALOG is not "new": the scraper refuses to start, so a queued request would never run."""
+    if config.CATALOG != "new":
+        return error("the old catalog was retired at the switch; set CATALOG=new", 409)
+    return None
+
+
 def _ask(kind, message, site=None):
+    refused = _retiredCatalog()
+    if refused:
+        return refused
     if progress.isRunning() or controlRequests.pending():
         return error("a pass is already running or waiting", 409)
     controlRequests.ask(kind, site)
@@ -153,24 +163,19 @@ def contractDaily():
 
 
 # ========== SITES PAGE ==========
-# Surrogate's Sites page (new catalog): per-site health from run/sites.json,
-# a re-gate over the cache and a full pass of one site. Both requests only
-# queue; the scraper's loop acts on them.
-
-def _newCatalogOnly():
-    if config.CATALOG != "new":
-        return error("the new catalog is not on (CATALOG=old)", 409)
-    return None
+# Surrogate's Sites page: per-site health from run/sites.json, a re-gate over
+# the cache and a full pass of one site. Both requests only queue; the
+# scraper's loop acts on them.
 
 
 @app.post("/regate")
 def regate():
-    return _newCatalogOnly() or _ask("retag", "a re-gate starts within a few seconds")
+    return _ask("retag", "a re-gate starts within a few seconds")
 
 
 @app.post("/crawl/<site>")
 def crawl(site):
-    refused = _newCatalogOnly()
+    refused = _retiredCatalog()
     if refused:
         return refused
     if site not in {entry["site"] for entry in siteRules.loadSites(rulesData.load())}:

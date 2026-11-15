@@ -144,7 +144,7 @@ def _sized(work, units):
 
 
 def parseLine(text, units):
-    """A free-text ingredient line (Wikibooks, the recipe sites) as an IngredientLine."""
+    """A free-text ingredient line (a recipe site's) as an IngredientLine."""
     original = " ".join(text.split())
     work = _PRICE.sub(" ", original.replace("⁄", "/"))      # the fraction slash some recipe cards use
     work = _ABBREVIATION.sub(r"\1. ", work)
@@ -201,12 +201,3 @@ def parseLine(text, units):
         notes.append(use.group(2))
     return IngredientLine(line=original, name=name, quantity=qty, quantityMax=qtyMax, unit=unit,
                           note="; ".join(notes) or None, optional=optional)
-
-
-def parseMeasure(measure, units):
-    """TheMealDB/TheCocktailDB keep the measure apart from the ingredient: (quantity, quantityMax, unit, note)."""
-    text = " ".join((measure or "").split())
-    if not text:
-        return None, None, None, None
-    qty, qtyMax, unit, rest = parseAmount(text, units)
-    return qty, qtyMax, unit, (rest.strip() or None)

@@ -137,7 +137,9 @@ def newCatalog(monkeypatch):
          "sitemaps": ["https://off.com/s.xml"], "enabled": False}]})
 
 
-def test_statusSaysWhichCatalog(client):
+def test_statusSaysWhichCatalog(client, monkeypatch):
+    assert client.get("/status").get_json()["catalog"] == "new"
+    monkeypatch.setattr(config, "CATALOG", "old")
     assert client.get("/status").get_json()["catalog"] == "old"
 
 
@@ -149,11 +151,12 @@ def test_regateQueuesARetagUnderTheNewCatalog(client, newCatalog):
     assert client.post("/regate").status_code == 409
 
 
-def test_regateAndCrawlAreRefusedUnderTheOldCatalog(client):
-    for path in ("/regate", "/crawl/alpha.com"):
+def test_everyPassRequestIsRefusedUnderTheRetiredCatalog(client, newCatalog, monkeypatch):
+    monkeypatch.setattr(config, "CATALOG", "old")
+    for path in ("/run", "/retag", "/regate", "/crawl/alpha.com"):
         answer = client.post(path)
         assert answer.status_code == 409
-        assert answer.get_json()["message"] == "the new catalog is not on (CATALOG=old)"
+        assert answer.get_json()["message"] == "the old catalog was retired at the switch; set CATALOG=new"
     assert controlRequests.pending() == []
 
 
