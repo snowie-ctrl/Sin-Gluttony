@@ -93,6 +93,7 @@ def _source(recipe, index, allowDownload):
 def ensureImages(recipes, allowDownload, log=print, onProgress=None):
     index = store.readJson(_indexPath(), None) or {"files": {}}
     made = failed = 0
+    stops = {}
     for done, recipe in enumerate(recipes, start=1):
         if onProgress and done % 50 == 0:
             onProgress(done)
@@ -107,9 +108,20 @@ def ensureImages(recipes, allowDownload, log=print, onProgress=None):
             if not allowDownload:
                 continue
             original = config.IMAGE_DIR / "original" / name[:-4]
-            if not original.exists() and not net.download(url, original):
-                failed += 1
+            if recipe.source in stops:
                 continue
+            if not original.exists():
+                try:
+                    got = net.download(url, original)
+                except net.HttpError as e:
+                    got = False
+                    if e.status == 403:
+                        stops[recipe.source] = "pictures blocked (403)"
+                    elif e.status == 429:
+                        stops[recipe.source] = "pictures rate limited (429)"
+                if not got:
+                    failed += 1
+                    continue
             try:
                 _resize(original, large, LARGE)
                 _resize(original, thumb, THUMB)
@@ -125,4 +137,4 @@ def ensureImages(recipes, allowDownload, log=print, onProgress=None):
     store.writeJson(_indexPath(), index)
     if made or failed:
         log(f"pictures: {made} made, {failed} failed")
-    return {"made": made, "failed": failed}
+    return {"made": made, "failed": failed, "pictureStops": stops}
