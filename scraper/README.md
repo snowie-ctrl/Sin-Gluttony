@@ -21,6 +21,28 @@ py -3.12 -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirement
 On the VM (`~/Gluttony`): `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, `cp .env.example .env`
 and fill it in, then `./run.sh`. Surrogate's Gluttony page drives it through `controlApi.py`.
 
+## The new catalog
+
+`CATALOG` in `.env` picks the pass:
+
+- `CATALOG=old` (the default) is the pass above over TheMealDB, TheCocktailDB and Wikibooks, unchanged.
+- `CATALOG=new` runs the recipe sites in `rules/sites.json` only: crawl (full passes; `POST /crawl/<site>` crawls one
+  site) → read the cached pages → pictures → tag, FDC mappings, nutrition, the completeness gate, then the basics →
+  site health (`run/sites.json`) and the FDC queue (`run/fdc-queue.json`) → publish, removing pages that are gone or
+  missing from a complete sitemap listing (guarded by `REMOVAL_GUARD` against the last complete listing's size,
+  `siteCounts` in `run/state.json`). With `PUBLISH=on` the FDC mappings are sent to `Ingredients.FdcID`. A re-tag
+  (`POST /regate`) crawls nothing and removes nothing.
+
+M4's full trial, with publishing off, is the dry run at full scale reading plutus's ingredient table (read only):
+
+```bash
+.venv/bin/python main.py --dry-run --pages 0 --server-table
+```
+
+The USDA FDC CSVs must be in `data/fdc/` on the VM before the first new pass (`python fdc.py import`), or no recipe
+gets an estimate. Switching the live catalog over (retiring the old sources, moving saved items) is M4, done with the
+owner; until then the VM stays on `CATALOG=old`.
+
 ## Files it keeps
 
 `data/raw/` (source records), `data/images/` (pictures), `data/normalised.jsonl` (the last pass's recipes),

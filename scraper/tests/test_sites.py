@@ -733,3 +733,59 @@ def test_wildcardRobotsRulesKeepPagesOut(monkeypatch):
     asked = fakeCrawl(monkeypatch, answers)
     sites.crawl([site], pages=None, log=QUIET)
     assert f"https://{A}/made-up-stew/?print=1" not in asked
+
+
+# Milestone 3, Task 8: one site only, and the owner's stop.
+
+def twoSiteWeb():
+    answers = web(A, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")})
+    answers.update(web(B, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")}))
+    return answers
+
+
+def test_onlyCrawlsTheNamedSiteAlone(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET, only="siteb")
+    assert list(results) == ["siteb"] and results["siteb"]["fetched"] == 2
+    assert all(urlsplit(url).hostname == B for url in asked)
+
+
+def test_onlyANameNotInTheListCrawlsNothing(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    lines = []
+    assert sites.crawl([siteFor(A, "sitea")], pages=None, log=lines.append, only="nosuchsite") == {}
+    assert asked == [] and any("nosuchsite" in line for line in lines)
+
+
+def test_aStopBeforeAnyRequestAsksNothingAndMarksEverySite(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET,
+                          stopRequested=lambda: True)
+    assert asked == []
+    for name in ("sitea", "siteb"):
+        assert (results[name]["ok"], results[name]["stopReason"], results[name]["complete"]) == \
+            (False, "stopped by the owner", False)
+    assert store.readJson(config.SITE_STATE_FILE) is not None
+
+
+def test_aStopMidCrawlEndsTheLoopKeepsWhatIsKnownAndSavesState(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    stopAfter = f"https://{B}/made-up-one/"
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET,
+                          stopRequested=lambda: stopAfter in asked)
+    assert pageUrls(asked) == [f"https://{A}/made-up-one/", stopAfter]          # nothing asked after the stop
+    for name in ("sitea", "siteb"):
+        result = results[name]
+        assert (result["stopReason"], result["complete"], result["fetched"]) == ("stopped by the owner", True, 1)
+    state = store.readJson(config.SITE_STATE_FILE)
+    assert state["sitea"]["passes"] == 1 and "lastStop" not in state["sitea"]     # the owner's stop is no site fault
+
+
+def test_aStopWhileReadingSitemapsAsksNoMoreSitemaps(monkeypatch):
+    answers = twoChildWeb()
+    asked = fakeCrawl(monkeypatch, answers)
+    results = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET,
+                          stopRequested=lambda: f"https://{A}/post-sitemap.xml" in asked)
+    assert f"https://{A}/more-sitemap.xml" not in asked
+    assert results["sitea"]["stopReason"] == "stopped by the owner" and results["sitea"]["complete"] is False
+    assert pagecache.listing("sitea") == []

@@ -114,3 +114,243 @@ def test_loadTableGivesTheDrySeedTableTheModifierWords():
     table = pipeline.loadTable(rules, log=quiet)
     plain = table.match("salt")
     assert plain is not None and table.match(f"{modifier} salt")[0] == plain[0]
+
+
+# ---------- the new catalog (CATALOG=new): the recipe sites ----------
+
+import importlib
+import json
+import sys
+
+import adaptSites
+import fdc
+import fdcMatch
+import gate
+import matching
+import nutrition
+import pagecache
+from models import IngredientLine, Recipe, Step
+from sources import sites
+
+A_URL = "https://www.site-a.test/made-up-toast/"
+A_SMALL = "https://www.site-a.test/made-up-small-toast/"
+A_MISSING = "https://www.site-a.test/made-up-left-the-sitemap/"
+B_URL = "https://www.site-b.test/made-up-soup/"
+SITE_LIST = [{"site": "sitea", "name": "Site A", "kind": "food"},
+             {"site": "siteb", "name": "Site B", "kind": "food", "measures": {"cup": 250}}]
+
+
+def siteRecipe(site, url, width=1200):
+    return Recipe(source=site, sourceId=pagecache.sourceIdFor(url), kind="food", title="Made-up toast",
+                  ingredients=[IngredientLine(line="2 slices bread", name="bread", quantity=2, unit="slice")],
+                  steps=[Step("Toast the bread.")], sourceUrl=url, imagePath="made-up.jpg", imageWidth=width,
+                  totalMinutes=10, servings=2,
+                  nutrition={"calories": 200, "proteinG": 6, "carbsG": 30, "fatG": 4, "satFatG": 1, "fibreG": 2,
+                             "sugarG": 3, "sodiumMg": 300})
+
+
+@pytest.fixture
+def newCatalog(monkeypatch):
+    """CATALOG=new over two made-up sites; site a has a complete listing, site b was blocked."""
+    monkeypatch.setattr(config, "CATALOG", "new")
+    world = {"crawls": [], "reads": 0}
+    realLoad = rulesData.load
+
+    def load(folder=None):
+        rules = realLoad(folder)
+        rules["basics"] = [{"name": "made-up toast", "urls": [A_SMALL, A_URL]}]
+        return rules
+    monkeypatch.setattr(rulesData, "load", load)
+    monkeypatch.setattr(sites, "loadSites", lambda rules: [dict(s) for s in SITE_LIST])
+
+    def crawl(siteList, pages, log=print, priority=frozenset(), now=None, only=None, stopRequested=None):
+        world["crawls"].append({"pages": pages, "priority": priority, "only": only, "stop": stopRequested})
+        pagecache.saveListing("sitea", [(A_URL, None), (A_SMALL, None)])
+        result = {"sitea": {"site": "sitea", "ok": True, "stopReason": None, "listed": 2, "planned": 2, "due": 2,
+                            "fetched": 2, "notRecipe": 0, "gone": 0, "errors": 0, "complete": True, "goneUrls": []},
+                  "siteb": {"site": "siteb", "ok": False, "stopReason": "blocked (403)", "listed": 7, "planned": 0,
+                            "due": 0, "fetched": 0, "notRecipe": 0, "gone": 0, "errors": 0, "complete": False,
+                            "goneUrls": []}}
+        return {k: v for k, v in result.items() if only in (None, k)}
+    monkeypatch.setattr(sites, "crawl", crawl)
+
+    def adaptCached(siteList, rules):
+        world["reads"] += 1
+        return [siteRecipe("sitea", A_URL), siteRecipe("sitea", A_SMALL, width=400),
+                siteRecipe("siteb", B_URL)], []
+    monkeypatch.setattr(adaptSites, "adaptCached", adaptCached)
+    monkeypatch.setattr(images, "ensureImages", lambda recipes, allowDownload, log=print, onProgress=None:
+                        {"made": 0, "failed": 0, "pictureStops": {"siteb": "blocked (403)"}})
+    monkeypatch.setattr(fdc, "loadFoods", lambda path=None: {})
+    return world
+
+
+def test_theOldCatalogRunsTheOldPassAndNoSiteCode(sources, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("site code ran under CATALOG=old")
+    monkeypatch.setattr(pipeline, "runSitesPass", refuse)
+    monkeypatch.setattr(sites, "crawl", refuse)
+    monkeypatch.setattr(adaptSites, "adaptCached", refuse)
+    result = pipeline.runPass("full", log=quiet, site="difford")
+    assert result["outcome"] == "ok" and result["recipes"] == 3 and "mealdb" in sources
+
+
+def test_theOldCatalogPassNeedsNoRecipeScrapers(sources, monkeypatch):
+    """The VM's old-catalog pass imports pipeline; recipe-scrapers is needed only by the recipe sites."""
+    monkeypatch.setitem(sys.modules, "recipe_scrapers", None)      # any import of it now raises ImportError
+    for name in ("pipeline", "adaptSites", "dryrun", "sources.schemaSite", "sources.difford"):
+        monkeypatch.delitem(sys.modules, name, raising=False)       # restored after the test
+    for name in ("schemaSite", "difford"):
+        monkeypatch.delattr(sys.modules["sources"], name, raising=False)
+    fresh = importlib.import_module("pipeline")
+    assert fresh.runPass("full", log=quiet)["outcome"] == "ok"
+    assert "sources.schemaSite" not in sys.modules and "adaptSites" not in sys.modules
+    for name in ("pipeline", "sources.schemaSite"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+
+def test_aNewFullPassRunsNutritionBeforeTheGateForEveryRecipe(newCatalog, monkeypatch):
+    calls = []
+    realChoose, realApply = nutrition.choose, gate.apply
+    monkeypatch.setattr(nutrition, "choose", lambda recipe, *a, **k: calls.append(("choose", recipe.sourceUrl))
+                        or realChoose(recipe, *a, **k))
+    monkeypatch.setattr(gate, "apply", lambda recipe, units: calls.append(("gate", recipe.sourceUrl))
+                        or realApply(recipe, units))
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    urls = [url for kind, url in calls if kind == "choose"]
+    assert sorted(urls) == sorted([A_URL, A_SMALL, B_URL])
+    assert calls == [step for url in urls for step in (("choose", url), ("gate", url))]
+    crawl = newCatalog["crawls"][0]
+    assert crawl["pages"] is None and crawl["only"] is None and crawl["stop"] is not None
+    assert {A_URL, A_SMALL} <= set(crawl["priority"])
+
+
+def test_aNewFullPassTagsTheBasicOnlyOnARecipeThatPassedTheGate(newCatalog, monkeypatch):
+    payloads = {}
+    real = publish.payloadFor
+    monkeypatch.setattr(publish, "payloadFor", lambda recipe: payloads.setdefault(recipe.sourceUrl, real(recipe)))
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+
+    def basic(url):
+        return {"type": "occasion", "tag": "basic", "origin": "rule"} in payloads[url]["tags"]
+    assert payloads[A_SMALL]["hiddenReason"] == "small-photo" and not basic(A_SMALL)    # candidate 1 failed the gate
+    assert "hiddenReason" not in payloads[A_URL] and basic(A_URL)
+    assert not basic(B_URL)
+    assert result["publish"]["dry"] is True and result["publish"]["changed"] == 3
+
+
+def test_aNewFullPassWritesSiteHealthTheFdcQueueAndTheReport(newCatalog):
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    stored = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))
+    assert stored["mode"] == "pass" and [row["site"] for row in stored["sites"]] == ["sitea", "siteb"]
+    a, b = stored["sites"]
+    assert a["recipes"] == 2 and a["shown"] == 1 and a["listingComplete"] is True and a["lastPassAt"]
+    assert b["pictureStop"] == "blocked (403)" and b["alarm"]["red"] is True
+    assert result["sites"] == stored["sites"]
+    queue = json.loads(config.FDC_QUEUE_FILE.read_text(encoding="utf-8"))
+    assert "queue" in queue and queue["generatedAt"].endswith("+00:00")
+    assert result["recipes"] == 3 and isinstance(result["calibration"], dict)
+    assert len(config.NORMALISED_FILE.read_text(encoding="utf-8").splitlines()) == 3
+    assert json.loads(config.LAST_REPORT_FILE.read_text(encoding="utf-8"))["outcome"] == "ok"
+    assert progress.read()["state"] == "idle"
+
+
+def test_aNewFullPassRemovesWhatLeftACompleteListingAndKeepsItsCount(newCatalog):
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
+    store.writeJson(config.STATE_FILE, {"lastFullAt": 5.0})
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    assert result["publish"]["wouldRemove"] == [missing]
+    state = store.readJson(config.STATE_FILE)
+    assert state["siteCounts"] == {"sitea": 2} and state["lastFullAt"] == 5.0     # site b: listing incomplete
+
+
+def test_aShrunkListingIsGuardedButBecomesTheLastCompleteCount(newCatalog):
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
+    store.writeJson(config.STATE_FILE, {"siteCounts": {"sitea": 100}})
+    result = pipeline.runPass("full", log=quiet)
+    assert result["publish"]["wouldRemoveCount"] == 0 and result["publish"]["guarded"] == ["sitea"]
+    assert store.readJson(config.STATE_FILE)["siteCounts"] == {"sitea": 2}
+
+
+def test_aNewRetagCrawlsNothingRemovesNothingAndKeepsTheCrawlFields(newCatalog, monkeypatch):
+    pipeline.runPass("full", log=quiet)
+    before = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"]
+    newCatalog["crawls"].clear()
+    missing = f"sitea:{pagecache.sourceIdFor(A_MISSING)}"
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {missing: "made-up-hash"}})
+    seen = {}
+    real = publish.publish
+
+    def recording(recipes, fetchResults, lastCounts, log=print, removals=None):
+        seen["removals"] = removals
+        return real(recipes, fetchResults, lastCounts, log, removals=removals)
+    monkeypatch.setattr(publish, "publish", recording)
+    result = pipeline.runPass("retag", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    assert newCatalog["crawls"] == [] and newCatalog["reads"] == 2
+    assert seen["removals"] == ([], [], []) and result["publish"]["wouldRemoveCount"] == 0
+    after = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"]
+    assert [row["lastPassAt"] for row in after] == [row["lastPassAt"] for row in before]
+    assert [row["listed"] for row in after] == [2, 7]
+
+
+def test_aPassOfOneSiteCrawlsOnlyThatSite(newCatalog):
+    result = pipeline.runPass("full", log=quiet, site="difford")
+    assert result["outcome"] == "ok", result["error"]
+    assert newCatalog["crawls"][0]["only"] == "difford"
+
+
+def test_aStopDuringTheCrawlEndsThePassBeforeReading(newCatalog, monkeypatch):
+    stop = {"now": False}
+    realCrawl = sites.crawl
+
+    def crawl(*args, **kwargs):
+        stop["now"] = True
+        return realCrawl(*args, **kwargs)
+    monkeypatch.setattr(sites, "crawl", crawl)
+    result = pipeline.runPass("full", log=quiet, stopRequested=lambda: stop["now"])
+    assert result["outcome"] == "stopped" and newCatalog["reads"] == 0
+
+
+def fdcWorld(monkeypatch, mappings):
+    monkeypatch.setattr(config, "PUBLISH", "on")
+    posted = []
+    monkeypatch.setattr(adminApi, "post", lambda path, payload, timeout=120: posted.append((path, payload)) or {})
+    monkeypatch.setattr(pipeline, "loadTable", lambda rules, log=print: matching.IngredientTable.fromSeed(
+        rules["ingredients"], set(rules["prepWords"]), set(rules["modifierWords"])))
+    foods = {1: {"id": 1, "description": "Made-up bread", "dataType": "foundation_food"}}
+    monkeypatch.setattr(fdc, "loadFoods", lambda path=None: foods)
+    monkeypatch.setattr(fdcMatch, "resolveTable", lambda table, foods, rules, picks: {})
+    seen = {}
+    monkeypatch.setattr(fdcMatch, "syncList", lambda table, resolved, foodsGiven:
+                        seen.setdefault("foods", foodsGiven) and list(mappings))
+    monkeypatch.setattr(publish, "publish", lambda *a, **k: {"dry": False, "changed": 0, "guarded": []})
+    monkeypatch.setattr(publish, "publishedState", lambda dry: {})
+    return posted, seen, foods
+
+
+def test_withPublishOnTheFdcMappingsArePostedInChunks(newCatalog, monkeypatch):
+    mappings = [{"ingredientId": n, "fdcId": 1, "from": "rule"} for n in range(5001)]
+    posted, seen, foods = fdcWorld(monkeypatch, mappings)
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok", result["error"]
+    fdcPosts = [payload for path, payload in posted if path == "/ingredients/fdc"]
+    assert [len(p["mappings"]) for p in fdcPosts] == [5000, 1] and fdcPosts[0]["mappings"][0] == mappings[0]
+    assert seen["foods"] is foods
+
+
+def test_withPublishOnAnEmptySyncListPostsNothing(newCatalog, monkeypatch):
+    posted, _, _ = fdcWorld(monkeypatch, [])
+    assert pipeline.runPass("full", log=quiet)["outcome"] == "ok"
+    assert [path for path, _ in posted if path == "/ingredients/fdc"] == []
+
+
+def test_aDryNewPassPostsNoMappings(newCatalog, monkeypatch):
+    monkeypatch.setattr(fdcMatch, "syncList", lambda *a: (_ for _ in ()).throw(AssertionError("synced when dry")))
+    assert pipeline.runPass("full", log=quiet)["outcome"] == "ok"

@@ -9,6 +9,12 @@ Otherwise the extraction rate is recipes read over the pages fetched this
 pass; under 10 such pages is too few to judge. Red when the rate is under
 50%, or more than 20 points below the last judged rate (lastRate in
 run/site-state.json, updated here whenever a pass is judged).
+
+Each row says when its site was last crawled (lastPassAt). A site this pass
+did not crawl (a re-tag, or a full pass of another one site) keeps what its
+last crawl found, from the previous run/sites.json: the counts, stop, picture
+stop, listing, extraction, alarm and lastPassAt. What the gate decides
+(cached, recipes, shown, hidden, skipped, calibration) is worked out afresh.
 """
 from datetime import datetime, timezone
 
@@ -20,6 +26,9 @@ import store
 JUDGE_PAGES = 10        # fewer fetched pages than this is too few to judge
 LOW_RATE = 0.5          # under this share of fetched pages giving a recipe is red
 MAX_FALL = 0.20         # a fall of more than this from the last judged rate is red
+# what a site's crawl decides: carried over from the previous sites.json for a site not crawled this pass
+CRAWL_FIELDS = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason", "pictureStop",
+                "listingComplete", "extraction", "alarm", "lastPassAt")
 
 
 def _percent(rate):
@@ -44,11 +53,25 @@ def _fetchedThisPass(site, url, startedAt):
     return isinstance(info, dict) and (info.get("fetchedAt") or 0) >= startedAt
 
 
-def summarise(siteList, crawled, recipes, skipped, siteState, startedAt, pictureStops, calibration):
-    """One row per enabled site; siteState[site]["lastRate"] is updated for every site whose pass was judged."""
+def previousRows():
+    """{site: row} from the last run/sites.json, or {} when there is none."""
+    saved = store.readJson(config.SITES_FILE, {}) or {}
+    rows = saved.get("sites") if isinstance(saved, dict) else None
+    return {row["site"]: row for row in rows or [] if isinstance(row, dict) and row.get("site")}
+
+
+def summarise(siteList, crawled, recipes, skipped, siteState, startedAt, pictureStops, calibration, previous=None):
+    """
+    One row per enabled site; siteState[site]["lastRate"] is updated for every site whose pass was judged.
+    previous ({site: row}, previousRows()) is given when sites not in crawled should keep their last crawl's
+    fields; a site with no previous row then has lastPassAt None. Without it, every row is worked out as is.
+    """
+    passAt = datetime.fromtimestamp(startedAt, timezone.utc).isoformat(timespec="seconds")
     rows = []
     for site in siteList:
         name = site["site"]
+        wasCrawled = name in (crawled or {})
+        carry = previous is not None and not wasCrawled
         result = (crawled or {}).get(name) or {}
         own = [r for r in recipes if r.source == name]
         damaged = [s for s in skipped if s.get("site") == name]
@@ -65,9 +88,9 @@ def summarise(siteList, crawled, recipes, skipped, siteState, startedAt, picture
         state = siteState.setdefault(name, {})
         stopReason = result.get("stopReason")
         red, why = alarm(rate, pages, state.get("lastRate"), stopReason)
-        if rate is not None and pages >= JUDGE_PAGES:
+        if rate is not None and pages >= JUDGE_PAGES and not carry:
             state["lastRate"] = rate
-        rows.append({
+        row = {
             "site": name, "name": site.get("name", name), "kind": site.get("kind"),
             "listed": result.get("listed", 0), "due": result.get("due", 0), "fetched": result.get("fetched", 0),
             "notRecipe": result.get("notRecipe", 0), "gone": result.get("gone", 0),
@@ -80,7 +103,15 @@ def summarise(siteList, crawled, recipes, skipped, siteState, startedAt, picture
             "extraction": {"pages": pages, "recipes": readNow, "rate": rate},
             "calibration": (calibration or {}).get(name),
             "alarm": {"red": red, "why": why},
-        })
+            "lastPassAt": passAt if wasCrawled else None,
+        }
+        if carry:
+            row.update({field: value for field, value in (previous.get(name) or {}).items()
+                        if field in CRAWL_FIELDS})
+            if name not in previous:        # never crawled: nothing found yet, so nothing to alarm about
+                row.update(stopReason=None, pictureStop=None, listingComplete=False,
+                           extraction={"pages": 0, "recipes": 0, "rate": None}, alarm={"red": False, "why": None})
+        rows.append(row)
     return rows
 
 

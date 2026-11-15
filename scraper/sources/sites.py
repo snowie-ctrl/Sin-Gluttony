@@ -8,6 +8,10 @@ disallows is never followed (net.crawl's mayFetch). The crawl takes the sites
 in turn and keeps each recipe page in pagecache. A listing is complete only when every sitemap was read: none failed,
 none blocked by robots.txt, on another host or cut off at MAX_SITEMAPS; only a
 complete listing replaces the saved one.
+
+A pass can be limited to one site (only), and the owner's stop is looked for
+before every request: the crawl then ends with the site state saved, and each
+site not finished says "stopped by the owner".
 """
 import re
 import time
@@ -35,6 +39,7 @@ NOT_RECIPE_RUN = 10     # this many bare pages (no JSON-LD, no og:type) in a row
 UNREACHABLE_RUN = 5     # this many failed requests in a row stops the site
 RECHECK_EVERY = 4       # a site without lastmod is fetched in full every fourth pass
 GONE_AFTER = 2          # a page answering 404 or 410 this many passes in a row is gone
+OWNER_STOP = "stopped by the owner"
 
 FIELDS = ("site", "name", "host", "sitemaps", "recipeUrl", "parser", "kind", "enabled")
 OPTIONAL_FIELDS = ("sitemapFilter", "measures")    # a pattern naming which child sitemaps of an index to follow (none: all)
@@ -68,6 +73,10 @@ def loadSites(rules):
         if entry["enabled"]:
             enabled.append(entry)
     return enabled
+
+
+class OwnerStop(Exception):
+    """The owner asked the pass to stop: no more requests to any site."""
 
 
 class SitemapTooLarge(ValueError):
@@ -161,10 +170,11 @@ def _iso(when):
     return when.astimezone(timezone.utc).isoformat() if when else None
 
 
-def sitemapEntries(site, robots, log=print, failures=None):
+def sitemapEntries(site, robots, log=print, failures=None, checkStop=None):
     """
     Every recipe page the site's sitemaps list (indexes followed) and robots.txt
-    allows, as (url, lastmod or None): newest first, pages without lastmod last. A sitemap not read (failed,
+    allows, as (url, lastmod or None): newest first, pages without lastmod last. checkStop (when given) runs
+    before each sitemap is asked and may raise OwnerStop. A sitemap not read (failed,
     unreadable, too large, disallowed by robots.txt, on another host, or past MAX_SITEMAPS) has a reason appended
     to `failures` (when given), so the caller knows the listing is incomplete.
     """
@@ -188,6 +198,8 @@ def sitemapEntries(site, robots, log=print, failures=None):
         if not robots.allows(AGENT, url):
             notRead(url, "robots.txt disallows it")
             continue
+        if checkStop:
+            checkStop()
         try:
             kind, entries = parseSitemap(net.crawl(url, binary=True, mayFetch=lambda to: robots.allows(AGENT, to)))
         except net.HttpError as e:
@@ -259,7 +271,7 @@ def _stopped(result, siteState, stop, now):
         siteState["notBefore"] = now() + stop.retryAfter
 
 
-def _plan(site, siteState, pages, priority, log, now):
+def _plan(site, siteState, pages, priority, log, now, checkStop=None):
     """(listing, chosen, due, robots, complete) for this pass, or SiteStopped."""
     notBefore = siteState.get("notBefore")
     if notBefore and now() < notBefore:
@@ -270,7 +282,7 @@ def _plan(site, siteState, pages, priority, log, now):
     if delay and float(delay) > net.CRAWL_INTERVAL:
         net.MIN_INTERVAL[site["host"]] = float(delay)       # robots.txt asks for more room than 5 s: it gets it
     failures = []
-    entries = sitemapEntries(site, robots, log, failures)
+    entries = sitemapEntries(site, robots, log, failures, checkStop)
     if failures:
         # a partial listing must never replace a complete one (basics and M3's "left the sitemap" depend on it)
         log(f"{site['site']}: {len(failures)} sitemap(s) not read; previous listing kept")
@@ -342,49 +354,80 @@ def _fetchOne(site, url, lastmod, result, siteState, run, now, log, robots):
         log(f"{site['site']}: {result['fetched']} of {result['due']} pages fetched")
 
 
-def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time):
+def crawl(siteList, pages, log=print, priority=frozenset(), now=time.time, only=None, stopRequested=None):
     """
     One pass over the sites. For each: robots.txt, the sitemaps, then the first
     `pages` recipe URLs (priority ones first, then newest; None: all), fetched
     when due. The sites take turns, so with net's 5 s per host no site waits
     for another. Returns {site: result}. Stops, Retry-After, 404 counts and pass
     counts are kept in config.SITE_STATE_FILE, saved even if the pass breaks.
+    only names the one site to crawl (None: all). stopRequested() is asked
+    before each request; when it says stop, every site not finished is marked
+    OWNER_STOP (its listing's completeness as already known) and the crawl ends.
     """
+    if only is not None:
+        siteList = [site for site in siteList if site["site"] == only]
+        if not siteList:
+            log(f"{only}: not an enabled site in rules/sites.json, nothing crawled")
+            return {}
+
+    def checkStop():
+        if stopRequested and stopRequested():
+            raise OwnerStop()
+
     state = store.readJson(config.SITE_STATE_FILE, {}) or {}
     bySite = {site["site"]: site for site in siteList}
-    results, queues, runs, rules = {}, {}, {}, {}
+    results, queues, runs, rules, finished = {}, {}, {}, {}, set()
+
+    def close(name):
+        finished.add(name)
+        _closing(name, results[name], log)
+
     try:
-        for site in siteList:
-            name = site["site"]
-            siteState = state.setdefault(name, {})
-            result = results[name] = _newResult(name)
-            try:
-                entries, chosen, due, rules[name], complete = _plan(site, siteState, pages, priority, log, now)
-            except SiteStopped as stop:
-                _stopped(result, siteState, stop, now)
-                log(f"{name}: stopped ({stop.reason})")
-                _closing(name, result, log)
-                continue
-            siteState.pop("lastStop", None)
-            result.update(listed=len(entries), planned=len(chosen), due=len(due), complete=complete)
-            log(f"{name}: {len(entries)} recipe pages listed, {len(due)} of the first {len(chosen)} due")
-            if due:
-                queues[name], runs[name] = list(due), {"notRecipe": 0, "failures": 0}
-            else:
-                _closing(name, result, log)
-        while queues:
-            for name in list(queues):
-                url, lastmod = queues[name].pop(0)
+        try:
+            for site in siteList:
+                name = site["site"]
+                siteState = state.setdefault(name, {})
+                result = results[name] = _newResult(name)
+                checkStop()
                 try:
-                    _fetchOne(bySite[name], url, lastmod, results[name], state[name], runs[name], now, log,
-                              rules[name])
+                    entries, chosen, due, rules[name], complete = _plan(site, siteState, pages, priority, log, now,
+                                                                        checkStop)
                 except SiteStopped as stop:
-                    _stopped(results[name], state[name], stop, now)
+                    _stopped(result, siteState, stop, now)
                     log(f"{name}: stopped ({stop.reason})")
-                    queues[name] = []
-                if not queues[name]:
-                    del queues[name]
-                    _closing(name, results[name], log)
+                    close(name)
+                    continue
+                siteState.pop("lastStop", None)
+                result.update(listed=len(entries), planned=len(chosen), due=len(due), complete=complete)
+                log(f"{name}: {len(entries)} recipe pages listed, {len(due)} of the first {len(chosen)} due")
+                if due:
+                    queues[name], runs[name] = list(due), {"notRecipe": 0, "failures": 0}
+                else:
+                    close(name)
+            while queues:
+                for name in list(queues):
+                    checkStop()
+                    url, lastmod = queues[name].pop(0)
+                    try:
+                        _fetchOne(bySite[name], url, lastmod, results[name], state[name], runs[name], now, log,
+                                  rules[name])
+                    except SiteStopped as stop:
+                        _stopped(results[name], state[name], stop, now)
+                        log(f"{name}: stopped ({stop.reason})")
+                        queues[name] = []
+                    if not queues[name]:
+                        del queues[name]
+                        close(name)
+        except OwnerStop:
+            log("crawl stopped by the owner")
+            for site in siteList:
+                name = site["site"]
+                if name in finished:
+                    continue
+                result = results.setdefault(name, _newResult(name))
+                result["ok"], result["stopReason"] = False, OWNER_STOP     # not the site's fault: no lastStop
+                _closing(name, result, log)
     finally:
         store.writeJson(config.SITE_STATE_FILE, state)
     return results

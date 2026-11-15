@@ -123,7 +123,8 @@ def siteRemovals(publishedKeys, crawled, lastCounts, guard):
     return sorted(keys), notes, guarded
 
 
-def _publishedState(dry):
+def publishedState(dry):
+    """{key: contentHash} of what plutus holds: run's published file, else (publishing on) plutus's /state."""
     state = store.readJson(config.PUBLISHED_FILE, None)
     if state is not None:
         return dict(state.get("recipes", {}))
@@ -143,7 +144,7 @@ def publish(recipes, fetchResults, lastCounts, log=print, removals=None):
     if not dry and not adminApi.configured():
         raise adminApi.AdminError("ADMIN_TOKEN and ADMIN_HOST must be set in .env")
     payloads = [payloadFor(r) for r in recipes]
-    published = _publishedState(dry)
+    published = publishedState(dry)
     changed = [p for p in payloads if published.get(p["key"]) != p["contentHash"]]
     perSource = {}
     for p in changed:

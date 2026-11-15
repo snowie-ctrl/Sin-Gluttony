@@ -84,7 +84,7 @@ def test_summariseGivesOneRowPerSiteWithTheContractKeys():
     assert [row["site"] for row in rows] == ["madeupblocked", "madeuphealthy"]
     keys = {"site", "name", "kind", "listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason",
             "pictureStop", "listingComplete", "cached", "recipes", "shown", "hidden", "skipped", "extraction",
-            "calibration", "alarm"}
+            "calibration", "alarm", "lastPassAt"}
     assert all(set(row) == keys for row in rows)
 
 
@@ -155,3 +155,49 @@ def test_writeStoresTheRowsWithModeAndTime():
     assert config.SITES_FILE.parent == config.RUN_DIR and str(config.RUN_DIR).startswith(str(config.BASE_DIR)) is False
     siteHealth.write(rows, "pass")
     assert json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["mode"] == "pass"
+
+
+# ---------- lastPassAt, and a site not crawled this pass (controller ruling) ----------
+
+CARRIED = ("listed", "due", "fetched", "notRecipe", "gone", "errors", "stopReason", "pictureStop", "listingComplete",
+           "extraction", "alarm", "lastPassAt")
+
+
+def test_aCrawledSiteGetsThePassStartAsLastPassAt():
+    crawled, recipes, skipped, siteState, calibration = twoSites()
+    rows = siteHealth.summarise(SITES, crawled, recipes, skipped, siteState, STARTED, {}, calibration)
+    assert all(row["lastPassAt"] == "1970-01-12T13:46:40+00:00" for row in rows)
+
+
+def test_aSiteNeverCrawledHasNoLastPassAt():
+    rows = siteHealth.summarise(SITES, {}, [], [], {}, STARTED, {}, {}, previous={})
+    assert [row["lastPassAt"] for row in rows] == [None, None]
+    assert rows[1]["listed"] == 0 and rows[1]["alarm"] == {"red": False, "why": None}
+
+
+def test_aSiteNotCrawledCarriesItsCrawlFieldsAndRecomputesItsGateFields():
+    crawled, recipes, skipped, siteState, calibration = twoSites()
+    before = {row["site"]: row for row in
+              siteHealth.summarise(SITES, crawled, recipes, skipped, siteState, STARTED, {"madeuphealthy": "429"},
+                                   calibration)}
+    siteState["madeuphealthy"]["lastRate"] = 0.5
+    recipes[0].hiddenReason = "no-time"             # a re-gate changes what is shown
+    later = STARTED + 7 * 86400
+    rows = siteHealth.summarise(SITES, {"madeupblocked": crawled["madeupblocked"]}, recipes, skipped, siteState,
+                                later, {}, {}, previous=before)
+    healthy = rows[1]
+    for field in CARRIED:
+        assert healthy[field] == before["madeuphealthy"][field], field
+    assert healthy["lastPassAt"] == "1970-01-12T13:46:40+00:00"
+    assert (healthy["recipes"], healthy["shown"]) == (12, 10)
+    assert healthy["hidden"]["no-time"] == 1 and healthy["calibration"] is None
+    assert siteState["madeuphealthy"]["lastRate"] == 0.5       # not judged: it was not crawled
+    assert rows[0]["lastPassAt"] == "1970-01-19T13:46:40+00:00"
+
+
+def test_previousRowsReadsTheLastSitesFile():
+    assert siteHealth.previousRows() == {}
+    siteHealth.write([{"site": "madeuphealthy", "listed": 3}], "pass")
+    assert siteHealth.previousRows() == {"madeuphealthy": {"site": "madeuphealthy", "listed": 3}}
+    config.SITES_FILE.write_text("not json", encoding="utf-8")
+    assert siteHealth.previousRows() == {}
