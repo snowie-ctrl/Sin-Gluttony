@@ -76,11 +76,13 @@ private slots:
 
     void aMoodAsksAtOnceWithItsFilters()
     {
-        catalog->openWith({{"kind", "food"}, {"maxMinutes", 30}, {"difficulty", QVariantList{1}}}, "Quick fix");
+        catalog->openWith({{"kind", "food"}, {"maxMinutes", 30}, {"difficulty", QVariantList{1}},
+                           {"occasion", QVariantList{"basic"}}}, "Quick fix");
         QCOMPARE(catalog->title(), QStringLiteral("Quick fix"));
         QTRY_COMPARE(to(recipesPath).size(), 1);
         const QUrlQuery sent(to(recipesPath).last());
         QCOMPARE(sent.queryItemValue("maxMinutes"), QStringLiteral("30"));
+        QCOMPARE(sent.queryItemValue("occasion"), QStringLiteral("basic"));
         QCOMPARE(sent.queryItemValue("page"), QStringLiteral("1"));
     }
 

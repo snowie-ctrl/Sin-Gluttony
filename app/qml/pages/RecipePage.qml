@@ -7,10 +7,13 @@ import "../logic/units.mjs" as Units
 import "../logic/credit.mjs" as Credit
 import "../logic/days.mjs" as Days
 import "../logic/timers.mjs" as Timers
+import "../logic/nutrition.mjs" as Nutrition
 
-// The recipe page (layout A): a wide picture with the title over it, a strip of chips, the actions (▶ Cook mode, ♥ Craving,
+// The recipe page (layout A): a wide picture with the title over it, the site's description and a link to the recipe
+// there (when it has them), a strip of chips, the actions (▶ Cook mode, ♥ Craving,
 // + List, ✓ Devoured on a day that can be changed, the stars, ✎ Note, with the note under them), then the
-// ingredients in a column that stays put while the steps scroll, Seconds? and the credit the sources require.
+// ingredients (with the nutrition per serving under them) in a column that stays put while the steps scroll,
+// Seconds? and the credit the sources require.
 // Quantities follow the servings (or multiplier) chosen and the units preference; clicking a changed line shows it
 // as written. A recipe its source removed says so, and works as before for the person who kept it.
 Item {
@@ -39,6 +42,8 @@ Item {
         && (root.mine.devoured || []).some(mark => mark.id === root.pickedMark)
     // The stars rest while a star request for this recipe is on its way, so two quick taps cannot cross.
     readonly property bool starsBusy: Saved.starsSaving.indexOf(root.r.id || 0) >= 0
+    // The nutrition panel's More: open shows every nutrient the recipe has, not just the main four.
+    property bool nutritionOpen: false
 
     onRChanged: {
         root.shownOriginal = ({})
@@ -48,6 +53,7 @@ Item {
             root.devourDay = Saved.today()
             root.actionError = ""
             root.pickedMark = 0
+            root.nutritionOpen = false
         }
     }
 
@@ -61,6 +67,87 @@ Item {
             root.actionError = ""
             if (what === "devoured")
                 root.pickedMark = 0
+        }
+    }
+
+    // Nutrition per serving, under the ingredients: the main four, the rest on More, and "estimated" in italic when
+    // the catalog worked it out from the ingredients rather than taking the site's own figures. The values are per
+    // serving, so the servings chosen never change them.
+    component NutritionPanel: Column {
+        id: panel
+        property var nutrition: null
+        // More is open: every nutrient the recipe has. The page keeps it, so a new recipe starts closed.
+        property bool open: false
+        signal toggled()
+        readonly property var mainRows: Nutrition.mainRows(panel.nutrition)
+        readonly property var moreRows: Nutrition.moreRows(panel.nutrition)
+        visible: panel.mainRows.length + panel.moreRows.length > 0
+        spacing: 4
+
+        Item {
+            width: panel.width
+            height: nutritionTitle.implicitHeight
+            Text {
+                id: nutritionTitle
+                objectName: "nutritionTitle"
+                text: Words.nutritionTitle
+                color: Preferences.textPrimary
+                font.family: Preferences.headingFont
+                font.weight: Font.Black
+                font.pixelSize: Preferences.fontSizeHeading
+            }
+            Text {
+                objectName: "nutritionEstimated"
+                anchors { left: nutritionTitle.right; leftMargin: 8; baseline: nutritionTitle.baseline }
+                visible: Nutrition.isEstimate(panel.nutrition)
+                text: Words.nutritionEstimated
+                color: Preferences.textMuted
+                font.family: Preferences.appFont
+                font.pixelSize: Preferences.fontSizeLabel
+                font.italic: true
+            }
+        }
+
+        Repeater {
+            model: panel.open ? panel.mainRows.concat(panel.moreRows) : panel.mainRows
+            delegate: Item {
+                required property var modelData
+                objectName: "nutritionRow"
+                width: panel.width
+                height: rowValue.implicitHeight + 6
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.label
+                    color: Preferences.textSecondary
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeBody
+                }
+                Text {
+                    id: rowValue
+                    objectName: "nutrition-" + modelData.key
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.value
+                    color: Preferences.textPrimary
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeBody
+                }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 1
+                    color: Preferences.borderColor
+                }
+            }
+        }
+
+        Chip {
+            objectName: "nutritionMore"
+            visible: panel.moreRows.length > 0
+            text: panel.open ? Words.nutritionLess : Words.nutritionMore
+            onClicked: panel.toggled()
         }
     }
 
@@ -138,6 +225,7 @@ Item {
 
             Item {
                 id: hero
+                objectName: "recipeHero"
                 y: Preferences.spacingMedium
                 width: parent.width
                 height: 380
@@ -188,9 +276,55 @@ Item {
                 }
             }
 
+            // The recipe site's own few lines about it, and the way to its page there. Neither takes room when
+            // the recipe has none (the old sources).
+            Column {
+                id: intro
+                anchors { top: hero.bottom; topMargin: visible ? Preferences.spacingMedium : 0 }
+                // The parent's own conditions, not its children's visible, which follows the parent's.
+                visible: !!root.r.description || !!root.r.sourceUrl
+                width: parent.width
+                spacing: Preferences.spacingSmall
+
+                Text {
+                    id: description
+                    objectName: "recipeDescription"
+                    visible: !!root.r.description
+                    width: parent.width
+                    text: root.r.description || ""
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 6
+                    elide: Text.ElideRight
+                    lineHeight: 1.2
+                    color: Preferences.textSecondary
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeBody
+                }
+
+                Text {
+                    id: fromSite
+                    objectName: "fromSite"
+                    visible: !!root.r.sourceUrl
+                    text: Words.fromSite(Words.sourceName(root.r.source) || root.r.credit || "")
+                    color: Preferences.accentColor
+                    font.family: Preferences.appFont
+                    font.pixelSize: Preferences.fontSizeLabel
+                    font.underline: fromSiteMouse.containsMouse
+
+                    MouseArea {
+                        id: fromSiteMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.openLink(root.r.sourceUrl || "")
+                    }
+                }
+            }
+
             Flow {
                 id: chips
-                anchors { top: hero.bottom; topMargin: Preferences.spacingMedium }
+                objectName: "recipeChips"
+                anchors { top: intro.bottom; topMargin: Preferences.spacingMedium }
                 width: parent.width
                 spacing: Preferences.spacingSmall
 
@@ -481,6 +615,15 @@ Item {
                             }
                         }
                     }
+
+                    NutritionPanel {
+                        objectName: "nutritionPanel"
+                        topPadding: Preferences.spacingMedium
+                        width: ingredients.width
+                        nutrition: root.r.nutrition || null
+                        open: root.nutritionOpen
+                        onToggled: root.nutritionOpen = !root.nutritionOpen
+                    }
                 }
 
                 Column {
@@ -573,6 +716,7 @@ Item {
 
             Column {
                 id: credit
+                objectName: "recipeCredit"
                 anchors { top: seconds.visible ? seconds.bottom : body.bottom; topMargin: 32 }
                 width: parent.width
                 spacing: 4

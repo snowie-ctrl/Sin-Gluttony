@@ -27,6 +27,34 @@ TestCase {
         compare(Words.containsText([]), "")
     }
 
+    function test_sourceName_data() {
+        return [
+            { tag: "bbcgoodfood", source: "bbcgoodfood", name: "BBC Good Food" },
+            { tag: "budgetbytes", source: "budgetbytes", name: "Budget Bytes" },
+            { tag: "recipetineats", source: "recipetineats", name: "RecipeTin Eats" },
+            { tag: "pinchofyum", source: "pinchofyum", name: "Pinch of Yum" },
+            { tag: "loveandlemons", source: "loveandlemons", name: "Love and Lemons" },
+            { tag: "difford", source: "difford", name: "Difford's Guide" },
+            { tag: "an old source", source: "wikibooks", name: "Wikibooks" },
+            { tag: "unknown", source: "elsewhere", name: "elsewhere" },
+            { tag: "none", source: null, name: "" }
+        ]
+    }
+
+    function test_sourceName(row) {
+        compare(Words.sourceName(row.source), row.name)
+    }
+
+    function test_nutritionWords() {
+        compare(Words.nutritionTitle, "Per serving")
+        compare(Words.nutritionMore, "More")
+        compare(Words.nutritionLess, "Less")
+        compare(Words.nutritionEstimated, "estimated")
+        compare(Words.fromSite("Budget Bytes"), "From Budget Bytes ↗")
+        compare(Words.NUTRIENTS.calories, "Calories")
+        compare(Words.NUTRIENTS.sodiumMg, "Sodium")
+    }
+
     function test_everyDietAndAvoidItemHasALabel() {
         compare(Words.DIETS.map(d => d.value), ["vegetarian", "vegan", "gluten-free", "dairy-free"])
         compare(Words.AVOID.length, 13)

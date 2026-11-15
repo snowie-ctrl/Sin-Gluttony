@@ -157,6 +157,15 @@ export const waitingToSyncHint = "The server refused these 5 times. Try again, o
 export const discard = "Discard"
 export const signOutAnyway = "Sign out anyway"
 export const queuedTitle = "Not on the server yet"
+export const nutritionTitle = "Per serving"
+export const nutritionMore = "More"
+export const nutritionLess = "Less"
+export const nutritionEstimated = "estimated"
+// The per-serving nutrients, by the key the server sends them under (nutrition.mjs puts them in order).
+export const NUTRIENTS = {
+    calories: "Calories", proteinG: "Protein", carbsG: "Carbs", fatG: "Fat",
+    satFatG: "Saturated fat", fibreG: "Fibre", sugarG: "Sugar", sodiumMg: "Sodium"
+}
 
 // The diet and avoid words match the server's lists (server/gluttonyRules.py DIETS and CONTAINS_ITEMS).
 export const DIETS = [
@@ -185,7 +194,7 @@ export const FILTER_TITLES = {
     exclude: "Leave out"
 }
 export const MOOD_WORDS = {
-    quick: { title: "Quick fix", hint: "30 min or less, easy" },
+    quick: { title: "Quick fix", hint: "Basics, 30 min or less" },
     crowd: { title: "Feed a crowd", hint: "for a party" },
     sweet: { title: "Sweet tooth", hint: "desserts" },
     drinks: { title: "Bottoms up", hint: "cocktails and mocktails" }
@@ -212,7 +221,14 @@ export function courseWord(course) {
 }
 
 export function sourceName(source) {
-    return ({ mealdb: "TheMealDB", cocktaildb: "TheCocktailDB", wikibooks: "Wikibooks" })[source] || (source || "")
+    return ({ mealdb: "TheMealDB", cocktaildb: "TheCocktailDB", wikibooks: "Wikibooks", bbcgoodfood: "BBC Good Food",
+              budgetbytes: "Budget Bytes", recipetineats: "RecipeTin Eats", pinchofyum: "Pinch of Yum",
+              loveandlemons: "Love and Lemons", difford: "Difford's Guide" })[source] || (source || "")
+}
+
+// The link under the description to the recipe on its own site.
+export function fromSite(name) {
+    return "From " + name + " ↗"
 }
 
 export function recipeCount(n) {

@@ -1,7 +1,9 @@
 #include <QBuffer>
 #include <QDate>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
+#include <QFont>
 #include <QJsonArray>
 #include <QColor>
 #include <QIcon>
@@ -205,6 +207,32 @@ class TestPages : public QObject
         nav->navigateTo("recipe-page");
     }
 
+    // Recipe 8 from a recipe site: a description, per-serving nutrition ("estimate" or "source") and a link to its
+    // page. Made up.
+    void openSiteRecipe(const char *from)
+    {
+        QByteArray body = R"json({"status":"ok","data":{"id":8,"kind":"food","title":"Stub Lentil Soup",
+          "description":"A made-up bowl of lentils for the tests, warm and cheap.",
+          "course":"main","cuisine":"British","servings":4,"servingsFrom":"source","totalMinutes":40,"timeFrom":"source",
+          "difficulty":1,"difficultyFrom":"source","hasImage":false,"source":"budgetbytes",
+          "sourceUrl":"SITEURL","licence":null,"credit":"Budget Bytes","imageCredit":null,
+          "videoUrl":null,
+          "nutrition":{"calories":412.4,"proteinG":23.6,"carbsG":4.25,"fatG":9.1,"satFatG":3.04,"fibreG":12,
+                       "sugarG":0.5,"sodiumMg":812.2,"from":"FROM","flagged":false},
+          "ingredients":[
+            {"line":"200 g red lentils","quantity":200,"quantityMax":null,"unit":"g","ingredientId":120,"name":"red lentil","note":null,"optional":false,"group":null}],
+          "steps":[{"text":"Simmer the lentils.","group":null}],
+          "tags":{"flavour":[],"occasion":["basic"],"source":[]},
+          "facts":{"complete":true,"contains":[],"diets":["vegan"]},
+          "versions":[]}})json";
+        // A "//" inside a raw string ends moc's reading of the class, so the address goes in afterwards.
+        body.replace("SITEURL", "https://example.org/stub-lentil-soup");
+        body.replace("FROM", from);
+        server->responses[path("/recipes/8")] = body;
+        recipes->open(8);
+        nav->navigateTo("recipe-page");
+    }
+
     // Recipe 1 with what the person keeps on it, and whether its source removed it.
     void openKeptRecipe(const QJsonObject &mine, bool removed = false)
     {
@@ -354,6 +382,11 @@ class TestPages : public QObject
         QTRY_COMPARE(queue->stuck().size(), 1);
     }
 
+public:
+    // The web addresses the pages asked the system to open (QDesktopServices hands them here, never to a browser).
+    QList<QUrl> openedLinks;
+    Q_INVOKABLE void captureLink(const QUrl &url) { openedLinks << url; }
+
 private slots:
     void initTestCase()
     {
@@ -407,6 +440,10 @@ private slots:
         server->responses[path("/saved/manifest")] = R"({"status":"ok","data":{"lists":[
           {"id":3,"title":"Cravings","kind":"cravings","recipeIds":[]}],"recipes":[]}})";
 
+        openedLinks.clear();
+        QDesktopServices::setUrlHandler(QStringLiteral("https"), this, "captureLink");
+        QDesktopServices::setUrlHandler(QStringLiteral("http"), this, "captureLink");
+
         // Any warning from Gluttony's own QML (a binding error, an unknown property) fails the test.
         QTest::failOnWarning(QRegularExpression(QStringLiteral("qrc:/qt/qml/Gluttony/")));
     }
@@ -414,6 +451,8 @@ private slots:
     void cleanup()
     {
         engine.reset();
+        QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+        QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
     }
 
     void signingInOpensTheShellAndLoadsWhatASignInLoads()
@@ -781,7 +820,10 @@ private slots:
         click(findVisible("mood-quick"));
         QTRY_COMPARE(catalog->title(), QStringLiteral("Quick fix"));
         QCOMPARE(catalog->filters().value("maxMinutes").toInt(), 30);
+        QCOMPARE(catalog->filters().value("occasion").toList(), QVariantList{QStringLiteral("basic")});
         QCOMPARE(nav->currentPage(), QStringLiteral("results-page"));
+        QTRY_VERIFY(!requestsTo("/recipes").isEmpty());
+        QCOMPARE(QUrlQuery(requestsTo("/recipes").last()).queryItemValue("occasion"), QStringLiteral("basic"));
     }
 
     void nothingFitsOffersToSwitchTheDietOff()
@@ -1228,6 +1270,99 @@ private slots:
             pending += item->childItems();
         }
         QVERIFY(found);
+    }
+
+    void aSiteRecipeShowsItsDescriptionAndLinksToItsSite()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openSiteRecipe("estimate");
+        QTRY_VERIFY(findVisible("recipeDescription"));
+        QCOMPARE(findVisible("recipeDescription")->property("text").toString(),
+                 QStringLiteral("A made-up bowl of lentils for the tests, warm and cheap."));
+        QQuickItem *from = findVisible("fromSite");
+        QVERIFY(from);
+        QCOMPARE(from->property("text").toString(), QStringLiteral("From Budget Bytes ↗"));
+        // Under the hero, and the chips under the link.
+        QQuickItem *hero = findVisible("recipeHero");
+        QQuickItem *chips = findVisible("recipeChips");
+        QQuickItem *description = findVisible("recipeDescription");
+        QVERIFY(hero && chips && description);
+        const auto top = [](QQuickItem *item) { return item->mapToScene(QPointF(0, 0)).y(); };
+        // Positioners lay out on the next frame.
+        QTRY_VERIFY(top(description) >= top(hero) + hero->height());
+        QTRY_VERIFY(top(from) >= top(description) + description->height());
+        QTRY_VERIFY(top(chips) >= top(from) + from->height());
+        click(from);
+        QTRY_COMPARE(openedLinks, QList<QUrl>{QUrl(QStringLiteral("https://example.org/stub-lentil-soup"))});
+    }
+
+    void theNutritionPanelShowsTheMainFourAndTheRestOnMore()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openSiteRecipe("estimate");
+        QTRY_VERIFY(findVisible("nutritionPanel"));
+        QCOMPARE(findVisible("nutritionTitle")->property("text").toString(), QStringLiteral("Per serving"));
+        QVERIFY(findVisible("nutritionEstimated"));
+        QCOMPARE(findVisible("nutritionEstimated")->property("text").toString(), QStringLiteral("estimated"));
+        QVERIFY(findVisible("nutritionEstimated")->property("font").value<QFont>().italic());
+        QTRY_COMPARE(countVisible("nutritionRow"), 4);
+        QCOMPARE(findVisible("nutrition-calories")->property("text").toString(), QStringLiteral("412 kcal"));
+        QCOMPARE(findVisible("nutrition-carbsG")->property("text").toString(), QStringLiteral("4.3 g"));
+        QVERIFY(!findVisible("nutrition-sodiumMg"));
+        click(findVisible("nutritionMore"));
+        QTRY_COMPARE(countVisible("nutritionRow"), 8);
+        QCOMPARE(findVisible("nutrition-sodiumMg")->property("text").toString(), QStringLiteral("812 mg"));
+        QCOMPARE(textIn("nutritionMore", "chipLabel"), QStringLiteral("Less"));
+        click(findVisible("nutritionMore"));
+        QTRY_COMPARE(countVisible("nutritionRow"), 4);
+    }
+
+    void nutritionFromTheSiteIsNotMarkedEstimated()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openSiteRecipe("source");
+        QTRY_VERIFY(findVisible("nutritionPanel"));
+        QTRY_COMPARE(countVisible("nutritionRow"), 4);
+        QVERIFY(!findVisible("nutritionEstimated"));
+    }
+
+    void moreServingsLeaveTheNutritionPerServing()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openSiteRecipe("estimate");
+        QTRY_VERIFY(findVisible("nutrition-calories"));
+        QCOMPARE(findVisible("ingredient-0")->property("text").toString(), QStringLiteral("200 g red lentils"));
+        click(findVisible("servingsPlus"));
+        QTRY_COMPARE(findVisible("ingredient-0")->property("text").toString(), QStringLiteral("250 g red lentils"));
+        QCOMPARE(findVisible("nutrition-calories")->property("text").toString(), QStringLiteral("412 kcal"));
+        QCOMPARE(findVisible("nutrition-proteinG")->property("text").toString(), QStringLiteral("24 g"));
+    }
+
+    void aRecipeWithoutDescriptionOrNutritionShowsNeither()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QTRY_VERIFY(findVisible("ingredient-0"));
+        QVERIFY(!findVisible("recipeDescription"));
+        QVERIFY(!findVisible("fromSite"));
+        QVERIFY(!findVisible("nutritionPanel"));
+        // The chips sit where they always did, and the page still ends at the credit.
+        QQuickItem *hero = findVisible("recipeHero");
+        QQuickItem *chips = findVisible("recipeChips");
+        QVERIFY(hero && chips);
+        QCOMPARE(chips->y(), hero->y() + hero->height() + preferences->spacingMedium);
+        QQuickItem *credit = findVisible("recipeCredit");
+        QVERIFY(credit);
+        QQuickItem *content = credit->parentItem();
+        QTRY_COMPARE(content->height(), credit->y() + credit->implicitHeight() + 2 * preferences->spacingLarge);
+        QVERIFY(credit->y() >= findVisible("ingredientsColumn")->parentItem()->y()
+                                   + findVisible("ingredientsColumn")->parentItem()->height());
     }
 
     void homeShowsTheCravingsAndAgainRows()
