@@ -85,3 +85,24 @@ def test_aDryRunWithNoFdcFoodsWarnsAndHidesRecipesWithoutSiteNutrition(monkeypat
     assert queue["queue"] and all(row["candidates"] == [] for row in queue["queue"]) and queue["generatedAt"].endswith("+00:00")
     assert json.loads((folder / "fdc-queue.json").read_text(encoding="utf-8")) == queue
     assert "## Nutrition" in (folder / "summary.md").read_text(encoding="utf-8")
+
+
+def test_aDryRunWritesSiteHealthAndSavesLastRate(monkeypatch):
+    import siteHealth
+    fakeWorld(monkeypatch, [])
+    store_ = {}
+    real = siteHealth.summarise
+    def summarise(*args):
+        rows = real(*args)
+        args[4]["testsite"]["lastRate"] = 0.75     # as if the pass had been judged
+        store_["stops"] = args[6]
+        return rows
+    monkeypatch.setattr(siteHealth, "summarise", summarise)
+    dryrun.run(pages=5, log=lambda *a: None, today=date(2026, 11, 14))
+    stored = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))
+    assert stored["mode"] == "dryrun" and stored["generatedAt"].endswith("+00:00")
+    row = stored["sites"][0]
+    assert row["site"] == "testsite" and row["recipes"] == 1 and row["shown"] == 1
+    assert row["alarm"] == {"red": False, "why": None} and row["pictureStop"] is None
+    assert store_["stops"] == {}
+    assert json.loads(config.SITE_STATE_FILE.read_text(encoding="utf-8"))["testsite"]["lastRate"] == 0.75

@@ -6,6 +6,7 @@ reports/dryrun-<date>/ for the owner, with the FDC mapping queue. Nothing is
 published: publish.py is never called and plutus is never asked, whatever
 PUBLISH says; the ingredient table is the repo's seed.
 """
+import time
 from datetime import date, datetime, timezone
 from itertools import zip_longest
 
@@ -22,6 +23,7 @@ import matching
 import nutrition
 import nutritionReport
 import rulesData
+import siteHealth
 import store
 import tagging
 from sources import sites
@@ -36,6 +38,7 @@ def roundRobin(recipes):
 
 
 def run(pages=200, log=print, today=None, crawl=True):
+    startedAt = time.time()
     rules = rulesData.load()
     siteList = sites.loadSites(rules)
     basicUrls = basics.priorityUrls(rules)
@@ -43,7 +46,7 @@ def run(pages=200, log=print, today=None, crawl=True):
     recipes, skipped = adaptSites.adaptCached(siteList, rules)
     log(f"read {len(recipes)} recipes; {len(skipped)} cached pages gave none")
     recipes = roundRobin(recipes)
-    images.ensureImages(recipes, allowDownload=crawl, log=log)
+    pictures = images.ensureImages(recipes, allowDownload=crawl, log=log) or {}
     table = matching.IngredientTable.fromSeed(rules["ingredients"], set(rules["prepWords"]),
                                               set(rules["modifierWords"]))
     foods = fdc.loadFoods()
@@ -61,11 +64,16 @@ def run(pages=200, log=print, today=None, crawl=True):
     queue = {"generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
              "queue": nutritionReport.fdcQueue(recipes, foods)}
     store.writeJson(config.FDC_QUEUE_FILE, queue)
+    calibration = nutritionReport.calibrate(recipes)
+    siteState = store.readJson(config.SITE_STATE_FILE, {}) or {}
+    health = siteHealth.summarise(siteList, crawled, recipes, skipped, siteState, startedAt,
+                                  pictures.get("pictureStops", {}), calibration)
+    store.writeJson(config.SITE_STATE_FILE, siteState)
+    siteHealth.write(health, "dryrun")
     today = today or date.today()
     folder = config.REPORT_DIR / f"dryrun-{today.isoformat()}"
-    summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today,
-                                    store.readJson(config.SITE_STATE_FILE, {}),
-                                    calibration=nutritionReport.calibrate(recipes), queue=queue["queue"],
+    summary = dryrunReport.write(folder, siteList, crawled, recipes, skipped, rules, today, siteState,
+                                    calibration=calibration, queue=queue["queue"],
                                     unknown=nutritionReport.unknownQueue(recipes))
     store.writeJson(folder / "fdc-queue.json", queue)
     log(f"dry run: {summary['listed']} of {summary['pages']} pages would be listed; report in {folder}")

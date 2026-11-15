@@ -46,6 +46,7 @@ LOCK_FILE = RUN_DIR / "scraper.lock"
 FDC_PICKS_FILE = RUN_DIR / "fdc-picks.json"
 FDC_QUEUE_FILE = RUN_DIR / "fdc-queue.json"
 SITE_STATE_FILE = RUN_DIR / "site-state.json"   # per recipe site: stops, Retry-After, 404 counts, pass count
+SITES_FILE = RUN_DIR / "sites.json"             # per recipe site: counts, gate reasons and the alarm (GET /sites)
 
 # ========== SOURCES ==========
 # The free key "1" only: the owner pays for nothing the scraper uses.
