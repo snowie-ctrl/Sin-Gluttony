@@ -40,8 +40,8 @@ M4's full trial, with publishing off, is the dry run at full scale reading plutu
 ```
 
 The USDA FDC CSVs must be in `data/fdc/` on the VM before the first new pass (`python fdc.py import`), or no recipe
-gets an estimate. Switching the live catalog over (retiring the old sources, moving saved items) is M4, done with the
-owner; until then the VM stays on `CATALOG=old`.
+gets an estimate. Switching the live catalog over (publishing, retiring the old sources, moving saved items) follows
+the runbook in `server/README.md`, "The catalog switch"; until then the VM stays on `CATALOG=old`.
 
 ## Files it keeps
 

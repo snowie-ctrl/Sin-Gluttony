@@ -13,6 +13,8 @@ API at `/api/gluttony/` is public through the tunnel at `gluttony.forculus.net`,
 | `gluttonySmoke.py` | `/database/API/util/` (only for the smoke test; harmless if left) |
 | `schema.sql` | run once by the owner |
 | `schema-part2.sql` | run once by the owner, after part 2's smoke test |
+| `schema-catalog.sql` | run once by the owner, before the new catalog's server code (new catalog, milestone 3) |
+| `gluttonySwitch.py` | `/database/API/util/` (only for the catalog switch; harmless if left) |
 
 Tests: `cd server && .venv/Scripts/python.exe -m pytest -q`.
 
@@ -185,3 +187,58 @@ steps are typed by the owner on plutus.
     (its lists, marks, ratings, notes, devices and sessions go with it).
 13. **The app (owner).** Unzip `Gluttony-<version>-windows-x64.zip` (`app/release.ps1`), put `config\secrets.json`
     beside `Gluttony.exe`, sign up with the key, and go through the pages at home, then away (another network).
+
+## The catalog switch (runbook)
+
+The new catalog's step 3 (spec `2026-11-13-new-catalog-design.md`, §5): the recipe sites are published, and
+TheMealDB, TheCocktailDB and Wikibooks leave the app. `gluttonySwitch.py` retires the old recipes (`RemovedAt`; none is
+deleted) and moves what people kept on them (list entries, Devoured marks, stars, notes) to the shown site recipe with
+the same `DishKey` and kind. With several, it picks the one with the most facts: nutrition from the page, then prep and
+cook given, then the wider picture, then the lowest `RecipeID`. A clash (the person already has the new recipe) keeps
+the higher rating, joins the notes with a blank line (the note already there first), keeps every Devoured date, and
+keeps one list entry. Moved stars and notes take the moment of the move as `UpdatedAt`, so a change queued offline
+before the switch never overwrites them. A reference with no match stays on the retired recipe, which the app no
+longer shows. A joined note that would pass 2,000 characters is left where it is and counted as "too long to join".
+
+It reads and writes in one transaction, with the old recipes and every row that references one locked. Without
+`--apply` it is a dry run: it reports and writes nothing. It is safe to run again: a recipe already retired keeps
+its first `RemovedAt`, and a reference still on a retired recipe moves once a match has been published. `--apply`
+refuses (exit 1, nothing changed) while no site recipe is shown.
+
+The steps run in this order. Each waits for the owner's go-ahead at the time.
+
+1. **Back up (owner).** On plutus:
+   `sudo mysqldump --single-transaction --routines gluttonyDB > ~/gluttonyDB-before-switch-<date>.sql` and
+   `sudo cp -a /pool/appFiles/gluttony ~/gluttony-files-before-switch-<date>`. Check the dump ends with
+   `-- Dump completed`. This backup is the undo for everything below.
+2. **Publish the new catalog (VM 103).** The weekly loop is off. In `~/Gluttony/.env` set `CATALOG=new` and
+   `PUBLISH=on`. Then either a full pass, `.venv/bin/python main.py --once full`, or, to publish what the full trial
+   already fetched, a re-gate over the cache, `.venv/bin/python main.py --once retag`. Check the pass's report (no
+   site stopped; the FDC mappings were sent) and `GET /api/gluttony-admin/stats` on the LAN: the six site sources
+   have shown recipes, with the counts the trial led you to expect.
+3. **The switch (Claude or the owner, on plutus).** Copy `gluttonySwitch.py` and the current `gluttonyRules.py`
+   into `/database/API/util/` (it needs `OLD_SOURCES`), then:
+   - dry run: `cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --list`. Read the report: how
+     many old recipes people kept, how many have a match, and per table how many references move, merge and stay.
+     `--list` names each kept old recipe and the new `RecipeID` it goes to (or `no match`).
+   - for real, when the dry run looks right: `cd /database/API && /database/venv/bin/python -m util.gluttonySwitch --apply`.
+     The first line says `switch: applied`. A failure prints `switch: failed, nothing was changed: ...` and rolls
+     back.
+   No restart is needed: the server already hides every retired recipe.
+4. **Live checks (Claude).** `server/liveCheck.py` as in "Milestone 4: the rollout", step 11, with a fresh check
+   key. Then by hand in the app: Browse shows only site recipes; Saved shows the moved items on their new recipes,
+   with stars and notes; a recipe that had no match is gone from Saved. `GET /stats` shows no old source.
+5. **Restart the weekly loop (VM 103).** `SCHEDULE=on` in `.env`, then `./run.sh` (it says "already running" if the
+   tmux session is up: `tmux kill-session -t gluttony` first). Keep `CATALOG=new` and `PUBLISH=on`.
+6. **Remove the old adapters (Claude, once the switch is confirmed).** Merge the held branch `catalog-retire-old`
+   into `main` (it deletes `adaptTheDb.py`, `adaptWikibooks.py`, `sources/thedb.py`, `sources/wikibooks.py`,
+   `sources/wikiImages.py` and their tests, and makes `CATALOG=new` the default) and copy the scraper to the VM.
+   Old pictures stay on plutus until a later cleanup.
+
+After the switch, never run a `CATALOG=old` pass: it re-posts the old recipes, and the server clears `RemovedAt` on
+a re-post, which brings them back. Then regenerate the app's stub snapshot (`app/tests/stub/snapshot.py --token`)
+and release the app build (its Quick fix sends `occasion=basic`).
+
+**Undo:** stop the weekly loop, then restore the dump (`sudo mysql gluttonyDB < ~/gluttonyDB-before-switch-<date>.sql`)
+and, if pictures changed, the copy of `/pool/appFiles/gluttony`. The VM goes back to `CATALOG=old` until the switch is
+tried again.
