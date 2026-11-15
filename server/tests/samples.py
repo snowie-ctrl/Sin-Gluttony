@@ -23,3 +23,16 @@ def recipe(sourceId="1", **changes):
     }
     payload.update(changes)
     return payload
+
+
+NUTRITION = {"calories": 420, "proteinG": 18.5, "carbsG": 40, "fatG": 20, "satFatG": 6, "fibreG": 4, "sugarG": 7,
+             "sodiumMg": 650, "from": "estimate", "flagged": True}
+
+
+def siteRecipe(sourceId="a" * 20, **changes):
+    """A recipe from one of the recipe sites, with the catalog's newer fields."""
+    payload = recipe(sourceId, key=f"budgetbytes:{sourceId}", source="budgetbytes",
+                     sourceUrl=f"https://example.test/{sourceId}", description="A quick supper.",
+                     hiddenReason="no-nutrition", imageWidth=1200, nutrition=dict(NUTRITION))
+    payload.update(changes)
+    return payload

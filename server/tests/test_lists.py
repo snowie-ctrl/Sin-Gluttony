@@ -10,7 +10,7 @@ LOCKED = {"UserID": UID}
 A = "/api/gluttony"
 CUSTOM = {"ListID": 11, "Title": "Weeknights", "Kind": "custom", "OrderIndex": 3}
 CRAVINGS = {"ListID": 3, "Title": "Cravings", "Kind": "cravings", "OrderIndex": 0}
-VISIBLE = {"RecipeID": 7, "RemovedAt": None, "ImagePath": None}
+VISIBLE = {"RecipeID": 7, "RemovedAt": None, "HiddenReason": None, "ImagePath": None}
 TILE = {"RecipeID": 7, "Kind": "food", "Title": "Cheese Toast", "Course": "main", "Cuisine": None,
         "TotalMinutes": 10, "TimeFrom": "rule", "Difficulty": 1, "ImagePath": None, "Source": "mealdb",
         "RemovedAt": None}
@@ -141,22 +141,26 @@ def test_aListCannotGoAfterItself(userClient):
 
 
 def test_anAddedRecipeGoesOnTop(userClient, useDb):
-    conn = useDb(fetchone=[CUSTOM, VISIBLE, {"n": 2, "low": -1, "here": 0}])
+    # Three rows, one of them hidden: the app is told the shown ones, the added recipe included.
+    conn = useDb(fetchone=[CUSTOM, VISIBLE, {"n": 3, "low": -1, "here": 0, "shown": 2}])
     answer = post(userClient, "/lists/items/add", {"listId": 11, "recipeId": 7}).get_json()
     assert answer["data"] == {"listId": 11, "recipeId": 7, "count": 3}
+    counted = conn.cur.statements("SELECT COUNT(*) AS n, COALESCE")[0][0]
+    assert "SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NULL) AS shown" in counted
     assert conn.cur.statements("SELECT ListID, Title, Kind, OrderIndex FROM Lists")[0][0].endswith("FOR UPDATE")
     assert conn.cur.statements("INSERT INTO ListItems")[0][1] == (11, 7, -2)
     assert conn.commits == 1
 
 
 def test_addingTwiceKeepsOneRow(userClient, useDb):
-    conn = useDb(fetchone=[CUSTOM, VISIBLE, {"n": 2, "low": -1, "here": 1}])
+    conn = useDb(fetchone=[CUSTOM, VISIBLE, {"n": 2, "low": -1, "here": 1, "shown": 2}])
     assert post(userClient, "/lists/items/add", {"listId": 11, "recipeId": 7}).get_json()["data"]["count"] == 2
     assert not conn.cur.statements("INSERT INTO ListItems")
 
 
 def test_theTwoThousandAndFirstRecipeIsRefused(userClient, useDb):
-    useDb(fetchone=[CUSTOM, VISIBLE, {"n": 2000, "low": -1999, "here": 0}])
+    # The cap counts every row the list holds, hidden ones too.
+    useDb(fetchone=[CUSTOM, VISIBLE, {"n": 2000, "low": -1999, "here": 0, "shown": 1990}])
     answer = post(userClient, "/lists/items/add", {"listId": 11, "recipeId": 7})
     assert answer.status_code == 400 and answer.get_json()["message"] == "a list holds at most 2000 recipes"
 
@@ -194,14 +198,39 @@ def test_aMoveAfterAnItemThatHasGoneIs404(userClient, useDb):
     assert not conn.cur.statements("UPDATE ListItems") and conn.commits == 0
 
 
-def test_aListStillShowsARemovedRecipe(userClient, useDb):
-    gone = dict(TILE, RemovedAt=datetime(2026, 10, 20))
-    conn = useDb(fetchone=[CUSTOM, {"n": 1}], fetchall=[[gone], []])
+def test_aListShowsOnlyShownRecipes(userClient, useDb):
+    conn = useDb(fetchone=[CUSTOM, {"n": 1}], fetchall=[[TILE], []])
     data = userClient.get(f"{A}/lists/11/recipes?page=1&pageSize=24").get_json()["data"]
     assert data["total"] == 1 and data["list"] == {"id": 11, "title": "Weeknights", "kind": "custom", "count": 1}
-    assert data["recipes"][0]["removed"] is True and data["recipes"][0]["craving"] is False
+    assert data["recipes"][0]["removed"] is False and data["recipes"][0]["craving"] is False
     sql, params = conn.cur.statements("SELECT r.RecipeID")[0]
-    assert "RemovedAt IS NULL" not in sql and "ORDER BY li.OrderIndex" in sql and params == (11, 24, 0)
+    assert "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in sql and "ORDER BY li.OrderIndex" in sql
+    assert params == (11, 24, 0)
+    count, countParams = conn.cur.statements("SELECT COUNT(*) AS n FROM ListItems")[0]
+    assert "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in count and countParams == (11,)
+
+
+def test_theListsCountOnlyShownRecipes(userClient, useDb):
+    conn = useDb(fetchall=[[dict(CRAVINGS, Count=1)]])
+    userClient.get(f"{A}/lists")
+    sql = conn.cur.executed[0][0]
+    assert "LEFT JOIN Recipes r ON r.RecipeID = li.RecipeID AND r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in sql
+    assert "COUNT(r.RecipeID) AS Count" in sql
+
+
+@pytest.mark.parametrize("gone", [{"HiddenReason": "no-time"}, {"RemovedAt": datetime(2026, 10, 20)}])
+def test_anUnshownRecipeIsNotAddedToAList(userClient, useDb, gone):
+    conn = useDb(fetchone=[CUSTOM, dict(VISIBLE, **gone)])
+    answer = post(userClient, "/lists/items/add", {"listId": 11, "recipeId": 7})
+    assert answer.status_code == 404 and answer.get_json()["message"] == "no such recipe"
+    assert not conn.cur.statements("INSERT") and conn.commits == 0
+
+
+def test_anUnshownRecipeCanStillBeTakenOffAList(userClient, useDb):
+    # The remove asks nothing about the recipe, so a hidden one never sticks to a list.
+    conn = useDb(fetchone=[CUSTOM, {"n": 0}])
+    assert post(userClient, "/lists/items/remove", {"listId": 11, "recipeId": 7}).status_code == 200
+    assert not conn.cur.statements("SELECT RecipeID, RemovedAt")
 
 
 def test_aListsPagesAreChecked(userClient):

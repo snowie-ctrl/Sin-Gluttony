@@ -1,3 +1,4 @@
+import pytest
 import samples
 
 
@@ -31,7 +32,8 @@ def test_resendingReplacesChildrenAndClearsRemoved(client, useDb):
     post(client, "/recipes/batch", {"recipes": [changed]})
     sqls = [sql for sql, _ in conn.cur.executed]
     assert "RemovedAt = NULL" in sqls[0]
-    for table in ("RecipeIngredients", "RecipeSteps", "RecipeTags", "RecipeFacts", "RecipeContains", "RecipeDiets"):
+    for table in ("RecipeIngredients", "RecipeSteps", "RecipeTags", "RecipeFacts", "RecipeContains", "RecipeDiets",
+                  "RecipeNutrition"):
         delete = sqls.index(f"DELETE FROM {table} WHERE RecipeID = %s")
         inserts = [n for n, sql in enumerate(sqls) if sql.startswith(f"INSERT INTO {table} ")]
         assert all(delete < n for n in inserts), table
@@ -74,14 +76,18 @@ def test_stateListsEveryShownRecipesHash(client, useDb):
 
 
 def test_ingredientsGivesTheWholeTable(client, useDb):
-    useDb(fetchall=[[{"IngredientID": 1, "Name": "cheese", "ParentID": None, "Category": "dairy", "Origin": "seed"},
-                     {"IngredientID": 2, "Name": "cheddar", "ParentID": 1, "Category": None, "Origin": "owner"}],
+    useDb(fetchall=[[{"IngredientID": 1, "Name": "cheese", "ParentID": None, "Category": "dairy", "Origin": "seed",
+                      "FdcID": 1001, "FdcFrom": "curated"},
+                     {"IngredientID": 2, "Name": "cheddar", "ParentID": 1, "Category": None, "Origin": "owner",
+                      "FdcID": None, "FdcFrom": "owner"}],
                     [{"IngredientID": 1, "Item": "dairy"}],
                     [{"Alias": "cheese", "IngredientID": 1}, {"Alias": "cheddar", "IngredientID": 2}]])
     answer = client.get("/api/gluttony-admin/ingredients").get_json()
     assert answer["ingredients"] == [
-        {"id": 1, "name": "cheese", "parentId": None, "category": "dairy", "origin": "seed", "contains": ["dairy"]},
-        {"id": 2, "name": "cheddar", "parentId": 1, "category": None, "origin": "owner", "contains": []}]
+        {"id": 1, "name": "cheese", "parentId": None, "category": "dairy", "origin": "seed", "contains": ["dairy"],
+         "fdcId": 1001, "fdcFrom": "curated"},
+        {"id": 2, "name": "cheddar", "parentId": 1, "category": None, "origin": "owner", "contains": [],
+         "fdcId": None, "fdcFrom": "owner"}]
     assert answer["aliases"] == [{"alias": "cheese", "ingredientId": 1}, {"alias": "cheddar", "ingredientId": 2}]
 
 
@@ -150,11 +156,18 @@ def test_searchFindsIngredientsByName(client, useDb):
 
 
 def test_statsCountsByKindAndSource(client, useDb):
-    useDb(fetchall=[[{"Source": "mealdb", "Kind": "food", "n": 790}]],
-          fetchone=[{"total": 790, "removed": 3, "complete": 600}])
+    conn = useDb(fetchall=[[{"Source": "mealdb", "Kind": "food", "n": 790}],
+                           [{"HiddenReason": "no-photo", "n": 4}, {"HiddenReason": "no-time", "n": 2}]],
+                 fetchone=[{"total": 790, "removed": 3, "complete": 600, "hidden": 6}])
     assert client.get("/api/gluttony-admin/stats").get_json() == {
-        "status": "ok", "total": 790, "removed": 3, "complete": 600,
-        "bySource": [{"source": "mealdb", "kind": "food", "count": 790}]}
+        "status": "ok", "total": 790, "removed": 3, "complete": 600, "hidden": 6,
+        "bySource": [{"source": "mealdb", "kind": "food", "count": 790}],
+        "hiddenByReason": [{"reason": "no-photo", "count": 4}, {"reason": "no-time", "count": 2}]}
+    sqls = [sql for sql, _ in conn.cur.executed]
+    assert "HiddenReason IS NULL" in sqls[0]
+    assert "SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NULL) AS total" in sqls[1]
+    assert "SUM(r.RemovedAt IS NULL AND r.HiddenReason IS NOT NULL) AS hidden" in sqls[1]
+    assert "GROUP BY HiddenReason" in sqls[2]
 
 
 def test_tagsThatDifferOnlyByAccentOrCaseStoreOnce(client, useDb):
@@ -170,3 +183,52 @@ def test_aBatchThatIsAJsonListIsRefused(client, useDb):
     useDb()
     assert post(client, "/recipes/batch", [samples.recipe()]).status_code == 400
 
+
+
+def test_aBatchStoresASiteRecipeWithItsNutrition(client, useDb):
+    conn = useDb(lastrowids={"Recipes": [41]})
+    answer = post(client, "/recipes/batch", {"recipes": [samples.siteRecipe()]}).get_json()
+    assert answer["failed"] == [] and answer["stored"] == ["budgetbytes:" + "a" * 20]
+    insert = conn.cur.statements("INSERT INTO RecipeNutrition")
+    assert [p for _, p in insert] == [(41, 420, 18.5, 40, 20, 6, 4, 7, 650, "estimate", 1)]
+    assert "Calories, ProteinG, CarbsG, FatG, SatFatG, FibreG, SugarG, SodiumMg, NutritionFrom, Flagged" in insert[0][0]
+    recipeInsert = conn.cur.statements("INSERT INTO Recipes")[0]
+    assert "no-nutrition" in recipeInsert[1] and 1200 in recipeInsert[1] and "A quick supper." in recipeInsert[1]
+    assert conn.cur.statements("DELETE FROM RecipeNutrition") == \
+        [("DELETE FROM RecipeNutrition WHERE RecipeID = %s", (41,))]
+
+
+def test_aRecipeWithNoNutritionInsertsNoRow(client, useDb):
+    conn = useDb(lastrowids={"Recipes": [41]})
+    post(client, "/recipes/batch", {"recipes": [samples.siteRecipe(nutrition=None)]})
+    assert conn.cur.statements("INSERT INTO RecipeNutrition") == []
+    assert len(conn.cur.statements("DELETE FROM RecipeNutrition")) == 1
+
+
+FDC_SQL = ("UPDATE Ingredients SET FdcID = %s, FdcFrom = %s WHERE IngredientID = %s "
+           "AND (FdcFrom IS NULL OR FdcFrom <> 'owner' OR %s = 'owner')")
+
+
+def test_fdcMappingsAreOneGuardedUpdateEachAndOneCommit(client, useDb):
+    conn = useDb(rowcounts=[1, 0, 1])
+    answer = post(client, "/ingredients/fdc", {"mappings": [
+        {"ingredientId": 1, "fdcId": 11, "from": "curated"},
+        {"ingredientId": 2, "fdcId": 12, "from": "rule"},
+        {"ingredientId": 3, "fdcId": None, "from": "owner"}]})
+    assert answer.status_code == 200 and answer.get_json() == {"status": "ok", "updated": 2}
+    assert conn.cur.statements("UPDATE Ingredients") == [
+        (FDC_SQL, (11, "curated", 1, "curated")), (FDC_SQL, (12, "rule", 2, "rule")),
+        (FDC_SQL, (None, "owner", 3, "owner"))]
+    assert conn.commits == 1
+
+
+@pytest.mark.parametrize("data", [
+    {"mappings": "x"}, {"mappings": []}, {"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "rule"}] * 5001},
+    {"mappings": [{"ingredientId": "1", "fdcId": 5, "from": "rule"}]},
+    {"mappings": [{"ingredientId": 1, "fdcId": 5.5, "from": "rule"}]},
+    {"mappings": [{"ingredientId": 1, "fdcId": 5, "from": "guess"}]},
+    {"mappings": [{"fdcId": 5, "from": "rule"}]}])
+def test_fdcRefusesBadMappings(client, useDb, data):
+    conn = useDb()
+    assert post(client, "/ingredients/fdc", data).status_code == 400
+    assert conn.cur.statements("UPDATE") == []

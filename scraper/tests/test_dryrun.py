@@ -19,11 +19,11 @@ URL = "https://www.example-recipes.test/made-up-lemon-test-chicken/"
 
 def fakeWorld(monkeypatch, crawled):
     monkeypatch.setattr(sites, "loadSites", lambda rules: [SITE])
-    def crawl(siteList, pages, log=print, priority=frozenset(), now=None):
+    def crawl(siteList, pages, log=print, priority=frozenset(), now=None, only=None, stopRequested=None):
         crawled.append(pages)
         return {"testsite": {"ok": True, "stopReason": None, "listed": 1, "fetched": 1}}
     monkeypatch.setattr(sites, "crawl", crawl)
-    def download(url, dest, timeout=30):
+    def download(url, dest, timeout=30, refusals=False):
         dest.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (1600, 1000), (200, 100, 50)).save(dest, "PNG")
         return True
@@ -85,3 +85,51 @@ def test_aDryRunWithNoFdcFoodsWarnsAndHidesRecipesWithoutSiteNutrition(monkeypat
     assert queue["queue"] and all(row["candidates"] == [] for row in queue["queue"]) and queue["generatedAt"].endswith("+00:00")
     assert json.loads((folder / "fdc-queue.json").read_text(encoding="utf-8")) == queue
     assert "## Nutrition" in (folder / "summary.md").read_text(encoding="utf-8")
+
+
+def test_aDryRunWritesSiteHealthAndSavesLastRate(monkeypatch):
+    import siteHealth
+    fakeWorld(monkeypatch, [])
+    store_ = {}
+    real = siteHealth.summarise
+    def summarise(*args, **kwargs):
+        rows = real(*args, **kwargs)
+        args[4]["testsite"]["lastRate"] = 0.75     # as if the pass had been judged
+        store_["stops"] = args[6]
+        return rows
+    monkeypatch.setattr(siteHealth, "summarise", summarise)
+    dryrun.run(pages=5, log=lambda *a: None, today=date(2026, 11, 14))
+    stored = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))
+    assert stored["mode"] == "dryrun" and stored["generatedAt"].endswith("+00:00")
+    row = stored["sites"][0]
+    assert row["site"] == "testsite" and row["recipes"] == 1 and row["shown"] == 1
+    assert row["alarm"] == {"red": False, "why": None} and row["pictureStop"] is None
+    assert store_["stops"] == {}
+    assert json.loads(config.SITE_STATE_FILE.read_text(encoding="utf-8"))["testsite"]["lastRate"] == 0.75
+
+
+def test_aDryRunCanReadPlutussIngredientTableWithoutWriting(monkeypatch):
+    import adminApi
+    fakeWorld(monkeypatch, [])
+    asked = []
+    monkeypatch.setattr(adminApi, "get", lambda path, timeout=60: asked.append(path) or {
+        "ingredients": [{"id": 7, "name": "chicken", "parentId": None, "category": "poultry", "contains": [],
+                         "fdcId": None, "fdcFrom": None}],
+        "aliases": [{"alias": "chicken", "ingredientId": 7}]})
+    monkeypatch.setattr(adminApi, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("wrote to plutus")))
+    folder = dryrun.run(pages=5, log=lambda *a: None, today=date(2026, 11, 14), serverTable=True)
+    assert asked == ["/ingredients"] and (folder / "summary.json").exists()
+
+
+def test_aDryRunWithPagesNoneCrawlsEveryPage(monkeypatch):
+    crawled = []
+    fakeWorld(monkeypatch, crawled)
+    dryrun.run(pages=None, log=lambda *a: None, today=date(2026, 11, 14))
+    assert crawled == [None]
+
+
+def test_aDryRunGivesCrawledSitesALastPassAt(monkeypatch):
+    fakeWorld(monkeypatch, [])
+    dryrun.run(pages=5, log=lambda *a: None, today=date(2026, 11, 14))
+    row = json.loads(config.SITES_FILE.read_text(encoding="utf-8"))["sites"][0]
+    assert row["lastPassAt"] and row["lastPassAt"].endswith("+00:00")

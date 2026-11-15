@@ -45,3 +45,16 @@ def test_theListingRoundTrips():
     pagecache.saveListing("testsite", entries)
     assert pagecache.listing("testsite") == entries
     assert pagecache.listing("othersite") == []
+
+
+def test_dropForgetsThePageAndItsSidecarSoItIsDueAgain():
+    other = "https://www.example-recipes.test/made-up-other/"
+    pagecache.save("testsite", URL, PAGE, None)
+    pagecache.save("testsite", other, "<p>", None)
+    assert pagecache.urlsBySourceId("testsite") == {pagecache.sourceIdFor(URL): URL,
+                                                    pagecache.sourceIdFor(other): other}
+    pagecache.drop("testsite", URL)
+    pagecache.drop("testsite", "https://www.example-recipes.test/never-cached/")     # nothing there: no error
+    assert pagecache.meta("testsite", URL) is None and pagecache.load("testsite", URL) is None
+    assert [meta["url"] for meta, _ in pagecache.pages("testsite")] == [other]
+    assert pagecache.urlsBySourceId("testsite") == {pagecache.sourceIdFor(other): other}

@@ -113,3 +113,34 @@ def test_starsAndNotesKeepWhenTheyChangedEvenWhenCleared():
         assert "UpdatedAt DATETIME(3) NOT NULL," in block(table), table
         assert "ON UPDATE" not in block(table), table
         assert "DEFAULT" not in block(table).split("UpdatedAt", 1)[1].split(",", 1)[0], table
+
+
+CATALOG = (pathlib.Path(__file__).resolve().parent.parent / "schema-catalog.sql").read_text(encoding="utf-8")
+
+
+def _catalogStatements():
+    code = "\n".join(line for line in CATALOG.splitlines() if not line.strip().startswith("--"))
+    return [s.strip() for s in code.split(";") if s.strip()]
+
+
+def test_catalogMigrationAddsTheGateColumnsAndNutrition():
+    alter = next(s for s in _catalogStatements() if s.startswith("ALTER TABLE Recipes"))
+    for column in ("Description TEXT NULL", "HiddenReason VARCHAR(20) NULL", "ImageWidth INT NULL"):
+        assert f"ADD COLUMN {column}" in alter
+    nutrition = re.search(r"CREATE TABLE RecipeNutrition \((.*?)\n\)", CATALOG, re.S).group(1)
+    assert "REFERENCES Recipes (RecipeID) ON DELETE CASCADE" in nutrition
+    ingredients = next(s for s in _catalogStatements() if s.startswith("ALTER TABLE Ingredients"))
+    assert "ADD COLUMN FdcID INT NULL" in ingredients and "ADD COLUMN FdcFrom VARCHAR(10) NULL" in ingredients
+
+
+def test_catalogMigrationUsesTheHouseEngineAndHasNoSetEnumOrJson():
+    bodies = re.findall(r"CREATE TABLE \w+ \((.*?)\n\)(.*?);", CATALOG, re.S)
+    assert len(bodies) == 1
+    assert bodies[0][1].strip() == "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    code = "\n".join(line for line in CATALOG.splitlines() if not line.startswith("--"))
+    assert not re.search(r"\b(SET|ENUM)\s*\(|\bJSON\b", code)
+
+
+def test_catalogMigrationTouchesNoUserTable():
+    for statement in _catalogStatements():
+        assert not re.search(r"\b(Users|Lists|ListItems|Devoured|Ratings|Notes)\b", statement), statement

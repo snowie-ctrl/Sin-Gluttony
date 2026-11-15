@@ -1,7 +1,8 @@
 """
 What a person keeps, as the read API and the account routes both show it: the ♥ ✓ ★ flags on tiles, the `mine`
-block on a recipe, and whether a recipe part 1 has hidden (RemovedAt) is still theirs to open. SQL only, on the
-caller's cursor; every query names the user, so nothing of one person's ever reaches another.
+block on a recipe, and whether a recipe may be seen at all. A recipe removed or hidden by the gate is seen by nobody,
+not even someone who keeps it (spec section 6); their rows stay, so it comes back if it is listed again. SQL only, on
+the caller's cursor; every query names the user, so nothing of one person's ever reaches another.
 """
 from . import gluttonyRules as rules
 
@@ -13,11 +14,6 @@ FLAGS_SQL = ("SELECT r.RecipeID, "
              "(SELECT COUNT(*) FROM Devoured d WHERE d.UserID = %s AND d.RecipeID = r.RecipeID) AS DevouredCount, "
              "(SELECT t.Stars FROM Ratings t WHERE t.UserID = %s AND t.RecipeID = r.RecipeID) AS Stars "
              "FROM Recipes r WHERE r.RecipeID IN ({marks})")
-
-KEPT_SQL = ("SELECT EXISTS (SELECT 1 FROM ListItems li JOIN Lists l ON l.ListID = li.ListID "
-            "WHERE l.UserID = %s AND li.RecipeID = %s) "
-            "OR EXISTS (SELECT 1 FROM Devoured WHERE UserID = %s AND RecipeID = %s) "
-            "OR EXISTS (SELECT 1 FROM Notes WHERE UserID = %s AND RecipeID = %s AND Text <> '') AS Kept")
 
 
 def attachTileFlags(cur, uid, tiles):
@@ -36,24 +32,13 @@ def attachTileFlags(cur, uid, tiles):
     return tiles
 
 
-def keptBy(cur, uid, recipeId):
-    """Whether this person keeps the recipe: in one of their lists (Cravings included), devoured, or noted. A
-    rating alone does not keep a removed recipe (spec §3), nor does a deleted note (a row with no text)."""
-    cur.execute(KEPT_SQL, (uid, recipeId, uid, recipeId, uid, recipeId))
-    return bool((cur.fetchone() or {}).get("Kept"))
-
-
 def visibleRecipe(cur, uid, recipeId):
-    """The recipe's row ({RecipeID, RemovedAt, ImagePath}) when this person may see it, or None. A recipe still in
-    the catalog is anyone's; one part 1 removed answers only to someone who keeps it, and everyone else is told it
-    does not exist, never that it is someone else's."""
-    cur.execute("SELECT RecipeID, RemovedAt, ImagePath FROM Recipes WHERE RecipeID = %s", (recipeId,))
+    """The recipe's row ({RecipeID, RemovedAt, HiddenReason, ImagePath}) when it is shown, or None. A removed or
+    hidden recipe is None for everyone, whoever keeps it, and looks the same as one that never existed. (`uid` stays
+    so every caller still says whose request it is.)"""
+    cur.execute("SELECT RecipeID, RemovedAt, HiddenReason, ImagePath FROM Recipes WHERE RecipeID = %s", (recipeId,))
     row = cur.fetchone()
-    if not row:
-        return None
-    if row.get("RemovedAt") is not None and not keptBy(cur, uid, recipeId):
-        return None
-    return row
+    return row if row and rules.isShown(row) else None
 
 
 def mineOf(cur, uid, recipeId):
@@ -75,7 +60,8 @@ def mineOf(cur, uid, recipeId):
 
 
 def savedTile(row):
-    """A tile from one of the person's own lists or history, which may hold a recipe part 1 has since removed."""
+    """A tile from one of the person's own lists or history. Only shown recipes reach one, so `removed` is always
+    false; it stays so older app builds keep working."""
     t = rules.tile(row)
-    t["removed"] = row.get("RemovedAt") is not None
+    t["removed"] = False
     return t

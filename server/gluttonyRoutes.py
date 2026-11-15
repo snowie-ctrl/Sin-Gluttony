@@ -100,13 +100,14 @@ def home():
                     "AND d.MadeOn > %s) "
                     f"ORDER BY {order} LIMIT %s", [*params, uid, cutoff, *orderParams, rules.HOME_PICKS + 1])
         tiles = [rules.tile(r) for r in cur.fetchall()]
-        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt FROM ListItems li "
+        cur.execute(f"SELECT {rules.TILE_COLUMNS} FROM ListItems li "
                     "JOIN Lists l ON l.ListID = li.ListID JOIN Recipes r ON r.RecipeID = li.RecipeID "
-                    "WHERE l.UserID = %s AND l.Kind = 'cravings' ORDER BY li.OrderIndex, li.AddedAt DESC LIMIT %s",
-                    (uid, rules.HOME_ROW))
+                    f"WHERE l.UserID = %s AND l.Kind = 'cravings' AND {rules.SHOWN} "
+                    "ORDER BY li.OrderIndex, li.AddedAt DESC LIMIT %s", (uid, rules.HOME_ROW))
         cravings = [kept.savedTile(r) for r in cur.fetchall()]
-        cur.execute(f"SELECT {rules.TILE_COLUMNS}, r.RemovedAt, MAX(d.MadeOn) AS LastMade FROM Devoured d "
-                    "JOIN Recipes r ON r.RecipeID = d.RecipeID WHERE d.UserID = %s GROUP BY r.RecipeID "
+        cur.execute(f"SELECT {rules.TILE_COLUMNS}, MAX(d.MadeOn) AS LastMade FROM Devoured d "
+                    f"JOIN Recipes r ON r.RecipeID = d.RecipeID WHERE d.UserID = %s AND {rules.SHOWN} "
+                    "GROUP BY r.RecipeID "
                     "ORDER BY LastMade DESC, MAX(d.DevouredID) DESC LIMIT %s", (uid, rules.HOME_ROW))
         again = [kept.savedTile(r) for r in cur.fetchall()]
         kept.attachTileFlags(cur, uid, tiles + cravings + again)
@@ -120,8 +121,8 @@ def recipe(recipeId):
     with database() as (conn, cur):
         cur.execute(f"SELECT r.*, fa.Complete {FROM_RECIPES} WHERE r.RecipeID = %s", (recipeId,))
         row = cur.fetchone()
-        # A recipe part 1 removed answers only to someone who keeps it; anyone else hears it does not exist.
-        if not row or (row.get("RemovedAt") is not None and not kept.keptBy(cur, uid, recipeId)):
+        # A removed or hidden recipe does not exist for anyone, not even someone who keeps it (spec section 6).
+        if not row or not rules.isShown(row):
             return fail("no such recipe", 404)
         cur.execute("SELECT ri.Position, ri.Line, ri.Quantity, ri.QuantityMax, ri.Unit, ri.IngredientID, i.Name, "
                     "ri.Note, ri.Optional, ri.GroupHeading FROM RecipeIngredients ri "
@@ -137,11 +138,15 @@ def recipe(recipeId):
         contains = cur.fetchall()
         cur.execute("SELECT Diet FROM RecipeDiets WHERE RecipeID = %s ORDER BY Diet", (recipeId,))
         diets = cur.fetchall()
+        columns = ", ".join(column for _, column in rules.NUTRIENTS)
+        cur.execute(f"SELECT {columns}, NutritionFrom, Flagged FROM RecipeNutrition WHERE RecipeID = %s",
+                    (recipeId,))
+        nutrition = cur.fetchone()
         cur.execute("SELECT RecipeID, Title, Source, ImagePath FROM Recipes WHERE DishKey = %s AND RecipeID <> %s "
-                    "AND RemovedAt IS NULL ORDER BY Title LIMIT 20", (row["DishKey"], recipeId))
+                    f"AND {rules.SHOWN_PLAIN} ORDER BY Title LIMIT 20", (row["DishKey"], recipeId))
         versions = cur.fetchall()
-        detail = rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions)
-        detail["removed"] = row.get("RemovedAt") is not None
+        detail = rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions, nutrition)
+        detail["removed"] = False           # only shown recipes get here; kept for older app builds
         detail["mine"] = kept.mineOf(cur, uid, recipeId)
         kept.attachTileFlags(cur, uid, detail["versions"])
     return ok(detail)
@@ -149,7 +154,7 @@ def recipe(recipeId):
 
 @gluttonyBP.route("/filters", methods=["GET"])
 def filters():
-    shown = "FROM Recipes WHERE RemovedAt IS NULL"
+    shown = f"FROM Recipes WHERE {rules.SHOWN_PLAIN}"
     with database() as (conn, cur):
         counts = {}
         for name, column in (("kinds", "Kind"), ("courses", "Course"), ("cuisines", "Cuisine"),
@@ -158,12 +163,12 @@ def filters():
                         f"GROUP BY {column} ORDER BY n DESC")
             counts[name] = [{"value": r["v"], "count": r["n"]} for r in cur.fetchall()]
         cur.execute("SELECT t.Type, t.Tag AS v, COUNT(*) AS n FROM RecipeTags t JOIN Recipes r ON r.RecipeID = t.RecipeID "
-                    "WHERE r.RemovedAt IS NULL AND t.Type IN ('flavour', 'occasion') GROUP BY t.Type, t.Tag ORDER BY n DESC")
+                    f"WHERE {rules.SHOWN} AND t.Type IN ('flavour', 'occasion') GROUP BY t.Type, t.Tag ORDER BY n DESC")
         tags = cur.fetchall()
         counts["flavours"] = [{"value": r["v"], "count": r["n"]} for r in tags if r["Type"] == "flavour"]
         counts["occasions"] = [{"value": r["v"], "count": r["n"]} for r in tags if r["Type"] == "occasion"]
         cur.execute("SELECT d.Diet AS v, COUNT(*) AS n FROM RecipeDiets d JOIN Recipes r ON r.RecipeID = d.RecipeID "
-                    "WHERE r.RemovedAt IS NULL GROUP BY d.Diet ORDER BY n DESC")
+                    f"WHERE {rules.SHOWN} GROUP BY d.Diet ORDER BY n DESC")
         counts["diets"] = [{"value": r["v"], "count": r["n"]} for r in cur.fetchall()]
     counts["avoid"] = list(rules.CONTAINS_ITEMS)
     return ok(counts)

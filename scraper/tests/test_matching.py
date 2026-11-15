@@ -138,3 +138,11 @@ def test_matchOptionsReadsEveryOptionALineOffers(name, expected):
 ])
 def test_anUnknownLineIsNamedByWhatCuratingWouldFix(name, unknown):
     assert OPTIONS.matchOptions(name) == ([], unknown)
+
+
+def test_fromServerCopiesTheFdcColumns():
+    payload = {"ingredients": [{"id": 1, "name": "egg", "fdcId": 900003, "fdcFrom": "owner"},
+                               {"id": 2, "name": "salt"}], "aliases": []}
+    t = matching.IngredientTable.fromServer(payload, PREP)
+    assert (t.rows[1]["fdcId"], t.rows[1]["fdcFrom"]) == (900003, "owner")
+    assert (t.rows[2]["fdcId"], t.rows[2]["fdcFrom"]) == (None, None)

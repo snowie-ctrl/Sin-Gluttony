@@ -64,7 +64,8 @@ class IngredientTable:
         rows, byName = {}, {}
         for n, entry in enumerate(seed, start=1):
             rows[n] = {"id": n, "name": entry["name"], "parentId": None, "category": entry.get("category"),
-                       "contains": set(entry.get("contains", []))}
+                       "contains": set(entry.get("contains", [])),
+                       "fdcId": None, "fdcFrom": None}
             byName[entry["name"]] = n
         for n, entry in enumerate(seed, start=1):
             rows[n]["parentId"] = byName.get(entry.get("parent"))
@@ -79,7 +80,8 @@ class IngredientTable:
     @classmethod
     def fromServer(cls, payload, prepWords, modifierWords=()):
         rows = {r["id"]: {"id": r["id"], "name": r["name"], "parentId": r.get("parentId"),
-                          "category": r.get("category"), "contains": set(r.get("contains", []))}
+                          "category": r.get("category"), "contains": set(r.get("contains", [])),
+                          "fdcId": r.get("fdcId"), "fdcFrom": r.get("fdcFrom")}
                 for r in payload["ingredients"]}
         aliases = {a["alias"]: a["ingredientId"] for a in payload["aliases"] if a["ingredientId"] in rows}
         return cls(rows, aliases, prepWords, modifierWords)

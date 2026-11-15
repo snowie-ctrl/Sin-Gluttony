@@ -2,8 +2,12 @@
 The Gluttony scraper's loop. It waits for Surrogate's requests (Run now,
 Re-tag) and, with SCHEDULE=on, runs the weekly pass. `--once full|retag` runs
 one pass and exits; the dry run and manual checks use it, and `--no-images`
-skips pictures when building the seed on a dev machine.
-`--dry-run [--pages N] [--no-fetch]` is milestone 1's dry run over the recipe sites; it never publishes.
+skips pictures when building the seed on a dev machine (never for publishing: every
+recipe-site recipe would be hidden as no-photo).
+`--dry-run [--pages N] [--no-fetch] [--server-table]` is the dry run over the recipe sites; it never
+publishes. `--pages 0` means every page, and `--server-table` reads plutus's ingredient table (read only):
+together they are M4's full trial. A run request naming a site (Surrogate's crawl of one site, CATALOG=new)
+is a full pass of that site alone.
 """
 import argparse
 import sys
@@ -34,22 +38,37 @@ def acquireLock():
 
 
 def chooseMode(requests, now, state):
-    kinds = {r.get("kind") for r in requests}
-    if "run" in kinds:
-        return "full"              # a full pass covers a re-tag asked for at the same time
-    if "retag" in kinds:
-        return "retag"
+    """
+    (mode, site): mode is "full", "retag" or None; site is the one recipe site a run request named, or None for
+    all. Run requests naming different sites, or one naming none, make a full pass of every site.
+    """
+    runs = [r for r in requests if r.get("kind") == "run"]
+    if runs:
+        named = {r.get("site") for r in runs}
+        return "full", (named.pop() if len(named) == 1 else None)   # a full pass covers a re-tag asked for too
+    if any(r.get("kind") == "retag" for r in requests):
+        return "retag", None
     if config.SCHEDULE == "on" and schedule.isDue(now, state):
-        return "full"
-    return None
+        return "full", None
+    return None, None
 
 
-def runOnce(mode, log=print, images=True):
+def handle(requests, now):
+    """One turn of the loop: the pass the requests (or the schedule) ask for, if any; returns its mode."""
+    state = store.readJson(config.STATE_FILE, {}) or {}
+    mode, site = chooseMode(requests, now, state)
+    if mode:
+        runOnce(mode, site=site)
+    return mode
+
+
+def runOnce(mode, log=print, images=True, site=None):
     config.STOP_FILE.unlink(missing_ok=True)
-    report = pipeline.runPass(mode, log, stopRequested=lambda: config.STOP_FILE.exists(), images=images)
+    report = pipeline.runPass(mode, log, stopRequested=lambda: config.STOP_FILE.exists(), images=images, site=site)
     config.STOP_FILE.unlink(missing_ok=True)
     state = store.readJson(config.STATE_FILE, {}) or {}
-    if mode == "full":
+    onlyOneSite = site is not None and config.CATALOG == "new"     # (CATALOG=old ignores site: a full pass)
+    if mode == "full" and not onlyOneSite:      # a pass of one recipe site does not stand in for the weekly pass
         if report["outcome"] == "failed":
             state["failedAt"] = report["endedAt"]
         else:
@@ -64,28 +83,29 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Gluttony's recipe scraper")
     parser.add_argument("--once", choices=("full", "retag"), help="run one pass and exit")
-    parser.add_argument("--no-images", action="store_true", help="skip pictures (building the seed on a dev machine)")
+    parser.add_argument("--no-images", action="store_true",
+                        help="skip pictures (building the seed on a dev machine); never for publishing: with "
+                             "PUBLISH=on every recipe-site recipe would be hidden as no-photo")
     parser.add_argument("--dry-run", action="store_true",
                         help="crawl the recipe sites, run the gate and write reports/dryrun-<date>/; never publishes")
-    parser.add_argument("--pages", type=int, default=200, help="with --dry-run: recipe pages per site")
+    parser.add_argument("--pages", type=int, default=200, help="with --dry-run: recipe pages per site (0: all)")
     parser.add_argument("--no-fetch", action="store_true",
                         help="with --dry-run: report over the cached pages without asking the sites")
+    parser.add_argument("--server-table", action="store_true",
+                        help="with --dry-run: read plutus's ingredient table (read only) instead of the repo's seed")
     args = parser.parse_args(argv)
     lock = acquireLock()  # noqa: F841 -- held for the life of the process
     progress.idle()
     if args.dry_run:
         import dryrun   # here, not at the top: only the dry run needs recipe-scrapers
-        dryrun.run(pages=args.pages, crawl=not args.no_fetch)
+        dryrun.run(pages=args.pages or None, crawl=not args.no_fetch, serverTable=args.server_table)
         return 0
     if args.once:
         return 0 if runOnce(args.once, images=not args.no_images)["outcome"] == "ok" else 1
     try:
         while True:
             requests = controlRequests.take()
-            state = store.readJson(config.STATE_FILE, {}) or {}
-            mode = chooseMode(requests, datetime.now(timezone.utc), state)
-            if mode:
-                runOnce(mode)
+            mode = handle(requests, datetime.now(timezone.utc))
             if requests:
                 controlRequests.done()
             if not mode:

@@ -31,10 +31,10 @@ def main(argv=None):
     parser.add_argument("--pattern", help="a recipeUrl candidate to try on that sitemap")
     args = parser.parse_args(argv)
     robots = sites.robotsFor({"site": "discovery", "host": args.host})
-    named = robots.site_maps() or []
+    named = robots.sitemaps
     print(f"robots.txt names {len(named) or 'no'} sitemap(s):", *named, sep="\n  ")
-    print("a generic crawler may fetch /:", robots.can_fetch(sites.AGENT, f"https://{args.host}/"))
-    print("Crawl-delay for us:", robots.crawl_delay(sites.AGENT))
+    print("a generic crawler may fetch /:", robots.allows(sites.AGENT, f"https://{args.host}/"))
+    print("Crawl-delay for us:", robots.crawlDelay(sites.AGENT))
     target = args.sitemap or (named[0] if named else None)
     if not target:
         print("no sitemap to read: try --sitemap https://<host>/sitemap_index.xml or /sitemap.xml")
@@ -48,7 +48,7 @@ def main(argv=None):
     pattern = re.compile(args.pattern)
     taken = [entry for entry in entries if pattern.match(entry[0])]
     left = [entry for entry in entries if not pattern.match(entry[0])]
-    allowed = sum(1 for loc, _ in taken if robots.can_fetch(sites.AGENT, loc))
+    allowed = sum(1 for loc, _ in taken if robots.allows(sites.AGENT, loc))
     print(f"the pattern takes {len(taken)}, robots.txt allows {allowed} of them")
     print("taken (first 15):")
     show(taken, 15)

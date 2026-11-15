@@ -6,6 +6,7 @@ a fresh file instead of being lost, and done() clears the claim once the pass
 it asked for has ended.
 
     {"kind": "run"}      a full pass
+    {"kind": "run", "site": s}   a full pass of one recipe site (CATALOG=new)
     {"kind": "retag"}    stages after fetch, over the raw copies
 """
 import time
@@ -16,9 +17,12 @@ import requestFiles
 KINDS = ("run", "retag")
 
 
-def ask(kind):
+def ask(kind, site=None):
     path = config.CONTROL_REQUESTS_FILE
-    requestFiles.write(requestFiles.read(path) + [{"kind": kind, "at": time.time()}], path)
+    request = {"kind": kind, "at": time.time()}
+    if site is not None:
+        request["site"] = site
+    requestFiles.write(requestFiles.read(path) + [request], path)
 
 
 def pending():

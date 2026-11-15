@@ -7,6 +7,8 @@
    "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "mealdb",
    "sourceUrl": "https://www.themealdb.com/meal/0", "licence": "TheMealDB",
    "credit": "Recipe data and imagery: TheMealDB",
+   "nutrition": {"calories": 642.0, "proteinG": 48.5, "carbsG": 9.2, "fatG": 34.8, "satFatG": 11.6, "fibreG": 1.4,
+                 "sugarG": 4.1, "sodiumMg": 1104.0, "from": "source", "flagged": false},
    "ingredients": [
     {"line": "1.5 kg chicken thighs", "quantity": 1.5, "quantityMax": null, "unit": "kg", "ingredientId": 101, "name": "chicken thigh", "note": null, "optional": false, "group": null},
     {"line": "750 ml red wine", "quantity": 750, "quantityMax": null, "unit": "ml", "ingredientId": 102, "name": "red wine", "note": null, "optional": false, "group": null},
@@ -19,7 +21,7 @@
     {"text": "Pour in the wine, bring to a simmer, then cover and cook gently for 1 hour.", "group": null},
     {"text": "Glaze the onions in butter and stir them through.", "group": null}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": [], "technique": []},
    "facts": {"complete": false, "contains": ["alcohol", "meat", "poultry"], "diets": []},
    "versions": [{"id": 2, "title": "Coq au Vin (slow cooker)", "source": "wikibooks", "hasImage": false}]},
   {"id": 2, "kind": "food", "title": "Coq au Vin (slow cooker)", "course": "main", "cuisine": "French",
@@ -37,7 +39,7 @@
     {"text": "Mix the sauce.", "group": "For the sauce"},
     {"text": "Cook on low for 5 ½ hours at about 90°C.", "group": "For the chicken"}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": [], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": [], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["alcohol", "poultry"], "diets": ["gluten-free", "dairy-free"]},
    "versions": [{"id": 1, "title": "Stub Coq au Vin", "source": "mealdb", "hasImage": true}]},
   {"id": 3, "kind": "drink", "title": "Stub Mojito", "course": "cocktail", "cuisine": null,
@@ -52,15 +54,17 @@
     {"line": "Soda water", "quantity": null, "quantityMax": null, "unit": null, "ingredientId": 205, "name": "soda water", "note": null, "optional": true, "group": null}
    ],
    "steps": [{"text": "Muddle the mint with the sugar, add the rum and ice, and top with soda.", "group": null}],
-   "tags": {"flavour": ["sweet", "sour"], "occasion": ["party"], "source": []},
+   "tags": {"flavour": ["sweet", "sour"], "occasion": ["party"], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["alcohol"], "diets": ["vegetarian", "vegan", "gluten-free", "dairy-free"]},
    "versions": []},
   {"id": 4, "kind": "food", "title": "Stub Spinach Eggs", "course": "breakfast", "cuisine": "British",
    "servings": 2, "servingsFrom": "source", "prepMinutes": 5, "cookMinutes": 10, "totalMinutes": 15,
    "timeFrom": "source", "difficulty": 1, "difficultyFrom": "source", "alcohol": null, "glass": null,
-   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "wikibooks",
-   "sourceUrl": "https://en.wikibooks.org/wiki/Cookbook:Spinach_Eggs", "licence": "CC BY-SA 4.0",
-   "credit": "Wikibooks Cookbook contributors",
+   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "budgetbytes",
+   "sourceUrl": "https://www.budgetbytes.com/stub-spinach-eggs/", "licence": null, "credit": "Budget Bytes",
+   "description": "A made-up stub breakfast: spinach wilted in butter with eggs baked on top, ready in fifteen minutes and cheap enough for any weekday.",
+   "nutrition": {"calories": 224.6, "proteinG": 14.2, "carbsG": 2.35, "fatG": 17.8, "satFatG": 6.9, "fibreG": 1.1,
+                 "sugarG": 0.6, "sodiumMg": 238.4, "from": "estimate", "flagged": false},
    "ingredients": [
     {"line": "4 eggs", "quantity": 4, "quantityMax": null, "unit": null, "ingredientId": 301, "name": "egg", "note": null, "optional": false, "group": null},
     {"line": "100 g spinach", "quantity": 100, "quantityMax": null, "unit": "g", "ingredientId": 302, "name": "spinach", "note": null, "optional": false, "group": null},
@@ -70,7 +74,7 @@
     {"text": "Heat the oven to 180°C.", "group": null},
     {"text": "Wilt the spinach in the butter, crack in the eggs and bake for 10 minutes.", "group": null}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": ["brunch"], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": ["brunch", "basic"], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["dairy", "egg"], "diets": ["vegetarian", "gluten-free"]},
    "versions": []}
  ]

@@ -71,6 +71,41 @@ def test_aMissingOrRemovedRecipeIs404(readClient, useDb):
     assert get(readClient, "/recipes/99").status_code == 404
 
 
+DETAIL = dict(TILE, Servings=2, ServingsFrom="source", PrepMinutes=None, CookMinutes=None, DifficultyFrom="rule",
+              Alcohol=None, Glass=None, ImageCredit=None, VideoUrl=None, SourceUrl="https://example.test/x",
+              Licence=None, Credit=None, Complete=1, DishKey="cheese toast", RemovedAt=None, HiddenReason=None,
+              Description="A quick supper.")
+
+
+def test_aHiddenRecipeIs404(readClient, useDb):
+    conn = useDb(fetchone=[dict(DETAIL, HiddenReason="small-photo")])
+    assert get(readClient, "/recipes/7").status_code == 404
+    assert len(conn.cur.executed) == 1
+
+
+def test_aRecipeHasItsDescriptionAndPerServingNutrition(readClient, useDb):
+    from decimal import Decimal
+    nutrition = {"Calories": Decimal("420.00"), "ProteinG": Decimal("18.50"), "CarbsG": Decimal("40.00"),
+                 "FatG": Decimal("20.00"), "SatFatG": Decimal("6.00"), "FibreG": Decimal("4.00"),
+                 "SugarG": Decimal("7.00"), "SodiumMg": Decimal("650.00"), "NutritionFrom": "source", "Flagged": 0}
+    conn = useDb(fetchone=[DETAIL, nutrition], fetchall=[[], [], [{"Type": "technique", "Tag": "stirred"}], [], [], []])
+    data = get(readClient, "/recipes/7").get_json()["data"]
+    assert data["description"] == "A quick supper." and data["tags"]["technique"] == ["stirred"]
+    assert data["nutrition"] == {"calories": 420, "proteinG": 18.5, "carbsG": 40, "fatG": 20, "satFatG": 6,
+                                 "fibreG": 4, "sugarG": 7, "sodiumMg": 650, "from": "source", "flagged": False}
+    sql, params = conn.cur.statements("SELECT Calories")[0]
+    assert "FROM RecipeNutrition WHERE RecipeID = %s" in sql and params == (7,)
+    assert "NutritionFrom, Flagged" in sql
+    versions = conn.cur.statements("SELECT RecipeID, Title, Source, ImagePath FROM Recipes")[0][0]
+    assert "RemovedAt IS NULL AND HiddenReason IS NULL" in versions
+
+
+def test_aRecipeWithoutNutritionSaysNull(readClient, useDb):
+    useDb(fetchone=[DETAIL, None], fetchall=[[], [], [], [], [], []])
+    data = get(readClient, "/recipes/7").get_json()["data"]
+    assert data["nutrition"] is None and data["removed"] is False
+
+
 def test_filtersCountEveryOption(readClient, useDb):
     useDb(fetchall=[[{"v": "food", "n": 4000}], [{"v": "main", "n": 900}], [{"v": "Japanese", "n": 40}],
                     [{"v": 1, "n": 2000}], [{"Type": "flavour", "v": "sweet", "n": 700},
@@ -83,6 +118,13 @@ def test_filtersCountEveryOption(readClient, useDb):
     assert "peanut" in data["avoid"]
 
 
+def test_filtersCountOnlyShownRecipes(readClient, useDb):
+    conn = useDb(fetchall=[[], [], [], [], [], []])
+    get(readClient, "/filters")
+    assert len(conn.cur.executed) == 6
+    assert all("RemovedAt IS NULL AND" in sql and "HiddenReason IS NULL" in sql for sql, _ in conn.cur.executed)
+
+
 def test_ingredientSearchForTheIncludeFilter(readClient, useDb):
     useDb(fetchall=[[{"IngredientID": 1, "Name": "cheese"}]])
     assert get(readClient, "/ingredients?q=che").get_json()["data"] == [{"id": 1, "name": "cheese"}]
@@ -93,6 +135,15 @@ def test_picturesAreServedFromTheMediaRoot(readClient, useDb, media):
     useDb(fetchone=[{"ImagePath": "0123456789abcdef0123.jpg"}])
     answer = get(readClient, "/images/7")
     assert answer.status_code == 200 and answer.data == b"\xff\xd8jpeg" and answer.mimetype == "image/jpeg"
+
+
+@pytest.mark.parametrize("gone", [{"HiddenReason": "no-photo"}, {"RemovedAt": "2026-10-20"}])
+def test_anUnshownRecipesPictureIs404(readClient, useDb, media, gone):
+    (media / "images" / "0123456789abcdef0123.jpg").write_bytes(b"\xff\xd8jpeg")
+    row = dict({"RecipeID": 7, "RemovedAt": None, "HiddenReason": None, "ImagePath": "0123456789abcdef0123.jpg"}, **gone)
+    conn = useDb(fetchone=[row])
+    assert get(readClient, "/images/7").status_code == 404
+    assert "HiddenReason" in conn.cur.executed[0][0] and len(conn.cur.executed) == 1
 
 
 def test_aRecipeWithoutAPictureIs404(readClient, useDb):

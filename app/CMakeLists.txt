@@ -105,6 +105,7 @@ qt_add_qml_module(gluttony_ui
         qml/logic/timers.mjs
         qml/logic/stepIngredients.mjs
         qml/logic/chips.mjs
+        qml/logic/nutrition.mjs
 )
 target_link_libraries(gluttony_ui PRIVATE Qt6::Quick Qt6::QuickControls2)
 

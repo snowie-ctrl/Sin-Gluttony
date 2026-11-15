@@ -90,13 +90,13 @@ def test_todaysPickSkipsWhatWasDevouredInTheLast30Days(readClient, useDb):
 
 
 def test_homeHasTheCravingsAndAgainRows(readClient, useDb):
-    cravings = [dict(tileOf(5, "Kept"), RemovedAt=None), dict(tileOf(6, "Gone"), RemovedAt=datetime(2026, 10, 1))]
+    cravings = [dict(tileOf(5, "Kept"), RemovedAt=None), dict(tileOf(6, "Also kept"), RemovedAt=None)]
     again = [dict(tileOf(1, "Made"), RemovedAt=None, LastMade=date(2026, 10, 26))]
     useDb(fetchall=[[], [tileOf(1, "Dish 1")], cravings, again,
                     [{"RecipeID": 5, "Craving": 1, "DevouredCount": 0, "Stars": None},
                      {"RecipeID": 1, "Craving": 0, "DevouredCount": 2, "Stars": 4}]])
     data = readClient.get(f"{A}/home?tz=UTC").get_json()["data"]
-    assert [t["id"] for t in data["cravings"]] == [5, 6] and data["cravings"][1]["removed"] is True
+    assert [t["id"] for t in data["cravings"]] == [5, 6] and data["cravings"][1]["removed"] is False
     assert data["cravings"][0]["craving"] is True
     assert [t["id"] for t in data["again"]] == [1] and data["again"][0]["devouredCount"] == 2
     assert data["pick"]["stars"] == 4
@@ -109,7 +109,8 @@ def test_theRowsAreThePersonsOwnAndNotFilteredByTheProfile(readClient, useDb):
     rows = [(sql, p) for sql, p in conn.cur.executed if "l.Kind = 'cravings'" in sql or "GROUP BY r.RecipeID" in sql]
     assert len(rows) == 2
     for sql, params in rows:
-        assert params == (UID, 12) and "fa.Complete" not in sql and "RemovedAt IS NULL" not in sql
+        assert params == (UID, 12) and "fa.Complete" not in sql and "r.ImagePath IS NOT NULL" not in sql
+        assert "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in sql      # only shown recipes, even their own
 
 
 def test_homeAsksAFixedNumberOfQueries(readClient, useDb):
@@ -120,3 +121,11 @@ def test_homeAsksAFixedNumberOfQueries(readClient, useDb):
     conn = useDb(fetchall=[[], [], []])
     readClient.get(f"{A}/home?tz=UTC&profile=off")
     assert len(conn.cur.executed) == 3          # picks, Cravings, Again?; nothing to flag
+
+
+def test_everyHomeQueryAsksForShownRecipesOnly(readClient, useDb):
+    conn = useDb(fetchall=[[], [], []])
+    readClient.get(f"{A}/home?tz=UTC&profile=off")
+    pick, cravings, again = conn.cur.executed
+    for sql, _ in (pick, cravings, again):
+        assert "r.RemovedAt IS NULL AND r.HiddenReason IS NULL" in sql

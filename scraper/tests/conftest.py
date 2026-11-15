@@ -14,7 +14,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 PATHS = ("DATA_DIR", "RAW_DIR", "IMAGE_DIR", "CACHE_DIR", "NORMALISED_FILE", "PUBLISHED_FILE", "RUN_DIR",
          "REPORT_DIR", "FETCH_FILE", "STATE_FILE", "CURRENT_FILE", "RUNS_FILE", "LAST_REPORT_FILE",
-         "CONTROL_REQUESTS_FILE", "STOP_FILE", "LOCK_FILE", "SITE_STATE_FILE",
+         "CONTROL_REQUESTS_FILE", "STOP_FILE", "LOCK_FILE", "SITE_STATE_FILE", "SITES_FILE",
          "FDC_DIR", "FDC_FOODS_FILE", "FDC_PICKS_FILE", "FDC_QUEUE_FILE")
 
 
@@ -42,6 +42,7 @@ def safeModes(monkeypatch):
     monkeypatch.setattr(config, "UPLOAD_HOST", "")
     monkeypatch.setattr(config, "PUBLISH", "dry")
     monkeypatch.setattr(config, "SCHEDULE", "off")
+    monkeypatch.setattr(config, "CATALOG", "old")
     monkeypatch.setattr(config, "CONTROL_TOKEN", "test-control-token")
 
 

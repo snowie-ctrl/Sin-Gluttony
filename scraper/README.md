@@ -14,12 +14,34 @@ except sending. A re-tag runs everything after fetch over the raw copies in `dat
 ```bash
 py -3.12 -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements-dev.txt   # Windows dev
 .venv/Scripts/python.exe -m pytest -q
-.venv/Scripts/python.exe main.py --once full --no-images      # a dry pass on a dev machine
+.venv/Scripts/python.exe main.py --once full --no-images      # a dry pass on a dev machine; never for publishing (no-photo)
 .venv/Scripts/python.exe main.py --dry-run --pages 200          # the new catalog's dry run: crawl, gate, report
 ```
 
 On the VM (`~/Gluttony`): `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, `cp .env.example .env`
 and fill it in, then `./run.sh`. Surrogate's Gluttony page drives it through `controlApi.py`.
+
+## The new catalog
+
+`CATALOG` in `.env` picks the pass:
+
+- `CATALOG=old` (the default) is the pass above over TheMealDB, TheCocktailDB and Wikibooks, unchanged.
+- `CATALOG=new` runs the recipe sites in `rules/sites.json` only: crawl (full passes; `POST /crawl/<site>` crawls one
+  site) → read the cached pages → pictures → tag, FDC mappings, nutrition, the completeness gate, then the basics →
+  site health (`run/sites.json`) and the FDC queue (`run/fdc-queue.json`) → publish, removing pages that are gone or
+  missing from a complete sitemap listing (guarded by `REMOVAL_GUARD` against the last complete listing's size,
+  `siteCounts` in `run/state.json`). With `PUBLISH=on` the FDC mappings are sent to `Ingredients.FdcID`. A re-tag
+  (`POST /regate`) crawls nothing and removes nothing.
+
+M4's full trial, with publishing off, is the dry run at full scale reading plutus's ingredient table (read only):
+
+```bash
+.venv/bin/python main.py --dry-run --pages 0 --server-table
+```
+
+The USDA FDC CSVs must be in `data/fdc/` on the VM before the first new pass (`python fdc.py import`), or no recipe
+gets an estimate. Switching the live catalog over (retiring the old sources, moving saved items) is M4, done with the
+owner; until then the VM stays on `CATALOG=old`.
 
 ## Files it keeps
 
@@ -55,7 +77,7 @@ The "newer USDA release" monthly check is left to milestone 4 (on the VM, with t
 Foundation before SR Legacy). A pick of `null` means no FDC food fits. Milestone 3 copies the result into
 `Ingredients.FdcID`.
 
-**Control API, the contract for Surrogate's FDC mapping page.** The page sits beside ingredient mapping, lists the
+**Control API, the contract for Surrogate's FDC mapping and Sites pages.** The FDC page sits beside ingredient mapping, lists the
 queue by unlocks, shows each ingredient's candidates with a search box, and offers a "no FDC food fits" button (a
 `null` pick). All routes need the `X-Control-Token` header. A pick takes effect on the next pass or dry run; the API
 never starts one.
@@ -69,3 +91,15 @@ never starts one.
 - `POST /fdc/pick` with `{"ingredient": str, "fdcId": int | null}` returns `{"status": "ok"}`. 400 for a missing,
   empty or over-100-character `ingredient` or an `fdcId` that is not a whole number or null; 404 when `fdcId` is not
   an imported food.
+
+The Sites page (new catalog) uses three more routes. `/status` also carries `"catalog": "old" | "new"`.
+
+- `POST /regate` queues a re-tag (read, tag, nutrition, gate and publish over the cache) and returns 202
+  `{"status": "ok", "message": "a re-gate starts within a few seconds"}`.
+- `POST /crawl/<site>` queues a full pass of that one site (`{"kind": "run", "site": site}`) and returns 202. 404 for a
+  site that is not enabled in `rules/sites.json`.
+- Both answer 409 `"a pass is already running or waiting"` when busy, and 409
+  `"the new catalog is not on (CATALOG=old)"` under `CATALOG=old` (checked first).
+- `GET /sites` returns `{"status": "ok", "catalog", "generatedAt": iso | null, "mode": "pass" | "dryrun" | null,
+  "sites": [row]}` from `run/sites.json`, written by the pass and the dry run; empty when the file is missing or
+  unreadable. Each row is as `siteHealth.py` writes it.

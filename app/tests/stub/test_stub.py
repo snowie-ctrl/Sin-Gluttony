@@ -132,6 +132,25 @@ def test_aRecipeIsServedWholeAndAMissingOneIs404(client):
     assert get(client, "/recipes/999").status_code == 404
 
 
+def test_aSiteRecipeCarriesItsDescriptionAndNutrition(client):
+    detail = get(client, "/recipes/4").get_json()["data"]
+    assert detail["source"] == "budgetbytes" and detail["credit"] == "Budget Bytes" and detail["sourceUrl"]
+    assert detail["description"]
+    assert detail["nutrition"]["from"] == "estimate"
+    assert set(detail["nutrition"]) == {"calories", "proteinG", "carbsG", "fatG", "satFatG", "fibreG", "sugarG",
+                                        "sodiumMg", "from", "flagged"}
+    assert get(client, "/recipes/1").get_json()["data"]["nutrition"]["from"] == "source"
+    # The others keep part 1's shape.
+    assert "nutrition" not in get(client, "/recipes/2").get_json()["data"]
+    assert "description" not in get(client, "/recipes/3").get_json()["data"]
+
+
+def test_theBasicsAreFoundByTheirOccasion(client):
+    assert ids(get(client, "/recipes?occasion=basic")) == [4]
+    # Quick fix: food, 30 minutes or less, easy, and a basic.
+    assert ids(get(client, "/recipes?kind=food&maxMinutes=30&difficulty=1&occasion=basic")) == [4]
+
+
 def test_homeIsAPictureOfFoodToCookAndHoldsForTheDay(client):
     first = get(client, "/home?tz=America/Chicago").get_json()["data"]
     assert first["pick"]["hasImage"] and first["pick"]["course"] in ("main", "breakfast")
@@ -557,3 +576,10 @@ def test_signingOutEndsEverySessionOfThatDevice(client):
     client.post(f"{stub.API}/auth/logout", json={"fingerprint": "a"}, headers={"X-Session-Token": made})
     for token in (made, again):
         assert client.get(f"{stub.API}/recipes", headers={"X-Session-Token": token}).status_code == 401
+
+
+def test_everyDetailCarriesEveryTagTypeTheServerSends(client):
+    """The server groups a recipe's tags under all of gluttonyRules.TAG_TYPES, empty or not."""
+    for recipe in json.loads((stub.HERE / "fixture" / "recipes.json").read_text(encoding="utf-8"))["recipes"]:
+        tags = get(client, f"/recipes/{recipe['id']}").get_json()["data"]["tags"]
+        assert sorted(tags) == ["flavour", "occasion", "source", "technique"], recipe["id"]

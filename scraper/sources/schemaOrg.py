@@ -316,5 +316,6 @@ def nutritionOf(nutrients):
     if found["sodiumMg"] is None and nutrients.get("saltContent") is not None:
         salt = _amount(nutrients["saltContent"])
         if salt is not None:
-            found["sodiumMg"] = round(salt[0] * SALT_TO_SODIUM_MG, 1)
+            grams = salt[0] / 1000 if salt[1] == "mg" else salt[0]     # a bare number is grams, as most sites give it
+            found["sodiumMg"] = round(grams * SALT_TO_SODIUM_MG, 1)
     return found if found["calories"] is not None else None

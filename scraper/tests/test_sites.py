@@ -1,9 +1,10 @@
 import gzip
-from urllib.robotparser import RobotFileParser
+from urllib.parse import urlsplit
 
 import pytest
 
 import net
+import robots as robotsTxt
 from sources import sites
 
 HOST = "www.example-recipes.test"
@@ -27,12 +28,32 @@ def sitemapIndex(*locs):
             f'<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{rows}</sitemapindex>')
 
 
+class Redirect:
+    """An answer that sends the request on to another url, as a 301 would."""
+    def __init__(self, target):
+        self.target = target
+
+
 def fakeCrawl(monkeypatch, answers):
-    """net.crawl answering from url -> text, bytes or an exception to raise; any other url is a 404."""
+    """
+    net.crawl answering from url -> text, bytes, a Redirect or an exception to raise; any other url is a 404.
+    Every hop asked is recorded. A redirect to another host, or one mayFetch refuses, is refused before it is
+    asked, the way net.crawl refuses it; the final url goes into finalUrl.
+    """
     asked = []
-    def crawl(url, *, binary=False, timeout=20, retries=2):
+    def crawl(url, *, binary=False, timeout=20, retries=2, finalUrl=None, mayFetch=None):
         asked.append(url)
-        answer = answers.get(url)
+        answer, final = answers.get(url), url
+        while isinstance(answer, Redirect):
+            if urlsplit(answer.target).hostname != urlsplit(url).hostname:
+                raise net.RedirectRefused(f"GET {url} redirected off host")
+            if mayFetch is not None and not mayFetch(answer.target):
+                raise net.RedirectRefused(f"GET {url}: robots.txt disallows the redirect target")
+            final = answer.target
+            asked.append(final)
+            answer = answers.get(final)
+        if finalUrl is not None:
+            finalUrl.append(final)
         if answer is None:
             raise net.HttpError(f"GET {url} -> 404", status=404)
         if isinstance(answer, BaseException):     # BaseException: Task 4 also raises KeyboardInterrupt
@@ -44,21 +65,19 @@ def fakeCrawl(monkeypatch, answers):
 
 
 def robotsFrom(*lines):
-    robots = RobotFileParser()
-    robots.parse(list(lines))
-    return robots
+    return robotsTxt.Rules.parse("\n".join(lines))
 
 
 def test_robotsRulesAreObeyed(monkeypatch):
     fakeCrawl(monkeypatch, {f"https://{HOST}/robots.txt": "User-agent: *\nDisallow: /private/\n"})
     robots = sites.robotsFor(SITE)
-    assert robots.can_fetch(sites.AGENT, f"https://{HOST}/made-up-stew/")
-    assert not robots.can_fetch(sites.AGENT, f"https://{HOST}/private/made-up-stew/")
+    assert robots.allows(sites.AGENT, f"https://{HOST}/made-up-stew/")
+    assert not robots.allows(sites.AGENT, f"https://{HOST}/private/made-up-stew/")
 
 
 def test_aMissingRobotsFileAllowsEverything(monkeypatch):
     fakeCrawl(monkeypatch, {})
-    assert sites.robotsFor(SITE).can_fetch(sites.AGENT, f"https://{HOST}/made-up-stew/")
+    assert sites.robotsFor(SITE).allows(sites.AGENT, f"https://{HOST}/made-up-stew/")
 
 
 @pytest.mark.parametrize("status, reason", [(403, "blocked (403)"), (429, "rate limited (429)")])
@@ -556,3 +575,217 @@ def test_loveAndLemonsTakesPostPagesAndLeavesItsSectionPagesOut():
         assert not pattern.match(url), url
     assert re.search(entry["sitemapFilter"], "https://www.loveandlemons.com/post-sitemap2.xml")
     assert not re.search(entry["sitemapFilter"], "https://www.loveandlemons.com/page-sitemap.xml")
+
+
+# Milestone 3: a listing is complete only when every sitemap was read; redirects and big sitemaps.
+
+def twoChildWeb(robots="User-agent: *\nAllow: /\n"):
+    """A made-up site whose index names post-sitemap (stew, soup) and more-sitemap (salad); no page answers."""
+    answers = web(A, {"made-up-stew": None, "made-up-soup": None}, robots=robots)
+    answers[f"https://{A}/sitemap_index.xml"] = sitemapIndex(f"https://{A}/post-sitemap.xml",
+                                                             f"https://{A}/more-sitemap.xml")
+    answers[f"https://{A}/more-sitemap.xml"] = urlset((f"https://{A}/made-up-salad/", None))
+    return answers
+
+
+def firstPassSavesThree(monkeypatch, answers):
+    fakeCrawl(monkeypatch, dict(answers))
+    first = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert first["complete"] is True and len(pagecache.listing("sitea")) == 3
+
+
+def test_aSuccessfulPassSavesTheListingAndSaysItIsComplete(monkeypatch):
+    fakeCrawl(monkeypatch, twoChildWeb())
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert result["complete"] is True and result["goneUrls"] == []
+    assert len(pagecache.listing("sitea")) == 3
+
+
+def test_aChildSitemapDisallowedByRobotsMakesTheListingIncomplete(monkeypatch):
+    answers = twoChildWeb()
+    firstPassSavesThree(monkeypatch, answers)
+    answers[f"https://{A}/robots.txt"] = "User-agent: *\nDisallow: /more-sitemap.xml\n"
+    asked = fakeCrawl(monkeypatch, answers)
+    failures = []
+    sites.sitemapEntries(siteFor(A, "sitea"), robotsFrom("User-agent: *", "Disallow: /more-sitemap.xml"),
+                         log=QUIET, failures=failures)
+    assert failures and f"https://{A}/more-sitemap.xml" not in asked
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert result["complete"] is False and len(pagecache.listing("sitea")) == 3
+
+
+def test_aChildSitemapOnAnotherHostMakesTheListingIncomplete(monkeypatch):
+    answers = twoChildWeb()
+    firstPassSavesThree(monkeypatch, answers)
+    answers[f"https://{A}/sitemap_index.xml"] = sitemapIndex(f"https://{A}/post-sitemap.xml",
+                                                             "https://other.example.test/more-sitemap.xml")
+    fakeCrawl(monkeypatch, answers)
+    failures = []
+    sites.sitemapEntries(siteFor(A, "sitea"), robotsFrom(), log=QUIET, failures=failures)
+    assert failures
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert result["complete"] is False and len(pagecache.listing("sitea")) == 3
+
+
+def test_anIndexCutOffAtMaxSitemapsMakesTheListingIncomplete(monkeypatch):
+    answers = twoChildWeb()
+    firstPassSavesThree(monkeypatch, answers)
+    monkeypatch.setattr(sites, "MAX_SITEMAPS", 2)       # the index and one child: the other child is never read
+    fakeCrawl(monkeypatch, answers)
+    failures = []
+    sites.sitemapEntries(siteFor(A, "sitea"), robotsFrom(), log=QUIET, failures=failures)
+    assert failures
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert result["complete"] is False and len(pagecache.listing("sitea")) == 3
+
+
+def test_aFailedIndexOnTheFirstEverPassSavesNoListing(monkeypatch):
+    answers = twoChildWeb()
+    answers[f"https://{A}/sitemap_index.xml"] = net.HttpError("down", status=503)
+    fakeCrawl(monkeypatch, answers)
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert result["complete"] is False and result["ok"] is False
+    assert pagecache.listing("sitea") == []
+
+
+def test_aStoppedSiteIsNotComplete(monkeypatch):
+    answers = twoChildWeb()
+    answers[f"https://{A}/robots.txt"] = net.HttpError("no", status=403)
+    fakeCrawl(monkeypatch, answers)
+    result = sites.crawl([siteFor(A, "sitea")], pages=0, log=QUIET)["sitea"]
+    assert (result["complete"], result["goneUrls"]) == (False, [])
+
+
+def test_aPageAnswering404TwoPassesInARowIsInThatPassesGoneUrls(monkeypatch):
+    fakeCrawl(monkeypatch, web(A, {"made-up-gone": None, "made-up-stew": recipePage("Made-up Stew")}))
+    first = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    second = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (first["goneUrls"], second["goneUrls"]) == ([], [f"https://{A}/made-up-gone/"])
+
+
+def test_anOversizedGzipSitemapIsAFailure(monkeypatch):
+    monkeypatch.setattr(net, "MAX_SITEMAP_BYTES", 100)
+    answers = twoChildWeb()
+    answers[f"https://{A}/more-sitemap.xml"] = gzip.compress(
+        urlset(*[(f"https://{A}/made-up-salad-{n}/", None) for n in range(20)]).encode("utf-8"))
+    fakeCrawl(monkeypatch, answers)
+    failures = []
+    sites.sitemapEntries(siteFor(A, "sitea"), robotsFrom(), log=QUIET, failures=failures)
+    assert any("too large" in reason for reason in failures)
+
+
+def test_parseSitemapRefusesAGzipPastTheCap(monkeypatch):
+    monkeypatch.setattr(net, "MAX_SITEMAP_BYTES", 100)
+    with pytest.raises(sites.SitemapTooLarge):
+        sites.parseSitemap(gzip.compress(urlset(*[(f"https://{A}/made-up-{n}/", None) for n in range(20)]).encode()))
+    assert sites.parseSitemap(gzip.compress(b"<urlset/>")) == ("urlset", [])
+
+
+def test_aPageRedirectedOffHostIsAnErrorAndNotCached(monkeypatch):
+    asked = fakeCrawl(monkeypatch, web(A, {"made-up-moved": Redirect("https://elsewhere.example.test/made-up-moved/"),
+                                   "made-up-stew": recipePage("Made-up Stew")}))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["errors"], result["fetched"]) == (1, 1)
+    assert pagecache.meta("sitea", f"https://{A}/made-up-moved/") is None
+    assert "https://elsewhere.example.test/made-up-moved/" not in asked
+
+
+def test_aPageRedirectedIntoADisallowedPathIsAnErrorAndNotCached(monkeypatch):
+    answers = web(A, {"made-up-moved": Redirect(f"https://{A}/private/made-up-moved/"),
+                      "made-up-stew": recipePage("Made-up Stew")}, robots="User-agent: *\nDisallow: /private/\n")
+    answers[f"https://{A}/private/made-up-moved/"] = recipePage("Made-up Moved")
+    asked = fakeCrawl(monkeypatch, answers)
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["errors"], result["fetched"]) == (1, 1)
+    assert pagecache.meta("sitea", f"https://{A}/made-up-moved/") is None
+    assert f"https://{A}/private/made-up-moved/" not in asked
+
+
+def test_refusedRedirectsDoNotStopTheSiteAsUnreachable(monkeypatch):
+    pages = {f"made-up-moved-{n}": Redirect(f"https://{A}/private/made-up-{n}/") for n in range(6)}
+    pages["made-up-stew"] = recipePage("Made-up Stew")
+    fakeCrawl(monkeypatch, web(A, pages, robots="User-agent: *\nDisallow: /private/\n"))
+    result = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET)["sitea"]
+    assert (result["ok"], result["errors"], result["fetched"]) == (True, 6, 1)
+
+
+def test_aMultiMemberGzipSitemapIsReadWhole():
+    first = gzip.compress(b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://'
+                          + A.encode() + b'/made-up-one/</loc></url>')
+    second = gzip.compress(b'<url><loc>https://' + A.encode() + b'/made-up-two/</loc></url></urlset>')
+    assert sites.parseSitemap(first + second) == ("urlset", [(f"https://{A}/made-up-one/", None),
+                                                               (f"https://{A}/made-up-two/", None)])
+
+
+def test_theCapCoversEveryGzipMember(monkeypatch):
+    member = gzip.compress(b"<urlset>" + b" " * 80)
+    monkeypatch.setattr(net, "MAX_SITEMAP_BYTES", 100)
+    with pytest.raises(sites.SitemapTooLarge):
+        sites.parseSitemap(member + member)
+
+
+def test_wildcardRobotsRulesKeepPagesOut(monkeypatch):
+    answers = web(A, {"made-up-stew": recipePage("Made-up Stew")},
+                  robots="User-agent: *\nDisallow: /*?print=\n")
+    answers[f"https://{A}/post-sitemap.xml"] = urlset((f"https://{A}/made-up-stew/", None),
+                                                      (f"https://{A}/made-up-stew/?print=1", None))
+    site = dict(siteFor(A, "sitea"), recipeUrl=rf"^https://{re.escape(A)}/[a-z0-9-]+/(\?print=1)?$")
+    asked = fakeCrawl(monkeypatch, answers)
+    sites.crawl([site], pages=None, log=QUIET)
+    assert f"https://{A}/made-up-stew/?print=1" not in asked
+
+
+# Milestone 3, Task 8: one site only, and the owner's stop.
+
+def twoSiteWeb():
+    answers = web(A, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")})
+    answers.update(web(B, {"made-up-one": recipePage("1"), "made-up-two": recipePage("2")}))
+    return answers
+
+
+def test_onlyCrawlsTheNamedSiteAlone(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET, only="siteb")
+    assert list(results) == ["siteb"] and results["siteb"]["fetched"] == 2
+    assert all(urlsplit(url).hostname == B for url in asked)
+
+
+def test_onlyANameNotInTheListCrawlsNothing(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    lines = []
+    assert sites.crawl([siteFor(A, "sitea")], pages=None, log=lines.append, only="nosuchsite") == {}
+    assert asked == [] and any("nosuchsite" in line for line in lines)
+
+
+def test_aStopBeforeAnyRequestAsksNothingAndMarksEverySite(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET,
+                          stopRequested=lambda: True)
+    assert asked == []
+    for name in ("sitea", "siteb"):
+        assert (results[name]["ok"], results[name]["stopReason"], results[name]["complete"]) == \
+            (False, "stopped by the owner", False)
+    assert store.readJson(config.SITE_STATE_FILE) is not None
+
+
+def test_aStopMidCrawlEndsTheLoopKeepsWhatIsKnownAndSavesState(monkeypatch):
+    asked = fakeCrawl(monkeypatch, twoSiteWeb())
+    stopAfter = f"https://{B}/made-up-one/"
+    results = sites.crawl([siteFor(A, "sitea"), siteFor(B, "siteb")], pages=None, log=QUIET,
+                          stopRequested=lambda: stopAfter in asked)
+    assert pageUrls(asked) == [f"https://{A}/made-up-one/", stopAfter]          # nothing asked after the stop
+    for name in ("sitea", "siteb"):
+        result = results[name]
+        assert (result["stopReason"], result["complete"], result["fetched"]) == ("stopped by the owner", True, 1)
+    state = store.readJson(config.SITE_STATE_FILE)
+    assert state["sitea"]["passes"] == 1 and "lastStop" not in state["sitea"]     # the owner's stop is no site fault
+
+
+def test_aStopWhileReadingSitemapsAsksNoMoreSitemaps(monkeypatch):
+    answers = twoChildWeb()
+    asked = fakeCrawl(monkeypatch, answers)
+    results = sites.crawl([siteFor(A, "sitea")], pages=None, log=QUIET,
+                          stopRequested=lambda: f"https://{A}/post-sitemap.xml" in asked)
+    assert f"https://{A}/more-sitemap.xml" not in asked
+    assert results["sitea"]["stopReason"] == "stopped by the owner" and results["sitea"]["complete"] is False
+    assert pagecache.listing("sitea") == []
