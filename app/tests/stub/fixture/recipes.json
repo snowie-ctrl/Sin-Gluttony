@@ -7,6 +7,8 @@
    "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "mealdb",
    "sourceUrl": "https://www.themealdb.com/meal/0", "licence": "TheMealDB",
    "credit": "Recipe data and imagery: TheMealDB",
+   "nutrition": {"calories": 642.0, "proteinG": 48.5, "carbsG": 9.2, "fatG": 34.8, "satFatG": 11.6, "fibreG": 1.4,
+                 "sugarG": 4.1, "sodiumMg": 1104.0, "from": "source", "flagged": false},
    "ingredients": [
     {"line": "1.5 kg chicken thighs", "quantity": 1.5, "quantityMax": null, "unit": "kg", "ingredientId": 101, "name": "chicken thigh", "note": null, "optional": false, "group": null},
     {"line": "750 ml red wine", "quantity": 750, "quantityMax": null, "unit": "ml", "ingredientId": 102, "name": "red wine", "note": null, "optional": false, "group": null},
@@ -58,9 +60,11 @@
   {"id": 4, "kind": "food", "title": "Stub Spinach Eggs", "course": "breakfast", "cuisine": "British",
    "servings": 2, "servingsFrom": "source", "prepMinutes": 5, "cookMinutes": 10, "totalMinutes": 15,
    "timeFrom": "source", "difficulty": 1, "difficultyFrom": "source", "alcohol": null, "glass": null,
-   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "wikibooks",
-   "sourceUrl": "https://en.wikibooks.org/wiki/Cookbook:Spinach_Eggs", "licence": "CC BY-SA 4.0",
-   "credit": "Wikibooks Cookbook contributors",
+   "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "budgetbytes",
+   "sourceUrl": "https://www.budgetbytes.com/stub-spinach-eggs/", "licence": null, "credit": "Budget Bytes",
+   "description": "A made-up stub breakfast: spinach wilted in butter with eggs baked on top, ready in fifteen minutes and cheap enough for any weekday.",
+   "nutrition": {"calories": 224.6, "proteinG": 14.2, "carbsG": 2.35, "fatG": 17.8, "satFatG": 6.9, "fibreG": 1.1,
+                 "sugarG": 0.6, "sodiumMg": 238.4, "from": "estimate", "flagged": false},
    "ingredients": [
     {"line": "4 eggs", "quantity": 4, "quantityMax": null, "unit": null, "ingredientId": 301, "name": "egg", "note": null, "optional": false, "group": null},
     {"line": "100 g spinach", "quantity": 100, "quantityMax": null, "unit": "g", "ingredientId": 302, "name": "spinach", "note": null, "optional": false, "group": null},
@@ -70,7 +74,7 @@
     {"text": "Heat the oven to 180°C.", "group": null},
     {"text": "Wilt the spinach in the butter, crack in the eggs and bake for 10 minutes.", "group": null}
    ],
-   "tags": {"flavour": ["savoury"], "occasion": ["brunch"], "source": []},
+   "tags": {"flavour": ["savoury"], "occasion": ["brunch", "basic"], "source": []},
    "facts": {"complete": true, "contains": ["dairy", "egg"], "diets": ["vegetarian", "gluten-free"]},
    "versions": []}
  ]

@@ -1,14 +1,19 @@
-"""Takes the stub's recipe snapshot from the LAN read API. Run it once, in milestone 1, while that API still needs
-no session:
+"""Takes the stub's recipe snapshot from the read API:
 
-    server\\.venv\\Scripts\\python.exe app\\tests\\stub\\snapshot.py --base <LAN read API base>
+    server\\.venv\\Scripts\\python.exe app\\tests\\stub\\snapshot.py --base <LAN read API base> --token <session>
 
 The base is plutus's LAN address and API port followed by /api/gluttony (the scraper VM's ADMIN_HOST and
-ADMIN_PORT); ask the owner, and never write it into a committed file. It writes app/tests/stub/snapshot/ (git
-ignores it): recipes.json, and the pictures as images/<id>.jpg and thumbs/<id>.jpg.
+ADMIN_PORT); ask the owner, and never write it into a committed file. The API needs a session since part 2: the
+token is a signed-in session's X-Session-Token, given with --token or in the GLUTTONY_SESSION environment variable,
+and never written into a committed file either. It writes app/tests/stub/snapshot/ (git ignores it): recipes.json,
+and the pictures as images/<id>.jpg and thumbs/<id>.jpg.
+
+The snapshot is regenerated in M4, once the new catalog (the recipe sites) is live, so it samples their
+descriptions, nutrition and basics. Until then the site features simply find nothing.
 """
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -20,15 +25,28 @@ from pathlib import Path
 
 FOOD = ("breakfast", "starter", "main", "side", "dessert", "snack", "bread", "sauce")
 DRINK = ("cocktail", "mocktail", "shot", "coffee/tea", "shake", "punch")
-FEATURES = ("mealdb", "cocktaildb", "wikibooks", "guessedTime", "noServings", "unknownIngredient", "range",
-            "groupHeading", "noPicture", "incomplete", "complete", "versions", "temperature", "longTime")
+# The old sources stay listed: M4 regenerates the snapshot after the switch, and then they simply find nothing.
+FEATURES = ("bbcgoodfood", "budgetbytes", "recipetineats", "pinchofyum", "loveandlemons", "difford",
+            "mealdb", "cocktaildb", "wikibooks", "basic", "nutritionEstimate", "nutritionSource", "description",
+            "guessedTime", "noServings", "unknownIngredient", "range", "groupHeading", "noPicture", "incomplete",
+            "complete", "versions", "temperature", "longTime")
 HERE = Path(__file__).resolve().parent
 
 
 def features(r):
-    """What a recipe shows off, so the snapshot has at least two of each: every source, guessed values, missing
-    servings, unknown ingredients, ranges, group headings, missing pictures, temperatures, very long times."""
+    """What a recipe shows off, so the snapshot has at least two of each: every source, the basics, nutrition
+    estimated or from the site, a description, guessed values, missing servings, unknown ingredients, ranges, group
+    headings, missing pictures, temperatures, very long times."""
     found = {r["source"], "complete" if r["facts"]["complete"] else "incomplete"}
+    if "basic" in (r.get("tags") or {}).get("occasion", []):
+        found.add("basic")
+    nutrition = r.get("nutrition") or {}
+    if nutrition.get("from") == "estimate":
+        found.add("nutritionEstimate")
+    elif nutrition.get("from") == "source":
+        found.add("nutritionSource")
+    if r.get("description"):
+        found.add("description")
     if r.get("timeFrom") == "rule":
         found.add("guessedTime")
     if not r.get("servings"):
@@ -85,31 +103,41 @@ def candidateIds(listed, limit):
     return ids[:limit]
 
 
-def fetch(base, path, raw=False):
-    with urllib.request.urlopen(base + path, timeout=30) as reply:
+def fetch(base, path, raw=False, token=None):
+    request = urllib.request.Request(base + path)
+    if token:
+        request.add_header("X-Session-Token", token)
+    with urllib.request.urlopen(request, timeout=30) as reply:
         data = reply.read()
     # plutus is the owner's own server, serving other apps too: a short pause between calls.
     time.sleep(0.05)
     return data if raw else json.loads(data)
 
 
-def main(argv=None):
+def parseArgs(argv=None):
     parser = argparse.ArgumentParser(description="Snapshot recipes for the Gluttony stub")
     parser.add_argument("--base", required=True, help="the LAN read API, ending in /api/gluttony")
+    parser.add_argument("--token", default=os.environ.get("GLUTTONY_SESSION"),
+                        help="a session's X-Session-Token (default: the GLUTTONY_SESSION environment variable)")
     parser.add_argument("--count", type=int, default=300)
     parser.add_argument("--out", default=str(HERE / "snapshot"))
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parseArgs(argv)
     base = args.base.rstrip("/")
+    token = args.token
 
     listed = []
     for kind, courses in (("food", FOOD), ("drink", DRINK)):
         for course in courses:
-            page = fetch(base, f"/recipes?kind={kind}&course={urllib.parse.quote(course)}&pageSize=60")
+            page = fetch(base, f"/recipes?kind={kind}&course={urllib.parse.quote(course)}&pageSize=60", token=token)
             listed.append([t["id"] for t in page["data"]["recipes"]])
     details = []
     for rid in candidateIds(listed, args.count * 2):
         try:
-            details.append(fetch(base, f"/recipes/{rid}")["data"])
+            details.append(fetch(base, f"/recipes/{rid}", token=token)["data"])
         except urllib.error.HTTPError:
             continue
     chosen = choose(details, args.count)
@@ -124,7 +152,8 @@ def main(argv=None):
         if r["hasImage"]:
             try:
                 for folder in ("thumbs", "images"):
-                    (out / folder / f"{r['id']}.jpg").write_bytes(fetch(base, f"/{folder}/{r['id']}", raw=True))
+                    picture = fetch(base, f"/{folder}/{r['id']}", raw=True, token=token)
+                    (out / folder / f"{r['id']}.jpg").write_bytes(picture)
             except urllib.error.HTTPError:
                 r["hasImage"] = False
     taken = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
