@@ -41,10 +41,13 @@ def test_aBasicNoSiteHasIsRecordedWithoutAUrl():
                       {"name": "toast", "url": None, "urls": []}]
 
 
+# Toast is no longer a basic (one step; the owner, 2026-11-15), but its whole-slug pattern still shows the matching rule.
+TOAST = ("toast", r"^(?:buttered-|cinnamon-)?toast$")
+
+
 def test_frenchToastIsNotToast():
     listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/french-toast", None)]}
-    toast = [basic for basic in findBasics.BASICS if basic[0] == "toast"]
-    assert findBasics.chooseBasics(listings, toast) == [{"name": "toast", "url": None, "urls": []}]
+    assert findBasics.chooseBasics(listings, [TOAST]) == [{"name": "toast", "url": None, "urls": []}]
 
 
 def test_thereAreAboutFiftyBasics():
@@ -55,7 +58,7 @@ def test_thereAreAboutFiftyBasics():
 def test_aWholeSlugPatternIsNotMatchedInsideAnotherDish():
     listings = {"bbcgoodfood": [("https://www.bbcgoodfood.com/recipes/avocado-toast", None),
                                 ("https://www.bbcgoodfood.com/recipes/fried-egg-milanese", None)]}
-    chosen = findBasics.chooseBasics(listings, [b for b in findBasics.BASICS if b[0] in ("toast", "fried eggs")])
+    chosen = findBasics.chooseBasics(listings, [TOAST] + [b for b in findBasics.BASICS if b[0] == "fried eggs"])
     assert [item["url"] for item in chosen] == [None, None]
 
 
