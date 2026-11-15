@@ -23,7 +23,7 @@ def fakeWorld(monkeypatch, crawled):
         crawled.append(pages)
         return {"testsite": {"ok": True, "stopReason": None, "listed": 1, "fetched": 1}}
     monkeypatch.setattr(sites, "crawl", crawl)
-    def download(url, dest, timeout=30):
+    def download(url, dest, timeout=30, refusals=False):
         dest.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (1600, 1000), (200, 100, 50)).save(dest, "PNG")
         return True
