@@ -100,6 +100,54 @@ def mappingFor(names, foods, rules, picks):
     return mapping
 
 
+def resolveTable(table, foods, rules, picks):
+    """{ingredientId: (fdcId, from)} for every row; from is owner, curated, rule or None.
+
+    Order: the owner's file pick (None means no food fits), the row's own owner choice from the
+    database (its id may be None), the curated override, then a settled match. A pick or owner id
+    naming a food the cache lacks falls through for the estimate; syncList still keeps the owner row.
+    """
+    overrides = rules.get("fdcMap", {})
+    resolved = {}
+    for ingredientId, row in table.rows.items():
+        name = row["name"]
+        if name in picks and (picks[name] is None or picks[name] in foods):
+            resolved[ingredientId] = (picks[name], "owner")
+            continue
+        if row.get("fdcFrom") == "owner" and (row.get("fdcId") is None or row["fdcId"] in foods):
+            resolved[ingredientId] = (row["fdcId"], "owner")
+            continue
+        curated = (overrides.get(name) or {}).get("fdcId")
+        if curated in foods:
+            resolved[ingredientId] = (curated, "curated")
+            continue
+        settled = settle(name, foods)
+        resolved[ingredientId] = (settled, "rule") if settled is not None else (None, None)
+    return resolved
+
+
+def mappingForTable(table, foods, rules, picks):
+    """{name: fdcId} for every row with a food, in the shape nutrition.choose takes."""
+    resolved = resolveTable(table, foods, rules, picks)
+    return {table.rows[i]["name"]: fdcId for i, (fdcId, _) in resolved.items() if fdcId is not None}
+
+
+def syncList(table, resolved):
+    """The mappings to send the server: only rows whose stored (fdcId, fdcFrom) differ.
+
+    A row stored as owner is never listed unless the resolved choice is the owner's too.
+    """
+    out = []
+    for ingredientId, (fdcId, source) in resolved.items():
+        row = table.rows[ingredientId]
+        if (row.get("fdcId"), row.get("fdcFrom")) == (fdcId, source):
+            continue
+        if row.get("fdcFrom") == "owner" and source != "owner":
+            continue
+        out.append({"ingredientId": ingredientId, "fdcId": fdcId, "from": source})
+    return out
+
+
 def loadPicks():
     return store.readJson(config.FDC_PICKS_FILE, {}) or {}
 

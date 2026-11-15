@@ -73,3 +73,90 @@ def test_simultaneous_picks_all_survive():
     for t in threads:
         t.join()
     assert sorted(fdcMatch.loadPicks()) == sorted(names)
+
+
+# --- per ingredient row (resolveTable / mappingForTable / syncList) ---
+
+def _table(*rows):
+    """A server-shaped table; rows are (name, fdcId, fdcFrom)."""
+    import matching
+    payload = {"ingredients": [{"id": i, "name": n, "parentId": None, "category": None, "contains": [],
+                                "fdcId": f, "fdcFrom": s} for i, (n, f, s) in enumerate(rows, start=1)],
+               "aliases": []}
+    return matching.IngredientTable.fromServer(payload, set())
+
+
+def test_file_pick_beats_db_owner_row(foods):
+    table = _table(("onion", 900003, "owner"))
+    assert fdcMatch.resolveTable(table, foods, {}, {"onion": 900001}) == {1: (900001, "owner")}
+    assert fdcMatch.resolveTable(table, foods, {}, {"onion": None}) == {1: (None, "owner")}
+
+
+def test_db_owner_row_beats_curated(foods):
+    table = _table(("onion", 900003, "owner"))
+    rules = {"fdcMap": {"onion": {"fdcId": 900005}}}
+    assert fdcMatch.resolveTable(table, foods, rules, {}) == {1: (900003, "owner")}
+
+
+def test_db_owner_none_means_no_mapping_and_nothing_sent(foods):
+    table = _table(("onion", None, "owner"))
+    resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
+    assert resolved == {1: (None, "owner")}
+    assert fdcMatch.mappingForTable(table, foods, {}, {}) == {}
+    assert fdcMatch.syncList(table, resolved) == []
+
+
+def test_owner_id_missing_from_foods_falls_through_but_owner_row_is_kept(foods):
+    table = _table(("onion", 1, "owner"))
+    resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
+    assert resolved == {1: (900005, "curated")}
+    assert fdcMatch.syncList(table, resolved) == []
+
+
+def test_curated_beats_settled_and_is_sent_as_curated(foods):
+    table = _table(("onion", None, None))
+    resolved = fdcMatch.resolveTable(table, foods, {"fdcMap": {"onion": {"fdcId": 900005}}}, {})
+    assert resolved == {1: (900005, "curated")}
+    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": 900005, "from": "curated"}]
+
+
+def test_settled_match_is_a_rule_row(foods):
+    table = _table(("onion", None, None))
+    resolved = fdcMatch.resolveTable(table, foods, {}, {})
+    assert resolved == {1: (900001, "rule")}
+    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": 900001, "from": "rule"}]
+
+
+def test_stored_rule_row_that_no_longer_settles_is_cleared(foods):
+    table = _table(("dragonfruit", 900001, "rule"))
+    resolved = fdcMatch.resolveTable(table, foods, {}, {})
+    assert resolved == {1: (None, None)}
+    assert fdcMatch.syncList(table, resolved) == [{"ingredientId": 1, "fdcId": None, "from": None}]
+
+
+def test_unchanged_row_is_not_sent(foods):
+    table = _table(("onion", 900001, "rule"))
+    assert fdcMatch.syncList(table, fdcMatch.resolveTable(table, foods, {}, {})) == []
+
+
+def test_sync_never_overwrites_a_stored_owner_row(foods):
+    table = _table(("onion", 900003, "owner"))
+    assert fdcMatch.syncList(table, {1: (900001, "rule")}) == []
+    assert fdcMatch.syncList(table, {1: (None, None)}) == []
+    assert fdcMatch.syncList(table, {1: (900001, "owner")}) == [{"ingredientId": 1, "fdcId": 900001, "from": "owner"}]
+
+
+def test_seed_rows_carry_no_fdc_id():
+    import matching
+    table = matching.IngredientTable.fromSeed([{"name": "onion"}], set())
+    assert table.rows[1]["fdcId"] is None and table.rows[1]["fdcFrom"] is None
+
+
+def test_mapping_for_table_matches_mapping_for_on_a_seed_table(foods):
+    import matching
+    table = matching.IngredientTable.fromSeed([{"name": "onion"}, {"name": "egg"}, {"name": "dragonfruit"}], set())
+    rules = {"fdcMap": {"egg": {"fdcId": 900003}}}
+    names = [r["name"] for r in table.rows.values()]
+    assert fdcMatch.mappingForTable(table, foods, rules, {}) == fdcMatch.mappingFor(names, foods, rules, {})
+    picks = {"onion": None, "egg": 900001}
+    assert fdcMatch.mappingForTable(table, foods, rules, picks) == fdcMatch.mappingFor(names, foods, rules, picks)

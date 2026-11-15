@@ -47,7 +47,7 @@ def run(pages=200, log=print, today=None, crawl=True):
     table = matching.IngredientTable.fromSeed(rules["ingredients"], set(rules["prepWords"]),
                                               set(rules["modifierWords"]))
     foods = fdc.loadFoods()
-    mapping = fdcMatch.mappingFor([row["name"] for row in table.rows.values()], foods, rules, fdcMatch.loadPicks())
+    mapping = fdcMatch.mappingForTable(table, foods, rules, fdcMatch.loadPicks())
     log(f"FDC: {len(foods)} foods, {len(mapping)} ingredients mapped")
     if not foods:
         log("warning: no FDC foods found, so no recipe gets an estimate; import the USDA files first")
