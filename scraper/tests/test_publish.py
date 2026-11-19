@@ -171,6 +171,15 @@ def test_aSiteRecipeCarriesDescriptionHiddenReasonWidthAndNutrition():
     assert publish.payloadFor(siteRecipe(flagged=True))["contentHash"] != payload["contentHash"]
 
 
+def test_servingsFromAPieceCountArePublishedAsTheSources():
+    # "yield" (servings read from "makes 24 cookies") is the scraper's own word for the nutrition range;
+    # plutus takes servingsFrom as source, rule or null and refused the whole recipe for "yield" (2026-11-19).
+    r = siteRecipe()
+    r.servings, r.servingsFrom = 24, "yield"
+    assert publish.payloadFor(r)["servingsFrom"] == "source"
+    assert r.servingsFrom == "yield"
+
+
 def test_nutritionWithoutCaloriesIsLeftOutAndMissingNutrientsAreNone():
     assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition=None))
     assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition={"proteinG": 3.0}))

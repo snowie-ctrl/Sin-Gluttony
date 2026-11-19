@@ -63,7 +63,10 @@ def payloadFor(recipe):
     payload = {
         "key": recipe.key, "source": recipe.source, "sourceId": recipe.sourceId, "kind": recipe.kind,
         "title": recipe.title, "dishKey": recipe.dishKey, "course": recipe.course, "cuisine": recipe.cuisine,
-        "servings": recipe.servings, "servingsFrom": recipe.servingsFrom, "prepMinutes": recipe.prepMinutes,
+        # "yield" (a piece count) is the scraper's own word for the nutrition range; to plutus it is the source's
+        "servings": recipe.servings,
+        "servingsFrom": "source" if recipe.servingsFrom == "yield" else recipe.servingsFrom,
+        "prepMinutes": recipe.prepMinutes,
         "cookMinutes": recipe.cookMinutes, "totalMinutes": recipe.totalMinutes, "timeFrom": recipe.timeFrom,
         "difficulty": recipe.difficulty, "difficultyFrom": recipe.difficultyFrom, "alcohol": recipe.alcohol,
         "glass": recipe.glass, "imagePath": recipe.imagePath, "imageCredit": recipe.imageCredit,
