@@ -210,3 +210,22 @@ def test_aDiffordsShapedRecipeGetsItsTechniqueTagFromTheKeyDiffordSets():
     assert (r.totalMinutes, r.timeFrom, r.servings, r.servingsFrom) == (4, "rule", 1, "rule")
     plain = tagging.tagRecipe(recipe(kind="drink", ingredients=("gin",)), TABLE, RULES)
     assert not [t for t in plain.tags if t["type"] == "technique"]
+
+
+def test_aSiteRecipesCourseHintFillsTheGap():
+    side = tagging.tagRecipe(recipe(source="othersite", hints={"course": "side"}), TABLE, RULES)
+    assert side.course == "side"
+    shake = tagging.tagRecipe(recipe(source="othersite", kind="drink", ingredients=("milk",),
+                                     hints={"course": "shake"}), TABLE, RULES)
+    assert shake.course == "shake"
+
+
+def test_aPerSourceMapWinsOverTheHint():
+    meal = tagging.tagRecipe(recipe(hints={"category": "Dessert", "course": "main"}), TABLE, RULES)
+    assert meal.course == "dessert"
+
+
+def test_aHintThatDoesNotFitTheKindIsDropped():
+    drink = tagging.tagRecipe(recipe(source="othersite", kind="drink", ingredients=("orange juice",),
+                                     hints={"course": "dessert"}), TABLE, RULES)
+    assert drink.course == "mocktail"

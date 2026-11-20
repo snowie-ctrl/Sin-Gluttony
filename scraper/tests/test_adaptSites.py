@@ -13,9 +13,16 @@ DRINK = dict(FOOD, site="testdrinks", parser="difford", kind="drink")
 
 
 def test_eachSitesParserIsUsed(monkeypatch):
+    from models import IngredientLine, Recipe, Step
     calls = []
-    monkeypatch.setattr(schemaSite, "extractSchema", lambda html, url, site, units: calls.append(("schema", url)))
-    monkeypatch.setattr(difford, "extractDifford", lambda html, url, site, units, rules: calls.append(("difford", url)))
+    def fake(name):
+        def parse(html, url, site, *rest):
+            calls.append((name, url))
+            return Recipe(source=site["site"], sourceId="x", kind=site["kind"], title="Made-up",
+                          ingredients=[IngredientLine(line="salt", name="salt")], steps=[Step(text="Mix.")])
+        return parse
+    monkeypatch.setattr(schemaSite, "extractSchema", fake("schema"))
+    monkeypatch.setattr(difford, "extractDifford", fake("difford"))
     adaptSites.adaptPage(FOOD, "https://x.test/a/", "<html>", RULES)
     adaptSites.adaptPage(DRINK, "https://x.test/b/", "<html>", RULES)
     assert calls == [("schema", "https://x.test/a/"), ("difford", "https://x.test/b/")]
@@ -59,3 +66,25 @@ def test_corruptCacheEntriesAreSkippedAndTheRestStillAdapt():
     (folder / "listy.json").write_text('["not", "an", "object"]', encoding="utf-8")
     recipes, skipped = adaptSites.adaptCached([FOOD], RULES)
     assert [r.title for r in recipes] == ["Made-up Lemon Test Chicken"]
+
+
+def test_aFoodSitesDrinkPageIsReadAsADrinkWithItsCourse(monkeypatch):
+    from models import IngredientLine, Recipe, Step
+    def page(html, url, site, units):
+        return Recipe(source=site["site"], sourceId="x", kind=site["kind"], title="Made-up mango lassi",
+                      ingredients=[IngredientLine(line="1 mango", name="mango")], steps=[Step(text="Blend.")],
+                      hints={"category": "Drink"})
+    monkeypatch.setattr(schemaSite, "extractSchema", page)
+    recipe = adaptSites.adaptPage(FOOD, "https://x.test/a/", "<html>", RULES)
+    assert (recipe.kind, recipe.hints["course"]) == ("drink", "shake")
+
+
+def test_aFoodPageGetsItsCourseHint(monkeypatch):
+    from models import IngredientLine, Recipe, Step
+    def page(html, url, site, units):
+        return Recipe(source=site["site"], sourceId="x", kind=site["kind"], title="Made-up slaw",
+                      ingredients=[IngredientLine(line="1 cabbage", name="cabbage")], steps=[Step(text="Shred.")],
+                      hints={"category": "Dinner, Side dish"})
+    monkeypatch.setattr(schemaSite, "extractSchema", page)
+    recipe = adaptSites.adaptPage(FOOD, "https://x.test/a/", "<html>", RULES)
+    assert (recipe.kind, recipe.hints["course"]) == ("food", "side")

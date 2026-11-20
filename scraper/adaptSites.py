@@ -5,14 +5,18 @@ Like pipeline.normaliseAll for the part 1 sources: one bad page never stops
 the rest, and every page that gives no recipe is recorded with its reason.
 """
 import pagecache
+import siteCourse
 from models import Skipped
 from sources import difford, schemaSite
 
 
 def adaptPage(site, url, html, rules):
     if site["parser"] == "difford":
-        return difford.extractDifford(html, url, site, rules["unitMap"], rules)
-    return schemaSite.extractSchema(html, url, site, rules["unitMap"])
+        recipe = difford.extractDifford(html, url, site, rules["unitMap"], rules)
+    else:
+        recipe = schemaSite.extractSchema(html, url, site, rules["unitMap"])
+    # The site's own category decides a drink on a food site and the course, before anything is tagged.
+    return siteCourse.classify(recipe, rules["siteCourses"])
 
 
 def adaptCached(siteList, rules):

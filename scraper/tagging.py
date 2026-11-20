@@ -126,8 +126,10 @@ def applyCuisine(recipe, rules):
 
 
 def applyCourse(recipe, rules):
-    # rules/courses.json maps a source's own category to a course, per source ({source: {category: course}}).
-    mapped = rules["courses"].get(recipe.source, {}).get((recipe.hints.get("category") or "").lower())
+    # rules/courses.json maps a source's own category to a course, per source ({source: {category: course}}); a
+    # recipe-site page carries its course as a hint from siteCourse.classify, used when no map applies.
+    mapped = (rules["courses"].get(recipe.source, {}).get((recipe.hints.get("category") or "").lower())
+              or recipe.hints.get("course"))
     fits = _DRINK_COURSES if recipe.kind == "drink" else _FOOD_COURSES
     course = mapped if mapped in fits else None     # a course that does not fit the kind is a mis-categorised page
     if recipe.kind == "drink":
