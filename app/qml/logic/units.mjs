@@ -173,6 +173,12 @@ const NUMBER = String.raw`[\d½⅓⅔¼¾⅛⅜⅝⅞][\d.,/½⅓⅔¼¾⅛⅜�
 const AMOUNT = new RegExp(String.raw`^(?:about\s+|approx\.?\s+)?` + NUMBER
                           + String.raw`(?:\s*(?:–|-|to)\s*(?=[\d½⅓⅔¼¾⅛⅜⅝⅞])` + NUMBER + String.raw`)?\s*`, "i")
 
+// A second amount after a slash, as BBC Good Food writes them ("200g/7oz plain flour" → "/7oz "): a number, then a
+// unit, as a whole word.
+const SLASHED_AMOUNT = new RegExp(String.raw`^/\s*` + NUMBER + String.raw`\s*(?:`
+                                  + UNIT_WORDS.map(word => word.replace(/\./g, String.raw`\.`)).join("|")
+                                  + String.raw`)(?![a-z])\s*`, "i")
+
 // What follows a line's amount and unit ("1.5kg chicken thighs" → "chicken thighs"), or null when the line does
 // not start with its amount ("Juice of 1 lemon").
 export function restOf(line) {
@@ -208,7 +214,7 @@ export function lineText(ingredient, by, system, kind) {
     const amount = amountText(ingredient, by, system, kind)
     // The line's own second amount ("1 cup (240 ml)") no longer matches the one shown, so it goes, unless it is a
     // package size.
-    const alternate = rest.match(ALTERNATE_AMOUNT)
+    const alternate = rest.match(ALTERNATE_AMOUNT) || rest.match(SLASHED_AMOUNT)
     const isPackage = CONTAINERS.includes(ingredient.unit)
         || (alternate && CONTAINERS.includes(rest.slice(alternate[0].length).split(/[\s,]/)[0].toLowerCase()))
     const dropped = alternate && !isPackage
