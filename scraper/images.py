@@ -11,12 +11,10 @@ from PIL import Image, UnidentifiedImageError
 import config
 import net
 import store
-from sources import wikiImages
 
 LARGE = 1200
 THUMB = 400
 QUALITY = 85
-OLD_SOURCES = config.OLD_SOURCES
 
 
 def imageName(url):
@@ -66,39 +64,20 @@ def _width(name, index):
     return widths.get(name)
 
 
-def _source(recipe, index, allowDownload):
+def _source(recipe):
     """(address, credit) of a recipe's picture, or None."""
-    if recipe.imageUrl is not None:
-        return (recipe.imageUrl, recipe.imageCredit) if recipe.imageUrl else None
-    fileName = recipe.hints.get("imageFile")
-    if not fileName:
-        return None
-    key = f"file:{fileName}"
-    saved = index["files"].get(key)
-    # An original's address was saved before Wikimedia began refusing them;
-    # one whose picture was never made is asked about again.
-    stale = bool(saved and saved.get("url") and wikiImages.isOriginal(saved["url"])
-                 and not _made(imageName(saved["url"])))
-    if key not in index["files"] or stale:
-        if not allowDownload:
-            return None
-        try:
-            # None is remembered too, so a missing file isn't asked about every week.
-            index["files"][key] = wikiImages.imageInfo(fileName)
-        except net.HttpError:
-            return None
-    info = index["files"][key]
-    return (info["url"], info["credit"]) if info and info["url"] else None
+    return (recipe.imageUrl, recipe.imageCredit) if recipe.imageUrl else None
 
 
 def ensureImages(recipes, allowDownload, log=print, onProgress=None):
-    index = store.readJson(_indexPath(), None) or {"files": {}}
+    # The index keeps the pictures' widths. Any other key in it (an older index's "files") is written back as read.
+    index = store.readJson(_indexPath(), None) or {}
     made = failed = 0
     stops = {}
     for done, recipe in enumerate(recipes, start=1):
         if onProgress and done % 50 == 0:
             onProgress(done)
-        found = _source(recipe, index, allowDownload)
+        found = _source(recipe)
         if not found:
             continue
         url, credit = found
@@ -113,10 +92,7 @@ def ensureImages(recipes, allowDownload, log=print, onProgress=None):
                 continue
             if not original.exists():
                 try:
-                    if recipe.source in OLD_SOURCES:
-                        got = net.download(url, original)
-                    else:
-                        got = net.download(url, original, refusals=True)
+                    got = net.download(url, original, refusals=True)
                 except net.HttpError as e:
                     got = False
                     if e.status == 403:

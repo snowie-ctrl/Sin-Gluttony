@@ -6,12 +6,15 @@ import tagging
 from models import IngredientLine, Recipe, Step
 
 RULES = rulesData.load()
+# rules/courses.json maps a source's own categories to courses, per source; a made-up site's map for these tests.
+RULES["courses"] = {"madeupsite": {"dessert": "dessert", "breakfast": "breakfast", "beef": "main", "chicken": "main",
+                                   "cocktail": "cocktail", "ordinary drink": "cocktail"}}
 PREP = set(RULES["prepWords"])
 TABLE = matching.IngredientTable.fromSeed(RULES["ingredients"], PREP)
 
 
 def recipe(steps=("Cook.",), ingredients=("salt",), **fields):
-    base = dict(source="wikibooks", sourceId="x", kind="food", title="Thing",
+    base = dict(source="madeupsite", sourceId="x", kind="food", title="Thing",
                 ingredients=[IngredientLine(line=i, name=i) for i in ingredients],
                 steps=[Step(text=s) for s in steps])
     base.update(fields)
@@ -78,12 +81,12 @@ def test_aTimeOverAWeekIsUnknown():
 
 
 def test_aDrinkWithNoDurationsTakesAboutFiveMinutes():
-    r = tagging.tagRecipe(recipe(kind="drink", source="cocktaildb", steps=("Shake.",), ingredients=("gin",)),
+    r = tagging.tagRecipe(recipe(kind="drink", steps=("Shake.",), ingredients=("gin",)),
                           TABLE, RULES)
     assert (r.totalMinutes, r.timeFrom) == (5, "rule")
 
 
-def test_difficultyFromTheWikibooksRatingOrTheScore():
+def test_difficultyFromAStatedRatingOrTheScore():
     assert [tagging.difficultyFromRating(n) for n in (1, 2, 3, 4, 5)] == [1, 1, 2, 3, 3]
     rated = tagging.tagRecipe(recipe(hints={"difficultyRating": 4}), TABLE, RULES)
     assert (rated.difficulty, rated.difficultyFrom) == (3, "source")
@@ -93,32 +96,30 @@ def test_difficultyFromTheWikibooksRatingOrTheScore():
     assert tagging.tagRecipe(long, TABLE, RULES).difficulty == 3
 
 
-def test_courseAndCuisineComeFromSourceCategories():
-    meal = tagging.tagRecipe(recipe(source="mealdb", hints={"category": "Dessert", "area": "Japanese"}), TABLE, RULES)
+def test_courseAndCuisineComeFromTheSourcesCategoryAndCuisine():
+    meal = tagging.tagRecipe(recipe(hints={"category": "Dessert", "cuisineText": "Japanese"}), TABLE, RULES)
     assert (meal.course, meal.cuisine) == ("dessert", "Japanese")
-    page = tagging.tagRecipe(recipe(hints={"categories": ["Soup recipes", "Thai recipes"]}), TABLE, RULES)
-    assert (page.course, page.cuisine) == ("main", "Thai")
-    unknown = tagging.tagRecipe(recipe(source="mealdb", hints={"area": "Unknown"}), TABLE, RULES)
+    unmapped = tagging.tagRecipe(recipe(source="othersite", hints={"category": "Dessert"}), TABLE, RULES)
+    assert unmapped.course is None          # no course map for that source
+    unknown = tagging.tagRecipe(recipe(hints={"cuisineText": "Unknown"}), TABLE, RULES)
     assert unknown.cuisine is None
 
 
 def test_aCourseThatDoesNotFitTheKindIsDropped():
-    drink = tagging.tagRecipe(recipe(kind="drink", ingredients=("orange juice",),
-                                     hints={"categories": ["Dessert recipes"]}), TABLE, RULES)
+    drink = tagging.tagRecipe(recipe(kind="drink", ingredients=("orange juice",), hints={"category": "Dessert"}),
+                              TABLE, RULES)
     assert drink.course == "mocktail"
-    food = tagging.tagRecipe(recipe(hints={"categories": ["Cocktail recipes"]}), TABLE, RULES)
+    food = tagging.tagRecipe(recipe(hints={"category": "Cocktail"}), TABLE, RULES)
     assert food.course is None
-    both = tagging.tagRecipe(recipe(hints={"categories": ["Cocktail recipes", "Dessert recipes"]}), TABLE, RULES)
-    assert both.course == "dessert"
 
 
 def test_aNonAlcoholicCocktailIsAMocktail():
-    r = tagging.tagRecipe(recipe(source="cocktaildb", kind="drink", alcohol="non-alcoholic",
+    r = tagging.tagRecipe(recipe(kind="drink", alcohol="non-alcoholic",
                                  hints={"category": "Ordinary Drink"}, ingredients=("lime juice",)), TABLE, RULES)
     assert r.course == "mocktail"
 
 
-def test_aWikibooksDrinksAlcoholComesFromItsIngredients():
+def test_aDrinksAlcoholComesFromItsIngredients():
     boozy = tagging.tagRecipe(recipe(kind="drink", ingredients=("vodka", "orange juice")), TABLE, RULES)
     assert (boozy.alcohol, boozy.course) == ("alcoholic", "cocktail")
     soft = tagging.tagRecipe(recipe(kind="drink", ingredients=("orange juice", "soda water")), TABLE, RULES)
@@ -130,12 +131,12 @@ def flavours(r):
 
 
 def test_flavourRules():
-    spicy = tagging.tagRecipe(recipe(ingredients=("chicken", "jalapeno"), hints={"category": "Chicken"},
-                                     source="mealdb"), TABLE, RULES)
+    spicy = tagging.tagRecipe(recipe(ingredients=("chicken", "jalapeno"), hints={"category": "Chicken"}),
+                          TABLE, RULES)
     assert flavours(spicy) == {"spicy": "rule", "savoury": "rule"}
     sweet = tagging.tagRecipe(recipe(ingredients=("flour", "sugar", "butter"), hints={"categories": []}), TABLE, RULES)
     assert "sweet" in flavours(sweet) and "savoury" not in flavours(sweet)
-    tagged = tagging.tagRecipe(recipe(source="mealdb", hints={"tags": ["Spicy"], "category": "Beef"}), TABLE, RULES)
+    tagged = tagging.tagRecipe(recipe(hints={"tags": ["Spicy"], "category": "Beef"}), TABLE, RULES)
     assert flavours(tagged)["spicy"] == "source"
 
 
@@ -144,12 +145,12 @@ def occasions(r):
 
 
 def test_occasionRules():
-    weeknight = tagging.tagRecipe(recipe(source="mealdb", hints={"category": "Beef"}, steps=("Fry 20 minutes.",)),
+    weeknight = tagging.tagRecipe(recipe(hints={"category": "Beef"}, steps=("Fry 20 minutes.",)),
                                   TABLE, RULES)
     assert "weeknight" in occasions(weeknight)
     party = tagging.tagRecipe(recipe(servings=10, hints={"categories": ["Christmas recipes"]}), TABLE, RULES)
     assert occasions(party) >= {"party", "holiday"}
-    brunch = tagging.tagRecipe(recipe(source="mealdb", hints={"category": "Breakfast"}), TABLE, RULES)
+    brunch = tagging.tagRecipe(recipe(hints={"category": "Breakfast"}), TABLE, RULES)
     assert "brunch" in occasions(brunch)
 
 
@@ -161,12 +162,12 @@ def test_holidayNeedsWholeWords():
 
 
 def test_sourceTagsAreKeptOnceEach():
-    r = tagging.tagRecipe(recipe(source="mealdb", hints={"tags": ["Meat", "meat", "Casserole"]}), TABLE, RULES)
+    r = tagging.tagRecipe(recipe(hints={"tags": ["Meat", "meat", "Casserole"]}), TABLE, RULES)
     assert [t["tag"] for t in r.tags if t["type"] == "source"] == ["Meat", "Casserole"]
 
 
 def test_blankSourceTagsAreSkipped():
-    r = tagging.tagRecipe(recipe(source="mealdb", hints={"tags": [" Meat ", "  ", "meat"]}), TABLE, RULES)
+    r = tagging.tagRecipe(recipe(hints={"tags": [" Meat ", "  ", "meat"]}), TABLE, RULES)
     assert [t["tag"] for t in r.tags if t["type"] == "source"] == ["Meat"]
 
 
@@ -207,5 +208,5 @@ def test_aDiffordsShapedRecipeGetsItsTechniqueTagFromTheKeyDiffordSets():
                                  hints={"method": "stirred", "category": "Cocktail"}), TABLE, RULES)
     assert [t["tag"] for t in r.tags if t["type"] == "technique"] == ["stirred"]
     assert (r.totalMinutes, r.timeFrom, r.servings, r.servingsFrom) == (4, "rule", 1, "rule")
-    plain = tagging.tagRecipe(recipe(kind="drink", source="cocktaildb", ingredients=("gin",)), TABLE, RULES)
+    plain = tagging.tagRecipe(recipe(kind="drink", ingredients=("gin",)), TABLE, RULES)
     assert not [t for t in plain.tags if t["type"] == "technique"]

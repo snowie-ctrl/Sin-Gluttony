@@ -1,26 +1,23 @@
 """
-One pass of the scraper: fetch (full passes only) -> normalise -> pictures ->
-tag -> link -> publish. A re-tag runs everything after fetch over the raw
-copies already on the VM, with no new downloads and no removals, so a rule
-change can be applied in minutes. A stop is honoured between stages, never
-once publishing has started.
+One pass of the scraper over the recipe sites in rules/sites.json: crawl (full
+passes only) -> read the cached pages -> pictures -> tag, nutrition, gate,
+basics -> site health -> publish with site removals. A re-tag runs everything
+after the crawl over the pages already cached on the VM, with no new downloads
+and no removals, so a rule change can be applied in minutes. A stop is
+honoured between stages, never once publishing has started.
 
-CATALOG picks the body: "old" is the pass above over TheMealDB, TheCocktailDB
-and Wikibooks; "new" is runSitesPass over the recipe sites (crawl -> read ->
-pictures -> tag, nutrition, gate, basics -> site health -> publish with site
-removals). The recipe-site modules that need recipe-scrapers are imported
-only inside runSitesPass, so an old-catalog VM never needs it.
+The old catalog (TheMealDB, TheCocktailDB, Wikibooks) was retired at the
+catalog switch; main.py refuses CATALOG=old before a pass can start.
 """
 import time
 import traceback
 from datetime import datetime, timezone
 
-import adaptTheDb
-import adaptWikibooks
+import adaptSites
 import adminApi
 import basics
-import calibration
 import config
+import dryrun
 import fdc
 import fdcMatch
 import gate
@@ -36,35 +33,13 @@ import rulesData
 import siteHealth
 import store
 import tagging
-from models import Skipped
-from sources import sites, thedb, wikibooks
+from sources import sites
 
 FDC_CHUNK = 5000        # FDC mappings sent to plutus per request
-ADAPTERS = {"mealdb": adaptTheDb.adaptMeal, "cocktaildb": adaptTheDb.adaptDrink, "wikibooks": adaptWikibooks.adaptPage}
 
 
 class Stopped(Exception):
     pass
-
-
-def normaliseAll(fetchResults, units):
-    recipes, skipped = [], []
-    for source, result in sorted(fetchResults.items()):
-        adapt = ADAPTERS[source]
-        for sourceId in result.get("ids", []):
-            key = f"{source}:{sourceId}"
-            raw = store.readJson(store.rawPath(source, sourceId))
-            if raw is None:
-                skipped.append({"key": key, "title": sourceId, "reason": "raw record missing", "detail": None})
-                continue
-            try:
-                recipes.append(adapt(raw, units))
-            except Skipped as s:
-                skipped.append({"key": key, "title": sourceId, "reason": s.reason, "detail": None})
-            except Exception as e:      # one bad record never stops the pass
-                skipped.append({"key": key, "title": sourceId, "reason": "could not be read",
-                                "detail": f"{type(e).__name__}: {e}"[:200]})
-    return recipes, skipped
 
 
 def loadTable(rules, log=print):
@@ -79,73 +54,13 @@ def loadTable(rules, log=print):
     return matching.IngredientTable.fromSeed(rules["ingredients"], prep, modifiers)
 
 
-def _fetch(previous, log, stage):
-    results = {}
-    for db, label in ((thedb.MEALDB, "TheMealDB"), (thedb.COCKTAILDB, "TheCocktailDB")):
-        stage("fetch", label)
-        results[db.source] = thedb.fetchSource(db, previous.get(db.source), log)
-    stage("fetch", "Wikibooks")
-    results["wikibooks"] = wikibooks.fetch(previous.get("wikibooks"), log)
-    store.writeJson(config.FETCH_FILE, results)
-    return results
-
-
-
-
-def _runOldPass(mode, log, stage, checkStop, images, result):
-    """CATALOG=old: TheMealDB, TheCocktailDB and Wikibooks, as before the recipe sites."""
-    rules = rulesData.load()
-    previous = store.readJson(config.FETCH_FILE, {}) or {}
-    fetched = _fetch(previous, log, stage) if mode == "full" else previous
-    result["sources"] = {s: {"ok": r.get("ok", False), "records": len(r.get("ids", [])), "error": r.get("error")}
-                         for s, r in fetched.items()}
-    checkStop()
-
-    stage("normalise")
-    recipes, skipped = normaliseAll(fetched, rules["unitMap"])
-    result["recipes"] = len(recipes)
-    result.update(reports.summariseSkipped(skipped))
-    checkStop()
-
-    if images:
-        stage("images")
-        result["images"] = images_.ensureImages(recipes, allowDownload=(mode == "full"), log=log,
-                                                onProgress=lambda done: stage("images", f"{done} of {len(recipes)}"))
-    checkStop()
-
-    stage("tag")
-    table = loadTable(rules, log)
-    for recipe in recipes:
-        tagging.tagRecipe(recipe, table, rules)
-        recipe.dishKey = linking.dishKey(recipe.title, set(rules["fillerWords"]))
-    store.writeLines(config.NORMALISED_FILE, (r.toDict() for r in recipes))
-    result["unknownIngredients"] = reports.unknownIngredients(recipes)
-    result["calibration"] = calibration.calibrate(recipes, rules)
-    checkStop()
-
-    stage("publish")
-    state = store.readJson(config.STATE_FILE, {}) or {}
-    summary = publish.publish(recipes, fetched if mode == "full" else {}, state.get("counts", {}), log)
-    result["publish"] = summary
-    if mode == "full":
-        counts = state.get("counts", {})
-        for source, fetchedSource in fetched.items():
-            if fetchedSource.get("ok") and source not in summary["guarded"]:
-                counts[source] = len(fetchedSource.get("ids", []))
-        state["counts"] = counts
-        store.writeJson(config.STATE_FILE, state)
-
-
 def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, result=None, stage=None):
     """
-    CATALOG=new: the recipe sites in rules/sites.json. crawl (full passes only; `site` limits it to one site)
+    The recipe sites in rules/sites.json. crawl (full passes only; `site` limits it to one site)
     -> read the cached pages -> pictures -> tag, FDC mappings, nutrition, the gate, then the basics -> site
     health -> publish with the site removals. A re-tag crawls nothing, so it removes nothing. Fills and
     returns `result`; raises Stopped when the owner stops the pass before publishing.
     """
-    import adaptSites   # here, not at the top: only the recipe sites need recipe-scrapers (CATALOG=old never does)
-    import dryrun
-
     stopRequested = stopRequested or (lambda: False)
     result = {"mode": mode} if result is None else result
     started = result.setdefault("startedAt", time.time())
@@ -225,10 +140,10 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     siteCounts = state.get("siteCounts", {})
     publishedKeys = list(publish.publishedState(config.PUBLISH != "on"))
     removals = publish.siteRemovals(publishedKeys, crawled, siteCounts, config.REMOVAL_GUARD)
-    summary = result["publish"] = publish.publish(recipes, {}, {}, log, removals=removals)
+    summary = result["publish"] = publish.publish(recipes, log, removals=removals)
     if mode == "full":
         # The baseline the next pass's guard compares against: a complete, non-empty listing the guard let through.
-        # A guarded or empty listing never becomes it, so a shrink stays held back pass after pass (as the old pass).
+        # A guarded or empty listing never becomes it, so a shrink stays held back pass after pass.
         guarded = set(summary.get("guarded", []))
         for name, crawlResult in crawled.items():
             if crawlResult.get("complete") and crawlResult.get("listed", 0) > 0 and name not in guarded:
@@ -239,27 +154,17 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
 
 
 def runPass(mode, log=print, stopRequested=None, images=True, site=None):
-    """One pass: the old catalog or the recipe sites, by config.CATALOG. site (one recipe site) is for CATALOG=new."""
-    stopRequested = stopRequested or (lambda: False)
+    """One pass over the recipe sites; site limits a full pass to that one recipe site."""
     started = time.time()
-    result = {"mode": mode, "startedAt": started, "outcome": "ok", "error": None}
-    if config.CATALOG == "new":
-        result["catalog"] = "new"
-        if site:
-            result["site"] = site
+    result = {"mode": mode, "startedAt": started, "outcome": "ok", "error": None, "catalog": "new"}
+    if site:
+        result["site"] = site
 
     def stage(name, detail=""):
         progress.stage(mode, name, detail, started)
 
-    def checkStop():
-        if stopRequested():
-            raise Stopped()
-
     try:
-        if config.CATALOG == "new":
-            runSitesPass(mode, log, stopRequested, images, site, result=result, stage=stage)
-        else:
-            _runOldPass(mode, log, stage, checkStop, images, result)
+        runSitesPass(mode, log, stopRequested, images, site, result=result, stage=stage)
     except Stopped:
         result["outcome"] = "stopped"
     except Exception as e:

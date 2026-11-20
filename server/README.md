@@ -254,4 +254,5 @@ and release the app build (its Quick fix sends `occasion=basic`).
 
 **Undo:** stop the weekly loop, then restore the dump (`sudo mysql gluttonyDB < ~/gluttonyDB-before-switch-<date>.sql`)
 and, if pictures changed, the copy of `/pool/appFiles/gluttony`. The VM goes back to `CATALOG=old` until the switch is
-tried again.
+tried again. Once step 6 is merged the scraper refuses `CATALOG=old`, so an undo after that also puts the scraper from
+before the merge back on the VM (`git revert -m 1` of the merge on `main`, then copy it over).

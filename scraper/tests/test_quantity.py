@@ -40,21 +40,6 @@ def test_parseLineSplitsAmountUnitNameAndNotes(line, qty, qtyMax, unit, name, no
     assert item.line == " ".join(line.split())
 
 
-@pytest.mark.parametrize("measure, expected", [
-    ("1/2 cup ", (0.5, None, "cup", None)),
-    ("1 1/2 oz", (1.5, None, "oz", None)),
-    ("Juice of 1", (None, None, None, "Juice of 1")),
-    ("To taste", (None, None, None, "To taste")),
-    ("Dash", (None, None, "dash", None)),
-    ("", (None, None, None, None)),
-    (None, (None, None, None, None)),
-    ("   ", (None, None, None, None)),
-    ("2 chopped", (2.0, None, None, "chopped")),
-])
-def test_parseMeasureHandlesTheDbsOddMeasures(measure, expected):
-    assert quantity.parseMeasure(measure, UNITS) == expected
-
-
 @pytest.mark.parametrize("line, qty, qtyMax, unit, name, note", [
     ("2 x 400g cans chopped tomatoes", 2.0, None, "can", "chopped tomatoes", "400g"),
     ("1 × 20g pack flat-leaf parsley", 1.0, None, "package", "flat-leaf parsley", "20g"),

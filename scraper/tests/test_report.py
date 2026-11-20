@@ -4,7 +4,7 @@ from models import IngredientLine, Recipe, Step
 
 
 def recipe(*unknown):
-    return Recipe(source="mealdb", sourceId="1", kind="food", title="x", steps=[Step(text="s")],
+    return Recipe(source="madeupsite", sourceId="1", kind="food", title="x", steps=[Step(text="s")],
                   ingredients=[IngredientLine(line=f"1 {u}", name=u, unknownName=u) for u in unknown])
 
 

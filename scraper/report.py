@@ -1,7 +1,7 @@
 """
-Each pass's report: counts per source, what was skipped and why, which
-unknown ingredients block the most recipes, how well the rules agree with
-Wikibooks, and what publishing did. The latest is run/last-report.json
+Each pass's report: counts per site, what was skipped and why, which
+unknown ingredients block the most recipes, the nutrition calibration, and
+what publishing did. The latest is run/last-report.json
 (Surrogate reads it); the last 30 stay in reports/; run/runs.jsonl keeps one
 line per pass.
 """

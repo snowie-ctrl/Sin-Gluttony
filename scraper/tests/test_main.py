@@ -68,16 +68,26 @@ def test_aRetagLeavesTheScheduleAlone(monkeypatch):
 
 
 def test_aOneSitePassPassesItsSiteAndLeavesTheScheduleAlone(monkeypatch):
-    monkeypatch.setattr(config, "CATALOG", "new")
     seen = fakePass(monkeypatch, "ok")
     main.runOnce("full", log=lambda *a: None, site="difford")
     assert seen["site"] == "difford" and store.readJson(config.STATE_FILE) == {}
 
 
-def test_underTheOldCatalogASiteNamedRunIsAnOrdinaryFullPass(monkeypatch):
-    fakePass(monkeypatch, "ok")
-    main.runOnce("full", log=lambda *a: None, site="difford")
-    assert store.readJson(config.STATE_FILE) == {"lastFullAt": 100.0}
+@pytest.mark.parametrize("catalog, message", [
+    ("old", "the old catalog was retired at the switch; set CATALOG=new"),
+    ("olde", "CATALOG='olde' is not a catalog; set CATALOG=new"),
+])
+def test_anyCatalogButNewIsRefusedBeforeAnythingRuns(monkeypatch, catalog, message):
+    monkeypatch.setattr(config, "CATALOG", catalog)
+    refuse = lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran under a retired catalog"))
+    for module, name in ((main, "acquireLock"), (main.progress, "idle"), (pipeline, "runPass"),
+                         (main.controlRequests, "take")):
+        monkeypatch.setattr(module, name, refuse)
+    for argv in (["--once", "full"], ["--dry-run"], []):
+        with pytest.raises(SystemExit) as stopped:
+            main.main(argv)
+        assert message in str(stopped.value.code)          # a message for SystemExit means exit status 1
+    assert not config.STATE_FILE.exists() and not config.CURRENT_FILE.exists()
 
 
 def test_noImagesSaysItIsNeverForPublishing(capsys):

@@ -7,11 +7,10 @@ import images
 import net
 import store
 from models import IngredientLine, Recipe, Step
-from sources import wikiImages
 
 
 def recipe(**fields):
-    base = dict(source="mealdb", sourceId="1", kind="food", title="x",
+    base = dict(source="madeupsite", sourceId="1", kind="food", title="x",
                 ingredients=[IngredientLine(line="salt", name="salt")], steps=[Step(text="Cook.")])
     base.update(fields)
     return Recipe(**base)
@@ -32,15 +31,15 @@ def fakeDownloads(monkeypatch, tmp_path, mode="RGB", size=(2400, 1600)):
 
 def test_aPictureIsDownloadedOnceAndResized(monkeypatch, tmp_path):
     calls = fakeDownloads(monkeypatch, tmp_path)
-    r = recipe(imageUrl="https://www.themealdb.com/images/a.jpg", imageCredit="TheMealDB")
+    r = recipe(imageUrl="https://www.example-recipes.test/a.jpg", imageCredit="Made-up Site")
     assert images.ensureImages([r], allowDownload=True, log=lambda *a: None) == {"made": 1, "failed": 0, "pictureStops": {}}
-    name = images.imageName("https://www.themealdb.com/images/a.jpg")
-    assert r.imagePath == name and r.imageCredit == "TheMealDB"
+    name = images.imageName("https://www.example-recipes.test/a.jpg")
+    assert r.imagePath == name and r.imageCredit == "Made-up Site"
     with Image.open(config.IMAGE_DIR / "images" / name) as large, Image.open(config.IMAGE_DIR / "thumbs" / name) as thumb:
         assert large.size == (1200, 800) and thumb.size == (400, 267) and large.format == "JPEG"
-    again = recipe(imageUrl="https://www.themealdb.com/images/a.jpg", imageCredit="TheMealDB")
+    again = recipe(imageUrl="https://www.example-recipes.test/a.jpg", imageCredit="Made-up Site")
     images.ensureImages([again], allowDownload=True, log=lambda *a: None)
-    assert calls == ["https://www.themealdb.com/images/a.jpg"] and again.imagePath == name
+    assert calls == ["https://www.example-recipes.test/a.jpg"] and again.imagePath == name
 
 
 def test_aTransparentPictureBecomesAJpeg(monkeypatch, tmp_path):
@@ -70,9 +69,8 @@ def test_aBrokenFileGivesNoPicture(monkeypatch):
 
 def test_aPictureWithoutAnAddressIsSkipped(monkeypatch, tmp_path):
     calls = fakeDownloads(monkeypatch, tmp_path)
-    monkeypatch.setattr(wikiImages, "imageInfo", lambda name: {"url": None, "credit": "x"})
     blankUrl = recipe(imageUrl="")
-    noAddress = recipe(source="wikibooks", sourceId="2", hints={"imageFile": "Gone.jpg"})
+    noAddress = recipe(sourceId="2", imageUrl=None)
     assert images.ensureImages([blankUrl, noAddress], allowDownload=True, log=lambda *a: None) == {"made": 0, "failed": 0, "pictureStops": {}}
     assert blankUrl.imagePath is None and noAddress.imagePath is None and calls == []
 
@@ -88,46 +86,14 @@ def test_aDecompressionBombGivesNoPicture(monkeypatch, tmp_path):
     assert not (config.IMAGE_DIR / "original" / images.imageName("https://x/bomb.jpg")[:-4]).exists()
 
 
-def test_aWikibooksFileIsLookedUpOnceEvenWhenMissing(monkeypatch, tmp_path):
+def test_anOlderIndexsOtherEntriesAreWrittenBackUntouched(monkeypatch, tmp_path):
     fakeDownloads(monkeypatch, tmp_path)
-    asked = []
-    def imageInfo(name):
-        asked.append(name)
-        return {"url": "https://upload.wikimedia.org/t.jpg", "credit": "Jo, CC BY-SA 4.0, via Wikimedia Commons"} \
-            if name == "Toast.jpg" else None
-    monkeypatch.setattr(wikiImages, "imageInfo", imageInfo)
-    found = recipe(source="wikibooks", hints={"imageFile": "Toast.jpg"})
-    missing = recipe(source="wikibooks", sourceId="2", hints={"imageFile": "Nope.jpg"})
-    images.ensureImages([found, missing], allowDownload=True, log=lambda *a: None)
-    images.ensureImages([recipe(source="wikibooks", sourceId="3", hints={"imageFile": "Nope.jpg"})],
-                        allowDownload=True, log=lambda *a: None)
-    assert found.imageCredit.startswith("Jo") and missing.imagePath is None
-    assert asked == ["Toast.jpg", "Nope.jpg"]
-
-
-def test_aSavedOriginalAddressIsAskedAgainUntilItsPictureIsMade(monkeypatch, tmp_path):
-    calls = fakeDownloads(monkeypatch, tmp_path)
-    original = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Old.jpg"
-    made = "https://upload.wikimedia.org/wikipedia/commons/c/cd/Kept.jpg"
-    thumb = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Old.jpg/500px-Old.jpg"
-    store.writeJson(config.IMAGE_DIR / "index.json", {"files": {
-        "file:Old.jpg": {"url": original, "credit": "Jo"},
-        "file:Kept.jpg": {"url": made, "credit": "Al"}}})
-    for folder in ("images", "thumbs"):
-        (config.IMAGE_DIR / folder).mkdir(parents=True, exist_ok=True)
-        (config.IMAGE_DIR / folder / images.imageName(made)).write_bytes(b"x")
-    asked = []
-    def imageInfo(name):
-        asked.append(name)
-        return {"url": thumb, "credit": "Jo"}
-    monkeypatch.setattr(wikiImages, "imageInfo", imageInfo)
-    old = recipe(source="wikibooks", hints={"imageFile": "Old.jpg"})
-    kept = recipe(source="wikibooks", sourceId="2", hints={"imageFile": "Kept.jpg"})
-    images.ensureImages([old, kept], allowDownload=False, log=lambda *a: None)
-    assert asked == []
-    images.ensureImages([old, kept], allowDownload=True, log=lambda *a: None)
-    assert asked == ["Old.jpg"] and calls == [thumb]
-    assert old.imagePath == images.imageName(thumb) and kept.imagePath == images.imageName(made)
+    older = {"file:Made-up.jpg": {"url": "https://pictures.example.test/made-up.jpg", "credit": "Jo"}}
+    store.writeJson(config.IMAGE_DIR / "index.json", {"files": older})
+    r = recipe(imageUrl="https://www.example-recipes.test/new.jpg")
+    images.ensureImages([r], allowDownload=True, log=lambda *a: None)
+    index = store.readJson(config.IMAGE_DIR / "index.json")
+    assert index["files"] == older and index["widths"] == {r.imagePath: 2400}
 
 
 def test_progressIsReportedEveryFiftyRecipes():
@@ -214,7 +180,7 @@ def test_aStoppedSiteKeepsPicturesAlreadyMade(monkeypatch, tmp_path):
     assert result["pictureStops"] == {"budgetbytes": "pictures blocked (403)"}
 
 
-def test_refusalsAreAskedForOnlyFromRecipeSites(monkeypatch, tmp_path):
+def test_everyPictureDownloadAsksForRefusals(monkeypatch, tmp_path):
     fakeDownloads(monkeypatch, tmp_path)
     seen = {}
     def download(url, dest, timeout=30, **kw):
@@ -224,6 +190,6 @@ def test_refusalsAreAskedForOnlyFromRecipeSites(monkeypatch, tmp_path):
         return True
     monkeypatch.setattr(net, "download", download)
     rs = [recipe(source="budgetbytes", imageUrl="https://bb/1.jpg"),
-          recipe(source="mealdb", imageUrl="https://m/1.jpg")]
+          recipe(source="difford", imageUrl="https://df/1.jpg")]
     images.ensureImages(rs, allowDownload=True, log=lambda *a: None)
-    assert seen["https://bb/1.jpg"] == {"refusals": True} and seen["https://m/1.jpg"] == {}
+    assert seen == {"https://bb/1.jpg": {"refusals": True}, "https://df/1.jpg": {"refusals": True}}

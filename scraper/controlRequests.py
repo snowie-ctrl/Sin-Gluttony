@@ -6,7 +6,7 @@ a fresh file instead of being lost, and done() clears the claim once the pass
 it asked for has ended.
 
     {"kind": "run"}      a full pass
-    {"kind": "run", "site": s}   a full pass of one recipe site (CATALOG=new)
+    {"kind": "run", "site": s}   a full pass of one recipe site
     {"kind": "retag"}    stages after fetch, over the raw copies
 """
 import time

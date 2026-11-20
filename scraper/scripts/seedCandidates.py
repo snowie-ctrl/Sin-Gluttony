@@ -4,7 +4,7 @@ how many ingredient lines and recipes the table covers, the unknown names that
 block the most recipes, and an allergen audit of the seed. Run by hand while
 curating; the scraper never runs it.
 
-    .venv/Scripts/python.exe scripts/seedCandidates.py [--limit 300] [--audit] [--cocktail-ingredients]
+    .venv/Scripts/python.exe scripts/seedCandidates.py [--limit 300] [--audit]
 """
 import argparse
 import json
@@ -84,7 +84,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=300)
     parser.add_argument("--audit", action="store_true")
-    parser.add_argument("--cocktail-ingredients", action="store_true")
     args = parser.parse_args(argv)
     rules = rulesData.load()
     if args.audit:
@@ -92,11 +91,6 @@ def main(argv=None):
         for name, item, text in audit(rules["ingredients"]):
             mark = "accepted" if (name, item) in accepted else "REVIEW"
             print(f"{mark:9} {name!r} may contain {item} (from {text!r})")
-        return 0
-    if args.cocktail_ingredients:
-        from sources import thedb
-        for record in thedb.cocktailIngredients():
-            print(json.dumps({k: record.get(k) for k in ("strIngredient", "strType", "strAlcohol", "strABV")}))
         return 0
     recipes = [Recipe.fromDict(json.loads(line)) for line in
                config.NORMALISED_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]

@@ -6,8 +6,11 @@ skips pictures when building the seed on a dev machine (never for publishing: ev
 recipe-site recipe would be hidden as no-photo).
 `--dry-run [--pages N] [--no-fetch] [--server-table]` is the dry run over the recipe sites; it never
 publishes. `--pages 0` means every page, and `--server-table` reads plutus's ingredient table (read only):
-together they are M4's full trial. A run request naming a site (Surrogate's crawl of one site, CATALOG=new)
-is a full pass of that site alone.
+together they are M4's full trial. A run request naming a site (Surrogate's crawl of one site) is a full
+pass of that site alone.
+
+The old catalog (TheMealDB, TheCocktailDB, Wikibooks) was retired at the catalog switch: with CATALOG=old (or any
+value but "new") the scraper says so and exits non-zero before it does anything else.
 """
 import argparse
 import sys
@@ -20,6 +23,18 @@ import pipeline
 import progress
 import schedule
 import store
+
+
+RETIRED = "the old catalog was retired at the switch; set CATALOG=new"
+
+
+def refuseRetiredCatalog():
+    """Stops the scraper, before it takes the lock or touches a file, unless CATALOG is "new"."""
+    if config.CATALOG == "new":
+        return
+    if config.CATALOG == "old":
+        raise SystemExit(f"Gluttony scraper: {RETIRED} in .env")
+    raise SystemExit(f"Gluttony scraper: CATALOG={config.CATALOG!r} is not a catalog; set CATALOG=new in .env")
 
 
 def acquireLock():
@@ -67,8 +82,7 @@ def runOnce(mode, log=print, images=True, site=None):
     report = pipeline.runPass(mode, log, stopRequested=lambda: config.STOP_FILE.exists(), images=images, site=site)
     config.STOP_FILE.unlink(missing_ok=True)
     state = store.readJson(config.STATE_FILE, {}) or {}
-    onlyOneSite = site is not None and config.CATALOG == "new"     # (CATALOG=old ignores site: a full pass)
-    if mode == "full" and not onlyOneSite:      # a pass of one recipe site does not stand in for the weekly pass
+    if mode == "full" and site is None:      # a pass of one recipe site does not stand in for the weekly pass
         if report["outcome"] == "failed":
             state["failedAt"] = report["endedAt"]
         else:
@@ -81,6 +95,7 @@ def runOnce(mode, log=print, images=True, site=None):
 def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    refuseRetiredCatalog()
     parser = argparse.ArgumentParser(description="Gluttony's recipe scraper")
     parser.add_argument("--once", choices=("full", "retag"), help="run one pass and exit")
     parser.add_argument("--no-images", action="store_true",
@@ -97,7 +112,7 @@ def main(argv=None):
     lock = acquireLock()  # noqa: F841 -- held for the life of the process
     progress.idle()
     if args.dry_run:
-        import dryrun   # here, not at the top: only the dry run needs recipe-scrapers
+        import dryrun
         dryrun.run(pages=args.pages or None, crawl=not args.no_fetch, serverTable=args.server_table)
         return 0
     if args.once:

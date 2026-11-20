@@ -1,6 +1,4 @@
 import hashlib
-import importlib
-import sys
 
 import pytest
 
@@ -13,11 +11,11 @@ from models import IngredientLine, Recipe, Step
 from sources import schemaSite
 
 
-def recipe(sourceId="1", source="mealdb", title="Toast"):
+def recipe(sourceId="1", source="madeupsite", title="Toast"):
     r = Recipe(source=source, sourceId=sourceId, kind="food", title=title,
                ingredients=[IngredientLine(line="1 slice bread", name="bread", quantity=1.0, unit="slice",
                                            ingredientId=1)],
-               steps=[Step(text="Toast it.")], licence="TheMealDB", credit="Recipe data and imagery: TheMealDB")
+               steps=[Step(text="Toast it.")], licence="Made-up licence", credit="Made-up Site")
     r.dishKey = "toast"
     r.facts = {"complete": True, "contains": ["gluten"], "diets": ["vegetarian", "vegan", "dairy-free"]}
     return r
@@ -52,12 +50,9 @@ class FakePlutus:
         return {"status": "ok", "recipes": self.state}
 
 
-OK = {"mealdb": {"ok": True, "ids": ["1", "2"]}}
-
-
 def test_thePayloadFollowsTheContract():
     payload = publish.payloadFor(recipe())
-    assert payload["key"] == "mealdb:1" and payload["searchText"] == "Toast bread"
+    assert payload["key"] == "madeupsite:1" and payload["searchText"] == "Toast bread"
     assert payload["ingredients"][0] == {"line": "1 slice bread", "quantity": 1.0, "quantityMax": None, "unit": "slice",
                                          "ingredientId": 1, "unknownName": None, "note": None, "optional": False,
                                          "group": None}
@@ -66,87 +61,78 @@ def test_thePayloadFollowsTheContract():
     assert publish.payloadFor(recipe(title="Toast!"))["contentHash"] != payload["contentHash"]
 
 
-def test_removalsComeOnlyFromACompleteFetch():
-    published = ["mealdb:1", "mealdb:9", "wikibooks:Cookbook:Gone"]
-    keys, notes, guarded = publish.removalsFor(published, {"mealdb": {"ok": True, "ids": ["1"]},
-                                                           "wikibooks": {"ok": False, "ids": []}}, {}, 0.05)
-    assert keys == ["mealdb:9"] and guarded == []
-    assert notes == ["wikibooks: fetch failed, nothing removed"]
-
-
-def test_aSuddenDropRemovesNothing():
-    keys, notes, guarded = publish.removalsFor(["mealdb:9"], {"mealdb": {"ok": True, "ids": [str(n) for n in range(90)]}},
-                                               {"mealdb": 100}, 0.05)
-    assert keys == [] and guarded == ["mealdb"] and "more than 5% fewer" in notes[0]
-
-
 def test_aDryPublishSendsNothing(monkeypatch):
     sent = []
     monkeypatch.setattr(adminApi, "post", lambda *a, **k: sent.append(a))
-    summary = publish.publish([recipe()], OK, {}, log=lambda *a: None)
+    summary = publish.publish([recipe()], log=lambda *a: None)
     assert summary["dry"] is True and summary["changed"] == 1 and sent == []
-    assert summary["perSource"] == {"mealdb": {"new": 1, "changed": 0}}
+    assert summary["perSource"] == {"madeupsite": {"new": 1, "changed": 0}}
     assert not config.PUBLISHED_FILE.exists()
 
 
 def test_publishingSendsPicturesThenBatchesAndRemembersWhatWasStored(monkeypatch):
-    plutus = FakePlutus(monkeypatch, stored={"mealdb:1"})
+    plutus = FakePlutus(monkeypatch, stored={"madeupsite:1"})
     monkeypatch.setattr(config, "BATCH_SIZE", 1)
     (config.IMAGE_DIR / "images").mkdir(parents=True)
     (config.IMAGE_DIR / "thumbs").mkdir(parents=True)
-    summary = publish.publish([recipe("1"), recipe("2")], OK, {}, log=lambda *a: None)
+    summary = publish.publish([recipe("1"), recipe("2")], log=lambda *a: None)
     assert plutus.rsyncs == ["/pool/appFiles/gluttony/images", "/pool/appFiles/gluttony/thumbs"]
     assert [p for p, _ in plutus.posts] == ["/recipes/batch", "/recipes/batch"]
-    assert summary["stored"] == 1 and summary["failed"] == [{"key": "mealdb:2", "message": "nope"}]
-    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["mealdb:1"]
+    assert summary["stored"] == 1 and summary["failed"] == [{"key": "madeupsite:2", "message": "nope"}]
+    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["madeupsite:1"]
 
 
 def test_anUnchangedRecipeIsNotSentAgain(monkeypatch):
     plutus = FakePlutus(monkeypatch)
-    publish.publish([recipe()], OK, {}, log=lambda *a: None)
+    publish.publish([recipe()], log=lambda *a: None)
     plutus.posts.clear()
-    summary = publish.publish([recipe()], OK, {}, log=lambda *a: None)
+    summary = publish.publish([recipe()], log=lambda *a: None)
     assert summary["changed"] == 0 and plutus.posts == []
 
 
 def test_removalsAreSentAndForgotten(monkeypatch):
     plutus = FakePlutus(monkeypatch)
-    store.writeJson(config.PUBLISHED_FILE, {"recipes": {"mealdb:1": "x", "mealdb:7": "y"}})
-    summary = publish.publish([recipe("1")], {"mealdb": {"ok": True, "ids": ["1"]}}, {}, log=lambda *a: None)
-    assert ("/recipes/removed", {"keys": ["mealdb:7"]}) in plutus.posts and summary["removed"] == 1
-    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["mealdb:1"]
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {"madeupsite:1": "x", "madeupsite:7": "y"}})
+    summary = publish.publish([recipe("1")], log=lambda *a: None, removals=(["madeupsite:7"], [], []))
+    assert ("/recipes/removed", {"keys": ["madeupsite:7"]}) in plutus.posts and summary["removed"] == 1
+    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["madeupsite:1"]
 
 
 def test_aLostStateFileIsRebuiltFromPlutus(monkeypatch):
     first = publish.payloadFor(recipe())
-    plutus = FakePlutus(monkeypatch, state=[{"key": "mealdb:1", "hash": first["contentHash"]}])
-    summary = publish.publish([recipe()], {}, {}, log=lambda *a: None)
+    plutus = FakePlutus(monkeypatch, state=[{"key": "madeupsite:1", "hash": first["contentHash"]}])
+    summary = publish.publish([recipe()], log=lambda *a: None)
     assert summary["changed"] == 0 and plutus.posts == []
+
+
+def test_theRetiredCatalogsRowsInPlutusStateAreNeitherSentNorRemoved(monkeypatch):
+    """plutus's /state still lists the old catalog's retired recipes after the switch: publish leaves them be."""
+    retired = [{"key": "mealdb:7", "hash": "made-up"}, {"key": "cocktaildb:9", "hash": "made-up"},
+               {"key": "wikibooks:Cookbook:Made-up Soup", "hash": "made-up"}]
+    plutus = FakePlutus(monkeypatch, state=retired)
+    summary = publish.publish([recipe()], log=lambda *a: None)
+    assert [p for p, _ in plutus.posts] == ["/recipes/batch"] and summary["removed"] == 0
+    assert [r["key"] for r in plutus.posts[0][1]["recipes"]] == ["madeupsite:1"]
+    assert {row["key"] for row in retired} <= set(store.readJson(config.PUBLISHED_FILE)["recipes"])
 
 
 def test_aFailureMidwayKeepsWhatWasAlreadyStored(monkeypatch):
     FakePlutus(monkeypatch, failOnBatch=2)
     monkeypatch.setattr(config, "BATCH_SIZE", 1)
     with pytest.raises(adminApi.AdminError):
-        publish.publish([recipe("1"), recipe("2")], OK, {}, log=lambda *a: None)
-    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["mealdb:1"]
-
-
-def test_anEmptyFetchRemovesNothing():
-    keys, notes, guarded = publish.removalsFor(["mealdb:1", "mealdb:2"], {"mealdb": {"ok": True, "ids": []}}, {}, 0.05)
-    assert keys == [] and guarded == ["mealdb"]
-    assert notes == ["mealdb: fetch returned no records, nothing removed"]
+        publish.publish([recipe("1"), recipe("2")], log=lambda *a: None)
+    assert list(store.readJson(config.PUBLISHED_FILE)["recipes"]) == ["madeupsite:1"]
 
 
 def test_publishingWithoutSettingsFailsFirst(monkeypatch):
     plutus = FakePlutus(monkeypatch)
     monkeypatch.setattr(adminApi, "configured", lambda: False)
     with pytest.raises(adminApi.AdminError, match="ADMIN_TOKEN and ADMIN_HOST"):
-        publish.publish([recipe()], OK, {}, log=lambda *a: None)
+        publish.publish([recipe()], log=lambda *a: None)
     assert plutus.rsyncs == [] and plutus.posts == []
 
 
-# --- the new catalog: payload fields and site removals ---
+# --- the recipe sites: payload fields and site removals ---
 
 NUTRITION = {"calories": 420.0, "proteinG": 12.5, "carbsG": 50.0, "fatG": 18.0, "satFatG": 6.0, "fibreG": 4.0,
              "sugarG": 9.0, "sodiumMg": 610.0}
@@ -200,15 +186,10 @@ def test_caloriesOutsideWhatPlutusStoresSendNoNutrition():
     assert "nutrition" not in publish.payloadFor(siteRecipe(nutrition=dict(NUTRITION, calories=-5.0)))
 
 
-def test_anOldSourceRecipesPayloadAndHashAreUnchanged():
-    r = recipe()
-    r.imageWidth = 1200          # images.ensureImages records a width for old-source pictures too
-    r.description, r.hiddenReason = "Made-up.", "small-photo"
-    r.nutrition, r.nutritionFrom = dict(NUTRITION), "source"
-    payload = publish.payloadFor(r)
+def test_extrasWithoutAValueAreLeftOut():
+    payload = publish.payloadFor(recipe())
     for name in ("description", "hiddenReason", "imageWidth", "nutrition"):
         assert name not in payload
-    assert payload["contentHash"] == "fbe0b73d4aae52a5a7c16c48162a248bc035e3ab"     # the hash before this change
 
 
 def keyFor(site, url):
@@ -265,40 +246,12 @@ def test_siteRemovalsLeaveOtherSitesAndOldSourcesAlone():
     assert keys == [keyFor("budgetbytes", URLS[1])]
 
 
-def test_publishUsesGivenRemovals(monkeypatch):
-    store.writeJson(config.PUBLISHED_FILE, {"recipes": {"difford:x": "h", "mealdb:7": "y"}})
-    fetched = {"mealdb": {"ok": True, "ids": ["1"]}}      # removalsFor alone would remove mealdb:7
-    assert publish.removalsFor(["mealdb:7"], fetched, {}, 0.05)[0] == ["mealdb:7"]
-    summary = publish.publish([], fetched, {}, log=lambda *a: None, removals=(["difford:x"], [], []))
+def test_publishUsesGivenRemovalsAndNoneRemovesNothing(monkeypatch):
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": {"difford:x": "h", "difford:y": "h"}})
+    summary = publish.publish([], log=lambda *a: None, removals=(["difford:x"], [], []))
     assert summary["dry"] is True and summary["wouldRemove"] == ["difford:x"] and summary["wouldRemoveCount"] == 1
-    assert "mealdb:7" not in summary["wouldRemove"]
-
-
-def test_siteRemovalsNeverActOnAnOldSourceEvenIfAskedTo():
-    published = ["mealdb:1", "cocktaildb:2", "wikibooks:Cookbook:Soup"]
-    crawled = {name: {"ok": True, "complete": True, "listed": 0, "goneUrls": ["https://example.test/a"]}
-               for name in ("mealdb", "cocktaildb", "wikibooks")}
-    keys, notes, guarded = publish.siteRemovals(published, crawled, {}, 0.05)
-    assert keys == [] and notes == [] and guarded == []
-
-
-def test_importingPublishDoesNotNeedRecipeScrapers(monkeypatch):
-    """The old-catalog pass imports publish; the VM may not have recipe-scrapers installed."""
-    monkeypatch.setitem(sys.modules, "recipe_scrapers", None)      # any import of it now raises ImportError
-    for name in ("publish", "sources.schemaSite"):
-        monkeypatch.delitem(sys.modules, name, raising=False)       # restored after the test
-    monkeypatch.delattr(sys.modules["sources"], "schemaSite", raising=False)   # else "from sources import" finds it
-    fresh = importlib.import_module("publish")
-    assert fresh.siteRemovals and "sources.schemaSite" not in sys.modules
-    with pytest.raises(ImportError):
-        importlib.import_module("sources.schemaSite")              # the block is real
-    monkeypatch.delitem(sys.modules, "sources.schemaSite", raising=False)
-
-
-def test_imagesAndPublishShareOneListOfOldSources():
-    import images
-    assert publish.OLD_SOURCES is config.OLD_SOURCES and images.OLD_SOURCES is config.OLD_SOURCES
-    assert config.OLD_SOURCES == ("mealdb", "cocktaildb", "wikibooks")
+    nothing = publish.publish([], log=lambda *a: None)
+    assert nothing["wouldRemove"] == [] and nothing["notes"] == [] and nothing["guarded"] == []
 
 
 def test_siteSourceIdsAreTheSameEverywhere():
@@ -310,17 +263,17 @@ def test_aKeyBeingRemovedIsNeverAlsoSent(monkeypatch):
     plutus = FakePlutus(monkeypatch)
     r = siteRecipe()
     store.writeJson(config.PUBLISHED_FILE, {"recipes": {r.key: "old-hash"}})
-    summary = publish.publish([r], {}, {}, log=lambda *a: None, removals=([r.key], [], []))
+    summary = publish.publish([r], log=lambda *a: None, removals=([r.key], [], []))
     assert [p for p, _ in plutus.posts] == ["/recipes/removed"] and summary["changed"] == 0
 
 
-def test_aPostedSiteRemovalDropsThePageFromTheCacheButAnOldSourceIsLeftAlone(monkeypatch):
+def test_aPostedSiteRemovalDropsThePageFromTheCacheAndAnOddKeyIsHarmless(monkeypatch):
     FakePlutus(monkeypatch)
     url = "https://example.test/recipes/gone"
     pagecache.save("budgetbytes", url, "<html>made-up</html>", None)
     key = keyFor("budgetbytes", url)
     store.writeJson(config.PUBLISHED_FILE, {"recipes": {key: "h", "mealdb:7": "y"}})
-    publish.publish([], {}, {}, log=lambda *a: None, removals=([key, "mealdb:7"], [], []))
+    publish.publish([], log=lambda *a: None, removals=([key, "mealdb:7"], [], []))   # mealdb: no cached pages
     assert pagecache.meta("budgetbytes", url) is None and pagecache.load("budgetbytes", url) is None
 
 
@@ -333,5 +286,5 @@ def test_aFailedRemovalPostKeepsThePageCached(monkeypatch):
         raise adminApi.AdminError("POST /recipes/removed failed after 3 attempts")
     monkeypatch.setattr(adminApi, "post", failing)
     with pytest.raises(adminApi.AdminError):
-        publish.publish([], {}, {}, log=lambda *a: None, removals=([keyFor("budgetbytes", url)], [], []))
+        publish.publish([], log=lambda *a: None, removals=([keyFor("budgetbytes", url)], [], []))
     assert pagecache.load("budgetbytes", url) is not None

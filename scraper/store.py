@@ -1,14 +1,10 @@
 """
-The scraper's own files: raw records as fetched, and small JSON state files.
-Every write goes through a temporary file and os.replace, so a crash never
-leaves a half-written record that a later stage would read as real.
+The scraper's own JSON and JSON-lines files (state, reports, the last pass's
+recipes). Every write goes through a temporary file and os.replace, so a
+crash never leaves a half-written record that a later stage would read as real.
 """
-import hashlib, json, os, re
+import json, os
 from pathlib import Path
-
-import config
-
-_PLAIN_ID = re.compile(r"[A-Za-z0-9_-]{1,60}")
 
 
 def writeJson(path, data):
@@ -35,14 +31,3 @@ def writeLines(path, lines):
         for line in lines:
             out.write(json.dumps(line, ensure_ascii=False, sort_keys=True) + "\n")
     os.replace(tmp, path)
-
-
-def safeName(text):
-    """A file name for any source id: Wikibooks page titles hold slashes, colons and spaces."""
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:20]
-
-
-def rawPath(source, sourceId):
-    sourceId = str(sourceId)
-    name = sourceId if _PLAIN_ID.fullmatch(sourceId) else safeName(sourceId)
-    return config.RAW_DIR / source / f"{name}.json"

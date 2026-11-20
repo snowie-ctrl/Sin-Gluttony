@@ -17,7 +17,7 @@ def test_auditFindsAnAllergenTheEntryDoesNotDeclare():
 
 def test_coverageCountsLinesAndCompleteRecipes():
     def recipe(*ids):
-        return Recipe(source="mealdb", sourceId="1", kind="food", title="x", steps=[Step(text="s")],
+        return Recipe(source="madeupsite", sourceId="1", kind="food", title="x", steps=[Step(text="s")],
                       ingredients=[IngredientLine(line="l", name="n", ingredientId=i) for i in ids],
                       facts={"complete": all(ids), "contains": [], "diets": []})
     assert seedCandidates.coverage([recipe(1, 2), recipe(3, None)]) == \

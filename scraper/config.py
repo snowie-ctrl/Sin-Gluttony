@@ -35,7 +35,6 @@ PUBLISHED_FILE = DATA_DIR / "published.json"
 RULES_DIR = BASE_DIR / "rules"
 RUN_DIR = BASE_DIR / "run"
 REPORT_DIR = BASE_DIR / "reports"
-FETCH_FILE = RUN_DIR / "fetch.json"
 STATE_FILE = RUN_DIR / "state.json"
 CURRENT_FILE = RUN_DIR / "current.json"
 RUNS_FILE = RUN_DIR / "runs.jsonl"
@@ -48,16 +47,6 @@ FDC_QUEUE_FILE = RUN_DIR / "fdc-queue.json"
 SITE_STATE_FILE = RUN_DIR / "site-state.json"   # per recipe site: stops, Retry-After, 404 counts, pass count
 SITES_FILE = RUN_DIR / "sites.json"             # per recipe site: counts, gate reasons and the alarm (GET /sites)
 
-# ========== SOURCES ==========
-OLD_SOURCES = ("mealdb", "cocktaildb", "wikibooks")    # the old catalog; their payloads must not change shape
-# The free key "1" only: the owner pays for nothing the scraper uses.
-MEALDB_BASE = "https://www.themealdb.com/api/json/v1/1"
-COCKTAILDB_BASE = "https://www.thecocktaildb.com/api/json/v1/1"
-WIKIBOOKS_DUMP_URL = "https://dumps.wikimedia.org/enwikibooks/latest/enwikibooks-latest-pages-articles.xml.bz2"
-WIKIBOOKS_DUMP_RSS = WIKIBOOKS_DUMP_URL + "-rss.xml"
-WIKIBOOKS_API = "https://en.wikibooks.org/w/api.php"
-WIKIBOOKS_PAGE_BASE = "https://en.wikibooks.org/wiki/"
-
 # ========== PLUTUS ==========
 ADMIN_TOKEN = _env("ADMIN_TOKEN", "")
 ADMIN_HOST = _env("ADMIN_HOST", "")
@@ -68,7 +57,7 @@ BATCH_SIZE = 50
 
 # ========== MODES ==========
 PUBLISH = _env("PUBLISH", "dry")      # "on" sends to plutus; "dry" runs every stage but sending
-CATALOG = _env("CATALOG", "old")       # "old": TheMealDB/TheCocktailDB/Wikibooks as before; "new": the recipe sites (spec 2026-11-13)
+CATALOG = _env("CATALOG", "new")      # the recipe sites (spec 2026-11-13); "old" was retired at the switch and is refused
 SCHEDULE = _env("SCHEDULE", "off")    # "on" runs the weekly pass by itself
 REMOVAL_GUARD = 0.05                  # a source shrinking by more than this share removes nothing
 FAILED_RETRY_HOURS = 6                # a failed weekly pass is tried again after this long
