@@ -203,4 +203,16 @@ TestCase {
         compare(Units.lineText(line("25 ml gin", 25, "ml"), 1, "metric", "drink"), "25 ml gin")
         compare(Units.lineText(line("44ml olive oil", 44, "ml"), 1, "metric", "food"), "44ml olive oil")
     }
+
+    // BBC writes a second amount after a slash ("200g/7oz"); once the amount changes it no longer matches (2026-11-20).
+    function test_aSlashedSecondAmountGoesWhenTheAmountChanges() {
+        compare(Units.lineText(line("200g/7oz plain flour", 200, "g"), 1, "us", "food"), "7 oz plain flour")
+        compare(Units.lineText(line("100g/4oz cheddar, grated", 100, "g"), 2, "metric", "food"), "200 g cheddar, grated")
+        compare(Units.lineText(line("50ml/2fl oz gin", 50, "ml"), 1, "us", "drink"), "1¾ oz gin")
+        compare(Units.lineText(line("1.2 litres/2 pints stock", 1.2, "l"), 1, "us", "food"), "5⅛ cups stock")
+        // unchanged lines are still shown as written, slash and all
+        compare(Units.lineText(line("200g/7oz plain flour", 200, "g"), 1, "metric", "food"), "200g/7oz plain flour")
+        // a slash that is not an amount stays
+        compare(Units.lineText(line("2 tbsp salt/pepper mix", 2, "tbsp"), 2, "us", "food"), "4 tbsp salt/pepper mix")
+    }
 }
