@@ -37,6 +37,16 @@ recipe, and explain the cooking words in the steps.
   `rules/drinkNutrition.json` and the drink nutrition ranges.
 - A site whose config says `kind: drink` (Difford's) keeps it; the rule only turns food into drink,
   never the other way.
+- **Food courses come from the same category (added 2026-11-19 while planning).** The new catalog
+  went live with no course on any recipe: `rules/courses.json` only ever mapped the retired
+  sources, so the course filter and "Sweet tooth" find nothing. The same rules file maps the
+  sites' category words to a course ("Dessert", "Treat" → dessert; "Side dish", "Salad" → side;
+  "Condiment", "Dressing" → sauce; "Dinner", "Main course", "Lunch" → main …). When a category
+  names several, the most specific wins in a fixed order: sauce, side, starter, breakfast, bread,
+  dessert, snack, main ("Dinner, Side dish" is a side). No matching word leaves the course unset,
+  as today. A drink's course comes from its category ("Cocktails" → cocktail) or its title
+  (smoothie → shake, latte → coffee/tea, mulled → punch), then the existing cocktail or mocktail
+  rule.
 - The recipe keeps its source key and so its `RecipeID` on plutus: only its kind, course and tags
   change on the next publish. Saved items, Devoured marks, stars and notes stay on it. Nothing
   moves.
