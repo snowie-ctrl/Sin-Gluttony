@@ -9,6 +9,7 @@ const VOLUME = { ml: 1, cl: 10, dl: 100, l: 1000, tsp: 4.92892, tbsp: 14.7868, "
                  pint: 473.176, quart: 946.353, gallon: 3785.41 }
 const METRIC = ["mg", "g", "kg", "ml", "cl", "dl", "l"]
 // Teaspoons and tablespoons are kitchen spoons in both systems, so they are never converted.
+// (A drink's spoons are pours: see jigger.)
 const SPOONS = ["tsp", "tbsp"]
 // Written as they are, never with an s.
 const SYMBOLS = ["mg", "g", "kg", "ml", "cl", "dl", "l", "tsp", "tbsp", "oz", "fl oz", "lb"]
@@ -43,11 +44,35 @@ function inUnit(amount, by, unit) {
     return { quantity: times(amount.quantity), quantityMax: times(amount.quantityMax), unit: unit }
 }
 
+// A drink's pour as a jigger measures it, from 7.5 to 120 ml: quarter ounces (US) or the nearest 5 ml (metric).
+// Less is teaspoons, in both systems; more (a bottle in a punch) is null, for the usual conversion.
+const JIGGER_MIN_ML = 7.5
+const JIGGER_MAX_ML = 120
+
+function jigger(amount, unit, system) {
+    const ml = amount.quantity * VOLUME[unit]
+    if (ml > JIGGER_MAX_ML)
+        return null
+    if (ml < JIGGER_MIN_ML)
+        return inUnit(amount, VOLUME[unit] / VOLUME.tsp, "tsp")
+    const per = system === "metric" ? VOLUME[unit] : VOLUME[unit] / VOLUME["fl oz"]
+    const step = system === "metric" ? 5 : 0.25
+    const pour = value => (value === null || value === undefined) ? null
+                          : Math.max(step, Math.round(value * per / step) * step)
+    return { quantity: pour(amount.quantity), quantityMax: pour(amount.quantityMax),
+             unit: system === "metric" ? "ml" : "oz" }
+}
+
 // An amount in the chosen system. Spoons, counts and units with no conversion keep their unit.
 export function convert(amount, unit, system, kind) {
     // Cocktail sources write fluid ounces as a bare "oz", so a drink's ounce is a volume; a food's stays a weight.
     if (kind === "drink" && unit === "oz")
         unit = "fl oz"
+    if (kind === "drink" && unit in VOLUME && amount.quantity !== null && amount.quantity !== undefined) {
+        const poured = jigger(amount, unit, system)
+        if (poured)
+            return poured
+    }
     const same = inUnit(amount, 1, unit || null)
     if (amount.quantity === null || amount.quantity === undefined || !unit || SPOONS.includes(unit))
         return same
