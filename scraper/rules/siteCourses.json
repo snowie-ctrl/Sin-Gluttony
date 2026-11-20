@@ -14,7 +14,8 @@
   "main": ["dinner", "main course", "lunch", "supper", "mains", "main", "main dish", "main dish or side dish",
            "fish course", "soup", "soups", "pasta", "salad meal", "one pot", "stir fry", "noodles"]
  },
- "foodOrder": ["sauce", "side", "starter", "breakfast", "bread", "dessert", "snack", "main"],
+ "explicitMain": ["main course", "main dish", "mains", "main"],
+ "foodOrder": ["sauce", "explicitMain", "side", "starter", "breakfast", "bread", "dessert", "snack", "main"],
  "drinkCategories": {"cocktail": ["cocktail", "cocktails"], "mocktail": ["mocktail", "mocktails"]},
  "drinkTitles": {
   "shake": ["smoothie", "milkshake", "shake", "lassi", "frappe"],

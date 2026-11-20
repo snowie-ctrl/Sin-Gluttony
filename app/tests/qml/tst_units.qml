@@ -166,8 +166,6 @@ TestCase {
     function test_aDrinksPourIsAJiggerAmount() {
         compare(Units.amountText(line("", 44, "ml"), 1, "metric", "drink"), "45 ml")
         compare(Units.amountText(line("", 44, "ml"), 1, "us", "drink"), "1½ oz")
-        compare(Units.amountText(line("", 1, "tbsp"), 1, "metric", "drink"), "15 ml")
-        compare(Units.amountText(line("", 1, "tbsp"), 1, "us", "drink"), "½ oz")
         compare(Units.amountText(line("", 25, "ml"), 1, "us", "drink"), "¾ oz")
         compare(Units.amountText(line("", 1.5, "fl oz"), 1, "metric", "drink"), "45 ml")
         compare(Units.amountText(line("", 3, "cl"), 1, "metric", "drink"), "30 ml")
@@ -189,8 +187,20 @@ TestCase {
         // grams and counts are not pours
         compare(Units.amountText(line("", 10, "g"), 1, "metric", "drink"), "10 g")
         compare(Units.amountText(line("", 6, null), 1, "us", "drink"), "6")
+        // spoons stay spoons in a drink too: "2 tbsp oats" in a smoothie is not an ounce (final review)
+        compare(Units.amountText(line("", 1, "tbsp"), 1, "metric", "drink"), "1 tbsp")
+        compare(Units.amountText(line("", 2, "tbsp"), 1, "us", "drink"), "2 tbsp")
+        compare(Units.amountText(line("", 2, "tsp"), 1, "us", "drink"), "2 tsp")
         // food is unchanged
         compare(Units.amountText(line("", 1, "tbsp"), 1, "metric", "food"), "1 tbsp")
         compare(Units.amountText(line("", 44, "ml"), 1, "metric", "food"), "44 ml")
+    }
+
+    // The recipe page shows the jigger amount even when the unit stays the same (final review).
+    function test_aDrinkLineShowsItsJiggerAmountInTheSameUnit() {
+        compare(Units.lineText(line("44ml gin", 44, "ml"), 1, "metric", "drink"), "45 ml gin")
+        compare(Units.lineText(line("1 1/3 oz lime juice", 1.3333, "oz"), 1, "us", "drink"), "1¼ oz lime juice")
+        compare(Units.lineText(line("25 ml gin", 25, "ml"), 1, "metric", "drink"), "25 ml gin")
+        compare(Units.lineText(line("44ml olive oil", 44, "ml"), 1, "metric", "food"), "44ml olive oil")
     }
 }

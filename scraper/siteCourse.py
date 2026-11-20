@@ -17,9 +17,13 @@ def _padded(text):
 
 
 def foodCourse(categoryParts, table):
-    """The most specific course any part names, in the rules' order, or None."""
+    """The most specific course any part names, in the rules' order, or None. "explicitMain" in the order stands for
+    a part that says main in so many words ("Main course"), which beats a side or starter word but not a sauce."""
     found = {course for course, words in table["food"].items() if any(p in words for p in categoryParts)}
-    return next((course for course in table["foodOrder"] if course in found), None)
+    if any(p in table["explicitMain"] for p in categoryParts):
+        found.add("explicitMain")
+    course = next((course for course in table["foodOrder"] if course in found), None)
+    return "main" if course == "explicitMain" else course
 
 
 def drinkCourse(title, categoryParts, table):

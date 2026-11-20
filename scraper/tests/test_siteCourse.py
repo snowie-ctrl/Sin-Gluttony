@@ -37,6 +37,9 @@ def test_aDrinkSiteRecipeStaysADrinkWhateverItsCategory():
     ("Lunch, Starter", "starter"), ("Breakfast, Brunch", "breakfast"), ("Condiment", "sauce"),
     ("Afternoon tea, Snack, Treat", "dessert"), ("Snack", "snack"), ("Side dish, Snack", "side"),
     ("Buffet", None), (None, None),
+    # an explicit "main course" beats weaker words, but not a sauce (final review, 88 such recipes)
+    ("Dinner, Lunch, Main course, Pasta, Starter, Supper", "main"), ("Main course, Salad, Side dish", "main"),
+    ("Appetiser, Main", "main"), ("Mains, Sauces", "sauce"), ("Dinner, Lunch, Side dish", "side"),
 ])
 def test_aFoodCourseIsTheMostSpecificWordInTheCategory(category, course):
     assert siteCourse.classify(made(category), TABLE).hints["course"] == course
