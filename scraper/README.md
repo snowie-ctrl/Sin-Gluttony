@@ -14,6 +14,13 @@ mappings are sent to `Ingredients.FdcID`. `PUBLISH=dry` (the default) runs every
 (`POST /retag` or `POST /regate`) crawls nothing and removes nothing: it runs everything after the crawl over the
 pages already cached in `data/raw/`, in minutes.
 
+**Kinds and courses.** A site's own category decides two things when a page is read (`siteCourse.py`, words in
+`rules/siteCourses.json`): a page on a food site whose category says Drink, Cocktails, Beverage or Smoothie is a
+drink, and the category's most specific word names the course ("Dinner, Side dish" is a side). A drink's course
+comes from its category, then its title (smoothie → shake, latte → coffee/tea), then cocktail or mocktail by its
+alcohol. The dry-run report's "Kinds and courses" lists, per site, the drinks and the recipes with no course;
+a category word missing from the file shows there.
+
 ## Running
 
 ```bash

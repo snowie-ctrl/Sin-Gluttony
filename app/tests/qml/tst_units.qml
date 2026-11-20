@@ -33,7 +33,7 @@ TestCase {
         compare(Units.amountText(line("", 750, "ml"), 2, "metric", "food"), "1.5 l")
         compare(Units.amountText(line("", 1.5, "kg"), 2, "metric", "food"), "3 kg")
         compare(Units.amountText(line("", 1.5, "cup"), 1, "metric", "food"), "355 ml")
-        compare(Units.amountText(line("", 2, "fl oz"), 1, "metric", "drink"), "59 ml")
+        compare(Units.amountText(line("", 2, "fl oz"), 1, "metric", "drink"), "60 ml")
     }
 
     function test_toUs() {
@@ -41,16 +41,16 @@ TestCase {
         compare(Units.amountText(line("", 200, "g"), 1, "us", "food"), "7 oz")
         compare(Units.amountText(line("", 750, "ml"), 1, "us", "food"), "3⅛ cups")
         compare(Units.amountText(line("", 30, "ml"), 1, "us", "food"), "2 tbsp")
-        compare(Units.amountText(line("", 60, "ml"), 1, "us", "drink"), "2 fl oz")
+        compare(Units.amountText(line("", 60, "ml"), 1, "us", "drink"), "2 oz")
         compare(Units.amountText(line("", 1, "cup"), 1, "us", "food"), "1 cup")
     }
 
     // Cocktail sources write fluid ounces as a bare "oz"; a food's bare "oz" stays a weight.
     function test_aDrinksBareOunceIsFluid() {
-        compare(Units.amountText(line("", 2, "oz"), 1, "metric", "drink"), "59 ml")
-        compare(Units.amountText(line("", 2, "oz"), 1, "us", "drink"), "2 fl oz")
+        compare(Units.amountText(line("", 2, "oz"), 1, "metric", "drink"), "60 ml")
+        compare(Units.amountText(line("", 2, "oz"), 1, "us", "drink"), "2 oz")
         compare(Units.amountText(line("", 2, "oz"), 1, "metric", "food"), "57 g")
-        compare(Units.lineText(line("2 oz Blended whiskey", 2, "oz"), 1, "metric", "drink"), "59 ml Blended whiskey")
+        compare(Units.lineText(line("2 oz Blended whiskey", 2, "oz"), 1, "metric", "drink"), "60 ml Blended whiskey")
     }
 
     function test_spoonsAndCountsKeepTheirUnits() {
@@ -160,5 +160,47 @@ TestCase {
         compare(Units.withOtherScale("Bake at 180°C (350°F)."), "Bake at 180°C (350°F).")
         compare(Units.withOtherScale("Add 2 C of milk"), "Add 2 C of milk")
         compare(Units.withOtherScale(""), "")
+    }
+
+    // A drink's pour reads as a jigger measures it: quarter ounces or the nearest 5 ml, from 7.5 to 120 ml.
+    function test_aDrinksPourIsAJiggerAmount() {
+        compare(Units.amountText(line("", 44, "ml"), 1, "metric", "drink"), "45 ml")
+        compare(Units.amountText(line("", 44, "ml"), 1, "us", "drink"), "1½ oz")
+        compare(Units.amountText(line("", 25, "ml"), 1, "us", "drink"), "¾ oz")
+        compare(Units.amountText(line("", 1.5, "fl oz"), 1, "metric", "drink"), "45 ml")
+        compare(Units.amountText(line("", 3, "cl"), 1, "metric", "drink"), "30 ml")
+        // a range rounds both ends
+        compare(Units.amountText(line("", 25, "ml", 30), 1, "metric", "drink"), "25–30 ml")
+        // scaled first, then rounded: 2 × 1¾ oz
+        compare(Units.amountText(line("", 1.75, "fl oz"), 2, "us", "drink"), "3½ oz")
+        compare(Units.amountText(line("", 120, "ml"), 1, "us", "drink"), "4 oz")
+    }
+
+    function test_aJiggerLeavesSmallLargeAndSolidAmountsAlone() {
+        // under ¼ oz: teaspoons in both systems
+        compare(Units.amountText(line("", 1, "tsp"), 1, "metric", "drink"), "1 tsp")
+        compare(Units.amountText(line("", 5, "ml"), 1, "us", "drink"), "1 tsp")
+        compare(Units.amountText(line("", 1, "dash"), 1, "us", "drink"), "1 dash")
+        // over 120 ml: the usual conversion
+        compare(Units.amountText(line("", 750, "ml"), 1, "metric", "drink"), "750 ml")
+        compare(Units.amountText(line("", 750, "ml"), 1, "us", "drink"), "25⅓ fl oz")
+        // grams and counts are not pours
+        compare(Units.amountText(line("", 10, "g"), 1, "metric", "drink"), "10 g")
+        compare(Units.amountText(line("", 6, null), 1, "us", "drink"), "6")
+        // spoons stay spoons in a drink too: "2 tbsp oats" in a smoothie is not an ounce (final review)
+        compare(Units.amountText(line("", 1, "tbsp"), 1, "metric", "drink"), "1 tbsp")
+        compare(Units.amountText(line("", 2, "tbsp"), 1, "us", "drink"), "2 tbsp")
+        compare(Units.amountText(line("", 2, "tsp"), 1, "us", "drink"), "2 tsp")
+        // food is unchanged
+        compare(Units.amountText(line("", 1, "tbsp"), 1, "metric", "food"), "1 tbsp")
+        compare(Units.amountText(line("", 44, "ml"), 1, "metric", "food"), "44 ml")
+    }
+
+    // The recipe page shows the jigger amount even when the unit stays the same (final review).
+    function test_aDrinkLineShowsItsJiggerAmountInTheSameUnit() {
+        compare(Units.lineText(line("44ml gin", 44, "ml"), 1, "metric", "drink"), "45 ml gin")
+        compare(Units.lineText(line("1 1/3 oz lime juice", 1.3333, "oz"), 1, "us", "drink"), "1¼ oz lime juice")
+        compare(Units.lineText(line("25 ml gin", 25, "ml"), 1, "metric", "drink"), "25 ml gin")
+        compare(Units.lineText(line("44ml olive oil", 44, "ml"), 1, "metric", "food"), "44ml olive oil")
     }
 }

@@ -1,0 +1,26 @@
+{
+ "drinkWords": ["drink", "drinks", "cocktail", "cocktails", "mocktail", "mocktails", "beverage", "beverages",
+                "smoothie", "smoothies"],
+ "food": {
+  "sauce": ["condiment", "sauce", "sauces", "dressing", "dip"],
+  "side": ["side dish", "side dishes", "side", "sides", "side salad", "salad", "salads", "vegetable", "rice"],
+  "starter": ["starter", "starters", "appetizer", "appetizers", "appetiser", "appetisers", "canapes",
+              "finger food"],
+  "breakfast": ["breakfast", "brunch", "breakast"],
+  "bread": ["bread", "breads"],
+  "dessert": ["dessert", "desserts", "treat", "afternoon tea", "cake", "cakes", "cookies", "sweet baking",
+              "sweet"],
+  "snack": ["snack", "snacks"],
+  "main": ["dinner", "main course", "lunch", "supper", "mains", "main", "main dish", "main dish or side dish",
+           "fish course", "soup", "soups", "pasta", "salad meal", "one pot", "stir fry", "noodles"]
+ },
+ "explicitMain": ["main course", "main dish", "mains", "main"],
+ "foodOrder": ["sauce", "explicitMain", "side", "starter", "breakfast", "bread", "dessert", "snack", "main"],
+ "drinkCategories": {"cocktail": ["cocktail", "cocktails"], "mocktail": ["mocktail", "mocktails"]},
+ "drinkTitles": {
+  "shake": ["smoothie", "milkshake", "shake", "lassi", "frappe"],
+  "coffee/tea": ["coffee", "latte", "cappuccino", "tea", "chai", "hot chocolate", "cocoa"],
+  "punch": ["punch", "sangria", "mulled"],
+  "shot": ["shot", "shots"]
+ }
+}

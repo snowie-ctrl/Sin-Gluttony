@@ -92,7 +92,11 @@ def siteSummary(site, crawl, recipes, skipped):
                "notRead": len(lost), "notReadByReason": lostBy, "listed": counts["listed"],
                "passRate": _share(counts["listed"], pages), "gate": counts,
                "siteNutrition": sum(1 for r in mine if gate.hasNutrition(r)),
-               "nutrition": nutritionSummary(mine)}
+               "nutrition": nutritionSummary(mine),
+               "kinds": {"drinks": sum(1 for r in mine if r.kind == "drink"),
+                         "drinksShown": sum(1 for r in mine if r.kind == "drink" and r.hiddenReason is None),
+                         "noCourse": sum(1 for r in mine if r.course is None),
+                         "noCourseShown": sum(1 for r in mine if r.course is None and r.hiddenReason is None)}}
     if site["kind"] == "drink":
         summary["drinks"] = {"withGlass": sum(1 for r in mine if r.glass),
                              "withGarnish": sum(1 for r in mine if any(l.group == "Garnish" for l in r.ingredients)),
@@ -205,6 +209,12 @@ def renderMarkdown(summary, groups, queue=None, unknown=None):
                    + f" | {_pct(s['passRate'])} | {s['siteNutrition']} | {_cell(state)} |")
     out += ["", "## Gate reasons, all sites", "", "| Reason | Recipes |", "|---|---|"]
     out += [f"| {r} | {summary['reasons'][r]} |" for r in _ORDER]
+    out += ["", "## Kinds and courses", "",
+            "Drinks are pages whose site category says so (or every page of a drink site); a recipe with no course "
+            "has no category word in rules/siteCourses.json.", ""]
+    out += [f"- {s['name']}: {s['kinds']['drinks']} drinks ({s['kinds']['drinksShown']} shown); "
+            f"{s['kinds']['noCourse']} recipes with no course ({s['kinds']['noCourseShown']} shown)"
+            for s in summary["sites"]]
     drinks = [s for s in summary["sites"] if "drinks" in s]
     if drinks:
         out += ["", "## Drinks", ""]

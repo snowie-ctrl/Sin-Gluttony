@@ -26,7 +26,7 @@ recipe, and explain the cooking words in the steps.
 
 ### 1.1 Which recipes are drinks (`scraper`)
 
-- `rules/drinkCategories.json` lists the category words that make a recipe a drink: `drink`,
+- `rules/siteCourses.json` lists the category words that make a recipe a drink: `drink`,
   `drinks`, `cocktail`, `cocktails`, `beverage`, `beverages`, `mocktail`, `mocktails`,
   `smoothie`, `smoothies`. Matching is per comma-separated part of the site's own category
   (`hints.category`, already read by `sources/schemaSite.py`), case-insensitive, whole part only:
@@ -43,7 +43,8 @@ recipe, and explain the cooking words in the steps.
   sites' category words to a course ("Dessert", "Treat" → dessert; "Side dish", "Salad" → side;
   "Condiment", "Dressing" → sauce; "Dinner", "Main course", "Lunch" → main …). When a category
   names several, the most specific wins in a fixed order: sauce, side, starter, breakfast, bread,
-  dessert, snack, main ("Dinner, Side dish" is a side). No matching word leaves the course unset,
+  dessert, snack, main ("Dinner, Side dish" is a side), except that a part saying main in so many words
+  ("Main course", "Mains") beats every word but a sauce word (88 recipes, found in the final review). No matching word leaves the course unset,
   as today. A drink's course comes from its category ("Cocktails" → cocktail) or its title
   (smoothie → shake, latte → coffee/tea, mulled → punch), then the existing cocktail or mocktail
   rule.
@@ -60,12 +61,16 @@ recipe, and explain the cooking words in the steps.
 
 For a recipe with `kind === "drink"`, a liquid amount is shown for a jigger:
 
-- **Which lines:** a volume unit (`ml`, `cl`, `dl`, `l`, `tsp`, `tbsp`, `fl oz`, `cup`, and a
-  drink's bare `oz`, already read as `fl oz`) whose scaled amount is at least 7.5 ml and at most
+- **Which lines:** a volume unit (`ml`, `cl`, `dl`, `l`, `fl oz`, `cup`, and a drink's bare `oz`,
+  already read as `fl oz`) whose scaled amount is at least 7.5 ml and at most
   120 ml. Grams, counts and units with no conversion are unchanged ("2 lime wedges").
 - **US:** ounces in quarter steps (¼, ½, ¾, 1, 1¼, 1½ …), written with the kitchen fractions the
-  app already uses, unit `oz`. 1 tbsp shows ½ oz; 44 ml shows 1½ oz.
-- **Metric:** the nearest 5 ml (10, 15, 20, 25, 30 …). 44 ml shows 45 ml; 1 tbsp shows 15 ml.
+  app already uses, unit `oz`. 44 ml shows 1½ oz.
+- **Spoons stay spoons** (changed in the final review): `tsp` and `tbsp` are not pours, because in a
+  drink they often measure a solid ("2 tbsp oats" in a smoothie would read "1 oz oats"). "1 tbsp lime
+  juice" reads as written.
+- **Metric:** the nearest 5 ml (10, 15, 20, 25, 30 …). 44 ml shows 45 ml, on the recipe page and in
+  cook mode too (a line is shown as written only while its amount is unchanged).
 - **Below 7.5 ml** (under ¼ oz: a dash, a barspoon): teaspoons in kitchen fractions in both
   systems. Never rounded to nothing.
 - **Above 120 ml** (a bottle of prosecco in a punch): the existing conversion (ml or l; cups or

@@ -48,7 +48,8 @@
    "hasImage": true, "imageCredit": "Stub picture", "videoUrl": null, "source": "cocktaildb",
    "sourceUrl": null, "licence": "TheCocktailDB", "credit": "Recipe data and imagery: TheCocktailDB",
    "ingredients": [
-    {"line": "2 oz white rum", "quantity": 2, "quantityMax": null, "unit": "fl oz", "ingredientId": 201, "name": "white rum", "note": null, "optional": false, "group": null},
+    {"line": "50ml white rum", "quantity": 50, "quantityMax": null, "unit": "ml", "ingredientId": 201, "name": "white rum", "note": null, "optional": false, "group": null},
+    {"line": "1 tbsp lime juice", "quantity": 1, "quantityMax": null, "unit": "tbsp", "ingredientId": null, "name": "lime juice", "note": null, "optional": false, "group": null},
     {"line": "6 leaves mint", "quantity": 6, "quantityMax": null, "unit": null, "ingredientId": 202, "name": "mint", "note": null, "optional": false, "group": null},
     {"line": "2 tsp sugar", "quantity": 2, "quantityMax": null, "unit": "tsp", "ingredientId": 203, "name": "sugar", "note": null, "optional": false, "group": null},
     {"line": "Soda water", "quantity": null, "quantityMax": null, "unit": null, "ingredientId": 205, "name": "soda water", "note": null, "optional": true, "group": null}
