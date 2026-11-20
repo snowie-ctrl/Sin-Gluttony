@@ -145,3 +145,25 @@ def test_theReportCountsBasicsThatFellBackToALaterCandidate():
                                         "unparsedLines": 0, "basics": rows, "basicsFellBack": 1}, [])
     assert "1 basics fell back to a later candidate" in text
     assert "listed via candidate 2" in text
+
+
+def test_aSiteSummaryCountsDrinksAndRecipesWithNoCourse():
+    drink = made(url="https://x.test/d1/", course="cocktail")
+    drink.kind = "drink"
+    hiddenDrink = made(url="https://x.test/d2/", hidden="small-photo", course="mocktail")
+    hiddenDrink.kind = "drink"
+    noCourse = made(url="https://x.test/f1/")
+    side = made(url="https://x.test/f2/", course="side")
+    s = dryrunReport.siteSummary(SITE, None, [drink, hiddenDrink, noCourse, side], [])
+    assert s["kinds"] == {"drinks": 2, "drinksShown": 1, "noCourse": 1, "noCourseShown": 1}
+
+
+def test_theReportHasAKindsAndCoursesLinePerSite():
+    drink = made(url="https://x.test/d1/", course="cocktail")
+    drink.kind = "drink"
+    summary = dryrunReport.siteSummary(SITE, None, [drink, made(url="https://x.test/f1/")], [])
+    text = dryrunReport.renderMarkdown({"date": "2026-11-19", "pages": 2, "recipes": 2, "listed": 2, "passRate": 1.0,
+                                        "sites": [summary], "reasons": {r: 0 for r in dryrunReport._ORDER},
+                                        "unparsedLines": 0, "basics": []}, [])
+    assert "## Kinds and courses" in text
+    assert "- Test Site: 1 drinks (1 shown); 1 recipes with no course (1 shown)" in text
