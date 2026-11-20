@@ -17,6 +17,8 @@
  "explicitMain": ["main course", "main dish", "mains", "main"],
  "foodOrder": ["sauce", "explicitMain", "side", "starter", "breakfast", "bread", "dessert", "snack", "main"],
  "drinkCategories": {"cocktail": ["cocktail", "cocktails"], "mocktail": ["mocktail", "mocktails"]},
+ "alcoholFreeWords": ["alcohol free", "non alcoholic", "nonalcoholic", "virgin", "mocktail", "zero proof",
+                      "booze free"],
  "drinkTitles": {
   "shake": ["smoothie", "milkshake", "shake", "lassi", "frappe"],
   "coffee/tea": ["coffee", "latte", "cappuccino", "tea", "chai", "hot chocolate", "cocoa"],

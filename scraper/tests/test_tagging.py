@@ -229,3 +229,17 @@ def test_aHintThatDoesNotFitTheKindIsDropped():
     drink = tagging.tagRecipe(recipe(source="othersite", kind="drink", ingredients=("orange juice",),
                                      hints={"course": "dessert"}), TABLE, RULES)
     assert drink.course == "mocktail"
+
+
+@pytest.mark.parametrize("title", ["Alcohol-free amaretto sour", "A Really Good Non-Alcoholic Margarita",
+                                   "Virgin mojito", "Zero-proof spritz"])
+def test_aDrinkWhoseTitleSaysAlcoholFreeIsAMocktail(title):
+    # its ingredients may be unknown, so its facts cannot say (2026-11-20)
+    r = tagging.tagRecipe(recipe(kind="drink", title=title, ingredients=("made-up syrup",)), TABLE, RULES)
+    assert (r.alcohol, r.course) == ("non-alcoholic", "mocktail")
+
+
+def test_aTitleWordDoesNotOverruleKnownAlcohol():
+    r = tagging.tagRecipe(recipe(kind="drink", title="Virgin Islands rum punch", ingredients=("white rum",)),
+                          TABLE, RULES)
+    assert r.alcohol == "alcoholic"

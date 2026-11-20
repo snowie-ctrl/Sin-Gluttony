@@ -146,3 +146,26 @@ def test_fromServerCopiesTheFdcColumns():
     t = matching.IngredientTable.fromServer(payload, PREP)
     assert (t.rows[1]["fdcId"], t.rows[1]["fdcFrom"]) == (900003, "owner")
     assert (t.rows[2]["fdcId"], t.rows[2]["fdcFrom"]) == (None, None)
+
+
+# The recipe sites' drinks name spirits the old drink database did not (2026-11-20): 159 shown "cocktails" had unknown
+# alcohol, so alcohol-free ones were filed as cocktails.
+@pytest.mark.parametrize("name, expected", [
+    ("blanco tequila", "tequila"), ("tequila blanco", "tequila"), ("reposado tequila", "tequila"),
+    ("silver tequila", "tequila"), ("bottle vodka", "vodka"), ("bottle gin", "gin"), ("pink gin", "gin"),
+    ("orange liqueur", "triple sec"), ("irish cream liqueur", "irish cream"), ("disaronno", "amaretto"),
+    ("bottle red wine", "wine"), ("bottle prosecco", "champagne"), ("espadin mezcal", "mezcal"),
+])
+def test_theSitesSpiritNamesAreKnown(name, expected):
+    ingredientId, _ = REAL.match(name)
+    assert ingredientId is not None and ingredientId == REAL.match(expected)[0]
+
+
+@pytest.mark.parametrize("name", ["pimm s", "limoncello", "hazelnut liqueur", "ginger wine", "poitin"])
+def test_newSpiritsAreAlcohol(name):
+    ingredientId, _ = REAL.match(name)
+    assert ingredientId is not None and "alcohol" in REAL.containsOf(ingredientId)
+
+
+def test_anAlcoholFreeSpiritIsNotTheSpirit():
+    assert REAL.match("non alcoholic gin")[0] != REAL.match("gin")[0]

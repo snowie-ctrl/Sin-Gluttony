@@ -125,6 +125,12 @@ def applyCuisine(recipe, rules):
                 return
 
 
+def _saysAlcoholFree(title, rules):
+    """Whether a drink's title says it has no alcohol, by whole words in rules/siteCourses.json."""
+    padded = " " + " ".join(re.findall(r"[a-z]+", (title or "").lower())) + " "
+    return any(f" {words} " in padded for words in rules["siteCourses"]["alcoholFreeWords"])
+
+
 def applyCourse(recipe, rules):
     # rules/courses.json maps a source's own category to a course, per source ({source: {category: course}}); a
     # recipe-site page carries its course as a hint from siteCourse.classify, used when no map applies.
@@ -138,6 +144,10 @@ def applyCourse(recipe, rules):
                 recipe.alcohol = "alcoholic"
             elif recipe.facts["complete"]:
                 recipe.alcohol = "non-alcoholic"
+        # A title that says so ("Alcohol-free amaretto sour") settles what unknown ingredients cannot; known alcohol
+        # in the ingredients always wins ("Virgin Islands rum punch").
+        if recipe.alcohol is None and _saysAlcoholFree(recipe.title, rules):
+            recipe.alcohol = "non-alcoholic"
         if course in (None, "cocktail"):
             course = "mocktail" if recipe.alcohol == "non-alcoholic" else "cocktail"
     recipe.course = course
