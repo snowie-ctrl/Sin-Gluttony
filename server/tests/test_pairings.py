@@ -184,6 +184,24 @@ def test_noPairingsIsAnEmptyList(readClient, useDb):
     assert answer.get_json()["data"]["pairings"] == []
 
 
+def test_withoutTheTableTheRecipeStillOpensWithNoPairings(readClient, useDb):
+    class NoSuchTable(Exception):
+        errno = 1146
+
+    def missing(sql, params):
+        if "FROM RecipePairings" in sql:
+            raise NoSuchTable("Table 'gluttonyDB.RecipePairings' doesn't exist")
+        return False
+    useDb(fetchone=[DETAIL, None], fetchall=[[], [], [], [], [], [], []], failOn=missing)
+    answer = readClient.get("/api/gluttony/recipes/7")
+    assert answer.status_code == 200 and answer.get_json()["data"]["pairings"] == []
+
+
+def test_anyOtherDatabaseErrorStillFails(readClient, useDb):
+    useDb(fetchone=[DETAIL, None], fetchall=[[], [], [], [], [], [], []], failOn="FROM RecipePairings")
+    assert readClient.get("/api/gluttony/recipes/7").status_code == 500
+
+
 def test_aSlotPlutusDoesNotKnowIsLeftOut(readClient, useDb):
     answer, _ = detail(readClient, useDb, [paired("pudding", 1, 20), paired("side", 1, 21)])
     assert [p["slot"] for p in answer.get_json()["data"]["pairings"]] == ["side"]

@@ -34,11 +34,11 @@ class FakeCursor:
         # (this is how /lists/create's unread FOR UPDATE lock reached the real server untested).
         if self.unread:
             raise UnreadResult(f"Unread result found (before: {flat[:60]})")
-        self.unread = flat.startswith("SELECT")
         self.executed.append((flat, params))
         failing = self._failOn(flat, params) if callable(self._failOn) else (self._failOn and self._failOn in flat)
         if failing:
             raise RuntimeError(f"forced failure on: {flat[:60]}")
+        self.unread = flat.startswith("SELECT")     # a statement that failed leaves no rows waiting
         match = re.match(r"INSERT (?:IGNORE )?INTO (\w+)", flat)
         if match and self._ids.get(match.group(1)):
             self.lastrowid = self._ids[match.group(1)].pop(0)

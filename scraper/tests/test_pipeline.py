@@ -161,6 +161,16 @@ def test_aNewFullPassTagsTheBasicOnlyOnARecipeThatPassedTheGate(newCatalog, monk
     assert result["pairings"]["dry"] is True and result["pairings"]["recipes"] == 2   # the hidden one takes no part
 
 
+def test_aPairingsFailureIsReportedButTheRecipesPassStands(newCatalog, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise adminApi.AdminError("POST /pairings refused (404): not found")
+    monkeypatch.setattr(publish, "publishPairings", refuse)
+    result = pipeline.runPass("full", log=quiet)
+    assert result["outcome"] == "ok" and result["publish"]["changed"] == 3
+    assert result["pairings"] == {"error": "AdminError: POST /pairings refused (404): not found"}
+    assert store.readJson(config.STATE_FILE)["siteCounts"]          # the guard's baseline still moved on
+
+
 def test_aNewFullPassWritesSiteHealthTheFdcQueueAndTheReport(newCatalog):
     result = pipeline.runPass("full", log=quiet)
     assert result["outcome"] == "ok", result["error"]

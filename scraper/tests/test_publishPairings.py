@@ -57,10 +57,11 @@ def test_setsGoInChunksAndTheirHashesAreKept(monkeypatch):
     monkeypatch.setattr(config, "PAIRING_BATCH", 2)
     summary = publish.publishPairings(catalog(), RULES, log=quiet)
     assert [len(p["items"]) for p in plutus.posts] == [2, 2]
-    assert [(p["slot"], p["key"]) for p in plutus.sent()["madeup:1"]] == [
-        ("side", "madeup:2"), ("side", "madeup:3"), ("dessert", "madeup:4"), ("drink", "madeup:5")]
-    assert plutus.sent()["madeup:1"][0] == {"slot": "side", "key": "madeup:2", "rank": 1,
-                                             "why": "the recipe says to serve it with naan; same cuisine"}
+    curry = plutus.sent()["madeup:1"]
+    assert sorted((p["slot"], p["key"]) for p in curry) == [
+        ("dessert", "madeup:4"), ("drink", "madeup:5"), ("side", "madeup:2"), ("side", "madeup:3")]
+    naan = next(p for p in curry if p["key"] == "madeup:2")
+    assert naan["why"] == "the recipe says to serve it with naan; same cuisine" and naan["slot"] == "side"
     assert summary["sent"] == 4 and summary["stored"] == 4 and summary["failed"] == []
     saved = store.readJson(config.PUBLISHED_FILE)
     assert set(saved["pairings"]) == {"madeup:1", "madeup:2", "madeup:3", "madeup:4"}

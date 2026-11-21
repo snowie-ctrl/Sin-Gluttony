@@ -17,6 +17,7 @@ database = session.database
 
 MEDIA_ROOT = Path("/pool/appFiles/gluttony")
 FROM_RECIPES = "FROM Recipes r LEFT JOIN RecipeFacts fa ON fa.RecipeID = r.RecipeID"
+NO_SUCH_TABLE = 1146            # MySQL's ER_NO_SUCH_TABLE
 
 
 def ok(data=None):
@@ -152,10 +153,16 @@ def recipe(recipeId):
         versions = cur.fetchall()
         f = rules.withProfile({}, *session.profileOf(cur, uid)) if profile == "on" else {}
         where, params = rules.recipeWhere(f)
-        cur.execute(f"SELECT p.Slot, p.Position, p.Why, {rules.TILE_COLUMNS} FROM RecipePairings p "
-                    "JOIN Recipes r ON r.RecipeID = p.PairedID LEFT JOIN RecipeFacts fa ON fa.RecipeID = r.RecipeID "
-                    f"WHERE p.RecipeID = %s AND {where} ORDER BY p.Slot, p.Position", [recipeId, *params])
-        pairings = rules.pairingsOf(cur.fetchall())
+        try:
+            cur.execute(f"SELECT p.Slot, p.Position, p.Why, {rules.TILE_COLUMNS} FROM RecipePairings p "
+                        "JOIN Recipes r ON r.RecipeID = p.PairedID LEFT JOIN RecipeFacts fa ON fa.RecipeID = r.RecipeID "
+                        f"WHERE p.RecipeID = %s AND {where} ORDER BY p.Slot, p.Position", [recipeId, *params])
+            pairings = rules.pairingsOf(cur.fetchall())
+        except Exception as e:
+            # Code copied before schema-part3.sql was loaded: the recipe page still opens, with no pairings.
+            if getattr(e, "errno", None) != NO_SUCH_TABLE:
+                raise
+            pairings = []
         detail = rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions, nutrition)
         detail["pairings"] = pairings
         detail["removed"] = False           # only shown recipes get here; kept for older app builds

@@ -39,6 +39,7 @@
   "oceanian": ["Australian"]
  },
  "flavourPairs": [["rich", "fresh"], ["spicy", "cooling"], ["sweet", "bitter"], ["sweet", "sour"]],
+ "flavourMinLines": 2,
  "flavourWords": {
   "rich": ["cream", "butter", "cheese", "cheddar", "parmesan", "mascarpone", "bacon", "pancetta", "chorizo",
            "sausage", "pork", "lamb", "beef", "duck", "coconut", "chocolate", "egg", "yolk", "mayonnaise", "ghee",

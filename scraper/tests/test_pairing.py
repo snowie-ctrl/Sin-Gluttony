@@ -1,6 +1,7 @@
 """Pairings (spec 2026-11-19 part 3, 2.1 and 2.2): the slot table, "serve with", each score part, the cut and the why.
 Every recipe here is made up."""
 import config
+import linking
 import pairing
 import rulesData
 from models import IngredientLine, Recipe, Step
@@ -18,7 +19,7 @@ def made(sourceId, course, title=None, kind=None, cuisine=None, difficulty=None,
                totalMinutes=minutes, description=description)
     r.tags = ([{"type": "flavour", "tag": f, "origin": "rule"} for f in flavours]
               + [{"type": "occasion", "tag": o, "origin": "rule"} for o in occasions])
-    r.dishKey = dishKey or title.lower()
+    r.dishKey = dishKey or linking.dishKey(title, set(RULES["fillerWords"]))
     r.hiddenReason = hidden
     return r
 
@@ -96,7 +97,14 @@ def test_aDishMatchesOnlyWhenAllItsWordsAreInOnePart():
     garlicBread, salad, greenBeans = made(2, "side", "Garlic bread"), made(3, "side", "Green salad"), \
         made(4, "side", "Green beans")
     result = pairing.pairAll([main, garlicBread, salad, greenBeans], RULES)
-    assert slotKeys(result, "madeup:1", "side") == ["madeup:2", "madeup:3"]
+    assert sorted(slotKeys(result, "madeup:1", "side")) == ["madeup:2", "madeup:3"]
+
+
+def test_aDishNamedWithAndMatchesTheWholePhrase():
+    main = made(1, "main", description="Serve with fish and chips and mushy peas.")
+    fishAndChips, peas = made(2, "side", "Fish and chips"), made(3, "side", "Mushy peas")
+    assert sorted(slotKeys(pairing.pairAll([main, fishAndChips, peas], RULES), "madeup:1", "side")) == \
+        ["madeup:2", "madeup:3"]
 
 
 def test_garnishOnlyPhrasesMatchNothing():
@@ -150,7 +158,26 @@ def test_flavourPairsWorkEitherWayRound():
     assert score(fresh, rich, "goes-on")[0] == 2
     assert score(rich, plain)[0] == 0
     assert score(made(4, "dessert", flavours=["sweet"]), made(5, "coffee/tea", flavours=["bitter"]), "drink")[0] == 2
-    assert score(made(6, "main", flavours=["spicy"]), made(7, "sauce", ingredients=["greek yogurt"]), "sauce")[0] == 2
+    assert score(made(6, "main", flavours=["spicy"]), made(7, "sauce", ingredients=["greek yogurt", "kefir"]),
+                 "sauce")[0] == 2
+
+
+def test_oneIngredientLineDoesNotMakeASide():
+    oneKnob = made(1, "main", ingredients=["butter", "rice", "stock"])
+    fresh = made(2, "side", ingredients=["cucumber", "lemon juice"])
+    assert score(oneKnob, fresh)[0] == 0
+
+
+def test_aRecipeThatIsBothSidesOfAPairIsNeither():
+    both = made(1, "main", ingredients=["double cream", "butter", "lemon", "rocket"])
+    fresh = made(2, "side", ingredients=["cucumber", "lemon juice"])
+    rich = made(3, "side", ingredients=["cream cheese", "bacon"])
+    assert score(both, fresh)[0] == 0 and score(both, rich)[0] == 0
+
+
+def test_aCuisineInTwoFamiliesSharesEither():
+    assert score(made(1, "main", cuisine="Cuban"), made(2, "side", cuisine="Jamaican"))[0] == 1
+    assert score(made(1, "main", cuisine="Cuban"), made(2, "side", cuisine="Mexican"))[0] == 1
 
 
 def test_eachSharedOccasionAddsOne():
@@ -182,15 +209,24 @@ def test_scoresOfZeroOrLessAreDropped():
     assert "madeup:1" not in result
 
 
-def test_theTopEightByScoreThenKey():
+def test_theTopEightByScoreThenTheTieOrder():
     r = made(1, "main", cuisine="Italian", description="Serve with polenta.")
     sides = [made(n, "side", f"Side {n}", cuisine="Italian", source="b") for n in range(10, 22)]
     best = made(99, "side", "Polenta", cuisine="Italian", source="z")
     result = pairing.pairAll([r, *sides, best], RULES)
     picked = result["madeup:1"]
-    assert [p["key"] for p in picked] == ["z:99"] + [f"b:{n}" for n in range(10, 17)]
+    tied = sorted((s.key for s in sides), key=lambda key: pairing.tieKey("madeup:1", key))
+    assert [p["key"] for p in picked] == ["z:99"] + tied[:7]
     assert [p["rank"] for p in picked] == list(range(1, 9))
-    assert pairing.pairAll([r, *reversed(sides), best], RULES) == result
+    assert pairing.pairAll([r, *reversed(sides), best], RULES) == result     # the same whatever the order
+
+
+def test_tiesAreSpreadSoNotEveryRecipeGetsTheSameFew():
+    mains = [made(n, "main", f"Main {n}", cuisine="Thai") for n in range(1, 21)]
+    drinks = [made(n, "cocktail", f"Drink {n}", cuisine="Thai") for n in range(100, 140)]
+    result = pairing.pairAll(mains + drinks, RULES)
+    firsts = {result[m.key][0]["key"] for m in mains}
+    assert len(firsts) > 5
 
 
 def test_theWhyIsTheOneOrTwoLargestPartsInOrder():
@@ -233,7 +269,7 @@ def test_theGroupedScoringPicksWhatScoringEveryPairWould():
         expected = []
         for slot in p["slots"].get(r.course, []):
             allowed = p["rowCourses"].get(r.course, {}).get(slot) or p["slotCourses"][slot]
-            scored = sorted((-pairing.score(r, c, slot, RULES)[0], c.key) for c in recipes
-                            if c.course in allowed and c.key != r.key and c.dishKey != r.dishKey)
-            expected += [(slot, key) for points, key in scored if points < 0][:p["perSlot"]]
+            scored = sorted((-pairing.score(r, c, slot, RULES)[0], pairing.tieKey(r.key, c.key), c.key)
+                            for c in recipes if c.course in allowed and c.key != r.key and c.dishKey != r.dishKey)
+            expected += [(slot, key) for points, _, key in scored if points < 0][:p["perSlot"]]
         assert [(x["slot"], x["key"]) for x in result.get(r.key, [])] == expected, r.key

@@ -278,3 +278,8 @@ Rollout (spec 2026-11-19 part 3, 2.5):
 4. **Restart Caduceus (owner).** `sudo systemctl restart Caduceus.service`.
 5. **Re-gate (Claude, VM 103).** Copy the scraper and run `main.py --once retag`; it publishes the pairings and its
    report (`run/last-report.json`, `pairings`) gives pairings per slot and how many recipes found none.
+
+The scraper sends a recipe's set only when it changed since plutus last stored it (a hash per recipe under
+`pairings` in the VM's `data/published.json`). If `RecipePairings` is emptied or restored from an older backup,
+delete that `pairings` key on the VM and re-gate: every set is sent again. Should the server code arrive before the
+table, the recipe page still opens, with no pairings.

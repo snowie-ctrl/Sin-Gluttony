@@ -142,8 +142,13 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     removals = publish.siteRemovals(publishedKeys, crawled, siteCounts, config.REMOVAL_GUARD)
     summary = result["publish"] = publish.publish(recipes, log, removals=removals)
     # After the recipes, so every key a set names is one plutus holds; the report gives pairings per slot and how
-    # many recipes found none.
-    result["pairings"] = publish.publishPairings(recipes, rules, log, removing=removals[0])
+    # many recipes found none. Pairings are secondary: a failure here is reported, never the pass's failure, since
+    # the recipes and removals are already sent (and the removal guard's baseline below must still move on).
+    try:
+        result["pairings"] = publish.publishPairings(recipes, rules, log, removing=removals[0])
+    except Exception as e:
+        result["pairings"] = {"error": f"{type(e).__name__}: {e}"}
+        log(f"pairings failed, recipes kept: {result['pairings']['error']}")
     if mode == "full":
         # The baseline the next pass's guard compares against: a complete, non-empty listing the guard let through.
         # A guarded or empty listing never becomes it, so a shrink stays held back pass after pass.
