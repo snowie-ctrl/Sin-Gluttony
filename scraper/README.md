@@ -21,6 +21,15 @@ comes from its category, then its title (smoothie → shake, latte → coffee/te
 alcohol. The dry-run report's "Kinds and courses" lists, per site, the drinks and the recipes with no course;
 a category word missing from the file shows there.
 
+**Pairings.** After the recipes are published, `pairing.py` suggests what goes with each shown recipe, in slots
+chosen by its course (a main gets a side, a sauce, a dessert and a drink; a side goes on mains; a cocktail gets a
+snack). Every rule is in `rules/pairings.json`: the slot table, what the recipe says to serve it with (+10), cuisine
+(+3 same, +1 same family, −2 different families), effort and time for sides and sauces, flavour balance (rich with
+fresh, spicy with cooling, sweet with bitter or sour) and shared occasions. The top 8 per slot with a score above 0
+go to plutus's `POST /pairings` with a why ("same cuisine"); a recipe's set is sent only when it changed (its hash
+in `data/published.json`), and pairings are not part of a recipe's content hash. The report's `pairings` gives
+pairings per slot and how many recipes found none.
+
 ## Running
 
 ```bash
@@ -54,7 +63,7 @@ retired; a pass never sends or removes them. Their raw records and pictures on t
 ## Files it keeps
 
 `data/raw/` (the page cache and each site's sitemap listing), `data/images/` (pictures), `data/normalised.jsonl`
-(the last pass's recipes), `data/published.json` (what plutus confirmed), `run/` (state, requests, progress, the last
+(the last pass's recipes), `data/published.json` (what plutus confirmed: recipe and pairing hashes), `run/` (state, requests, progress, the last
 report, site health, the FDC queue), `reports/` (the last 30 reports), `logs/scraper.log`.
 
 ## Growing the ingredient table

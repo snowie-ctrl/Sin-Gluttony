@@ -1,7 +1,7 @@
 """
 One pass of the scraper over the recipe sites in rules/sites.json: crawl (full
 passes only) -> read the cached pages -> pictures -> tag, nutrition, gate,
-basics -> site health -> publish with site removals. A re-tag runs everything
+basics -> site health -> publish with site removals, then the pairings. A re-tag runs everything
 after the crawl over the pages already cached on the VM, with no new downloads
 and no removals, so a rule change can be applied in minutes. A stop is
 honoured between stages, never once publishing has started.
@@ -141,6 +141,9 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     publishedKeys = list(publish.publishedState(config.PUBLISH != "on"))
     removals = publish.siteRemovals(publishedKeys, crawled, siteCounts, config.REMOVAL_GUARD)
     summary = result["publish"] = publish.publish(recipes, log, removals=removals)
+    # After the recipes, so every key a set names is one plutus holds; the report gives pairings per slot and how
+    # many recipes found none.
+    result["pairings"] = publish.publishPairings(recipes, rules, log, removing=removals[0])
     if mode == "full":
         # The baseline the next pass's guard compares against: a complete, non-empty listing the guard let through.
         # A guarded or empty listing never becomes it, so a shrink stays held back pass after pass.

@@ -158,6 +158,7 @@ def test_aNewFullPassTagsTheBasicOnlyOnARecipeThatPassedTheGate(newCatalog, monk
     assert "hiddenReason" not in payloads[A_URL] and basic(A_URL)
     assert not basic(B_URL)
     assert result["publish"]["dry"] is True and result["publish"]["changed"] == 3
+    assert result["pairings"]["dry"] is True and result["pairings"]["recipes"] == 2   # the hidden one takes no part
 
 
 def test_aNewFullPassWritesSiteHealthTheFdcQueueAndTheReport(newCatalog):

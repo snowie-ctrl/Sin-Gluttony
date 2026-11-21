@@ -54,6 +54,7 @@ ADMIN_PORT = int(_env("ADMIN_PORT", "5000"))
 UPLOAD_HOST = _env("UPLOAD_HOST", "")          # user@host that rsync sends pictures to
 MEDIA_ROOT = "/pool/appFiles/gluttony"          # images/ and thumbs/ live under it on plutus
 BATCH_SIZE = 50
+PAIRING_BATCH = 100                             # recipes' pairing sets per POST /pairings
 
 # ========== MODES ==========
 PUBLISH = _env("PUBLISH", "dry")      # "on" sends to plutus; "dry" runs every stage but sending

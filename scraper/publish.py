@@ -25,6 +25,7 @@ import json
 import adminApi
 import config
 import pagecache
+import pairing
 import store
 
 MAX_NUTRIENT = 100000      # plutus refuses a per-serving nutrient above this, or below 0
@@ -119,7 +120,15 @@ def publishedState(dry):
 
 
 def _save(published):
-    store.writeJson(config.PUBLISHED_FILE, {"recipes": published})
+    """The recipe hashes, keeping the pairing hashes already in the file."""
+    current = store.readJson(config.PUBLISHED_FILE, None) or {}
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": published, "pairings": current.get("pairings", {})})
+
+
+def _savePairings(hashes):
+    """The pairing hashes, keeping the recipe hashes already in the file."""
+    current = store.readJson(config.PUBLISHED_FILE, None) or {}
+    store.writeJson(config.PUBLISHED_FILE, {"recipes": current.get("recipes", {}), "pairings": hashes})
 
 
 def _dropCached(keys, urlMaps):
@@ -180,4 +189,57 @@ def publish(recipes, log=print, removals=None):
     if not changed and not removeKeys:
         _save(published)
     log(f"publish: {summary['stored']} stored, {len(summary['failed'])} refused, {summary['removed']} removed")
+    return summary
+
+
+# ---- pairings (spec 2026-11-19 part 3, 2.3) ----
+
+def pairingsHash(pairs):
+    return hashlib.sha1(json.dumps(pairs, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def publishPairings(recipes, rules, log=print, removing=()):
+    """
+    Scores the pairings over the shown recipes plutus holds (not those this pass removes) and sends each recipe's
+    whole set to /pairings in chunks. A set whose hash matches the one plutus last stored is not sent; a set that
+    emptied is sent empty, so plutus clears the old rows; a recipe that never had any is not sent. Pairings are kept
+    apart from the recipe payload and its content hash, so a change of scores never resends a recipe.
+    """
+    dry = config.PUBLISH != "on"
+    saved = store.readJson(config.PUBLISHED_FILE, None) or {}
+    held = None if dry else set(publishedState(dry))
+    removing = set(removing)
+    pool = [r for r in recipes if r.hiddenReason is None and r.key not in removing
+            and (held is None or r.key in held)]
+    pairs = pairing.pairAll(pool, rules)
+    slotted = set(rules["pairings"]["slots"])
+    perSlot = {}
+    for found in pairs.values():
+        for slot in dict.fromkeys(p["slot"] for p in found):
+            perSlot[slot] = perSlot.get(slot, 0) + 1
+    previous = dict(saved.get("pairings", {}))
+    items, hashes = [], {}
+    for r in pool:
+        found = pairs.get(r.key, [])
+        hashes[r.key] = pairingsHash(found)
+        if previous.get(r.key) != hashes[r.key] and (found or r.key in previous):
+            items.append({"key": r.key, "pairings": found})
+    summary = {"dry": dry, "recipes": len(pool), "perSlot": perSlot,
+               "none": sum(1 for r in pool if r.course in slotted and r.key not in pairs),
+               "sent": 0, "stored": 0, "failed": []}
+    if dry:
+        summary["wouldSend"] = len(items)
+        log(f"pairings (dry): {len(items)} would be sent; per slot {perSlot}; {summary['none']} recipes with none")
+        return summary
+    for start in range(0, len(items), config.PAIRING_BATCH):
+        chunk = items[start:start + config.PAIRING_BATCH]
+        answer = adminApi.post("/pairings", {"items": chunk})
+        summary["sent"] += len(chunk)
+        for key in answer.get("stored", []):
+            previous[key] = hashes[key]
+        summary["stored"] += len(answer.get("stored", []))
+        summary["failed"] += answer.get("failed", [])
+        _savePairings(previous)             # after every chunk, so a failure later keeps this progress
+    log(f"pairings: {summary['sent']} sent, {len(summary['failed'])} refused; per slot {perSlot}; "
+        f"{summary['none']} recipes with none")
     return summary
