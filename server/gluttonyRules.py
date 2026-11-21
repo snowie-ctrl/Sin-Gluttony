@@ -42,6 +42,13 @@ PAGE_SIZE = 24
 MAX_PAGE_SIZE = 60
 MAX_BATCH = 200
 MAX_KEYS = 1000
+# Pairings (part 3): the slots a recipe's suggestions go in, in the order the recipe page shows them; the scraper
+# keeps up to PER_SLOT per slot, and the page shows the first PAIRS_SHOWN that are shown and fit the profile.
+SLOTS = ("side", "sauce", "dessert", "drink", "goes-on", "snack")
+PER_SLOT = 8
+MAX_PAIRS = PER_SLOT * len(SLOTS)
+PAIRS_SHOWN = 2
+WHY_MAX = 120
 # Today's temptation is a dish to cook, never a sauce or a side.
 HOME_COURSES = ("main", "breakfast")
 HOME_PICKS = 8
@@ -212,6 +219,58 @@ def keysProblem(keys):
         if not isinstance(key, str) or ":" not in key or key.split(":", 1)[0] not in SOURCES:
             return "every key must be source:sourceId"
     return None
+
+
+def _isKey(key):
+    return isinstance(key, str) and ":" in key and key.split(":", 1)[0] in SOURCES and key.split(":", 1)[1] != ""
+
+
+def pairingsProblem(data):
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH:
+        return f"items must be a list of 1 to {MAX_BATCH}"
+    return None
+
+
+def pairingItemProblem(item):
+    """Why one recipe's set of pairings ({key, pairings: [{slot, key, rank, why}]}) cannot be stored, or None."""
+    if not isinstance(item, dict):
+        return "every item must be {key, pairings}"
+    if not _isKey(item.get("key")):
+        return "key must be source:sourceId"
+    pairs = item.get("pairings")
+    if not isinstance(pairs, list) or len(pairs) > MAX_PAIRS:
+        return f"pairings must be a list of up to {MAX_PAIRS}"
+    seen = set()
+    for p in pairs:
+        if not isinstance(p, dict):
+            return "every pairing must be {slot, key, rank, why}"
+        if p.get("slot") not in SLOTS:
+            return f"slot must be one of {', '.join(SLOTS)}"
+        if not _isKey(p.get("key")):
+            return "every pairing's key must be source:sourceId"
+        if p["key"] == item["key"]:
+            return "a recipe is never paired with itself"
+        if p.get("rank") is None or not _whole(p.get("rank"), 1, PER_SLOT):
+            return f"rank must be a whole number from 1 to {PER_SLOT}"
+        if not _text(p.get("why"), WHY_MAX):
+            return f"why must be 1 to {WHY_MAX} characters"
+        if (p["slot"], p["rank"]) in seen:
+            return f"slot {p['slot']} has rank {p['rank']} twice"
+        seen.add((p["slot"], p["rank"]))
+    return None
+
+
+def pairingsOf(rows):
+    """The recipe page's pairings from rows in slot and rank order, each a tile row with Slot and Why: per slot (in
+    SLOTS order) the first PAIRS_SHOWN; a slot with none, or one plutus does not know, is left out."""
+    grouped = {}
+    for row in rows:
+        if row["Slot"] in SLOTS:
+            items = grouped.setdefault(row["Slot"], [])
+            if len(items) < PAIRS_SHOWN:
+                items.append(dict(tile(row), why=row["Why"]))
+    return [{"slot": slot, "items": grouped[slot]} for slot in SLOTS if slot in grouped]
 
 
 def recipeRow(r):

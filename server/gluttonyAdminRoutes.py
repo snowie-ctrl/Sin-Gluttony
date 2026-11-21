@@ -1,6 +1,6 @@
 """
 Gluttony's admin routes on plutus, at /api/gluttony-admin. The scraper sends
-recipes and removals here and reads the ingredient table; Surrogate reads the
+recipes, removals and pairings here and reads the ingredient table; Surrogate reads the
 counts and maps unknown ingredients. LAN only: the public tunnel's nginx never
 routes this prefix. Every request needs X-Admin-Token. Validation lives in
 gluttonyRules, so the routes stay thin.
@@ -151,6 +151,49 @@ def recipesRemoved():
             removed += cur.rowcount
         conn.commit()
     return jsonify({"status": "ok", "removed": removed})
+
+
+@gluttonyAdminBP.route("/pairings", methods=["POST"])
+def pairings():
+    """Each item replaces one recipe's whole set of pairings (spec 2026-11-19 part 3, 2.3). An item naming a recipe
+    plutus does not hold (or a removed one), as itself or as a pairing, is refused with the reason; the rest are
+    stored, one transaction each."""
+    data = body()
+    problem = rules.pairingsProblem(data)
+    if problem:
+        return error(problem)
+    stored, failed = [], []
+    with database() as (conn, cur):
+        for item in data["items"]:
+            key = item.get("key") if isinstance(item, dict) else None
+            problem = rules.pairingItemProblem(item)
+            if problem:
+                failed.append({"key": key, "message": problem})
+                continue
+            keys = list(dict.fromkeys([key] + [p["key"] for p in item["pairings"]]))
+            pairs = [tuple(k.split(":", 1)) for k in keys]
+            try:
+                cur.execute("SELECT RecipeID, Source, SourceID FROM Recipes WHERE RemovedAt IS NULL AND "
+                            f"(Source, SourceID) IN ({', '.join(['(%s, %s)'] * len(pairs))})",
+                            [part for pair in pairs for part in pair])
+                # SourceID compares exactly (utf8mb4_bin) in MySQL and here; the source is one of SOURCES, as sent.
+                ids = {f"{row['Source']}:{row['SourceID']}": row["RecipeID"] for row in cur.fetchall()}
+                missing = next((k for k in keys if k not in ids), None)
+                if missing:
+                    failed.append({"key": key, "message": f"unknown or removed recipe: {missing}"})
+                    continue
+                recipeId = ids[key]
+                cur.execute("DELETE FROM RecipePairings WHERE RecipeID = %s", (recipeId,))
+                for p in item["pairings"]:
+                    cur.execute("INSERT INTO RecipePairings (RecipeID, Slot, Position, PairedID, Why) "
+                                "VALUES (%s, %s, %s, %s, %s)",
+                                (recipeId, p["slot"], p["rank"], ids[p["key"]], p["why"]))
+                conn.commit()
+                stored.append(key)
+            except Exception as e:
+                conn.rollback()
+                failed.append({"key": key, "message": f"database write failed: {type(e).__name__}"})
+    return jsonify({"status": "ok", "stored": stored, "failed": failed})
 
 
 @gluttonyAdminBP.route("/state", methods=["GET"])

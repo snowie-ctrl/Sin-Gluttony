@@ -44,7 +44,8 @@ def test_flagsSayCravingDevouredAndStars(kept, sessions, useDb):
 
 def test_aRecipeCarriesWhatIsMine(readClient, useDb):
     useDb(fetchone=[DETAIL, None, {"Stars": 5, "Note": "less salt"}],
-          fetchall=SIX_EMPTY + [[{"ListID": 3, "Kind": "cravings"}, {"ListID": 9, "Kind": "custom"}],
+          fetchall=SIX_EMPTY + [[], [],                    # the profile and the pairings
+                                [{"ListID": 3, "Kind": "cravings"}, {"ListID": 9, "Kind": "custom"}],
                                 [{"DevouredID": 41, "MadeOn": date(2026, 10, 27)},
                                  {"DevouredID": 40, "MadeOn": date(2026, 9, 1)}]])
     data = readClient.get(f"{A}/recipes/7").get_json()["data"]
@@ -86,7 +87,7 @@ def test_aRemovedRecipesPictureIsGoneForItsKeeperToo(readClient, useDb, media):
 
 def test_secondsTilesCarryFlagsToo(readClient, useDb):
     versions = [{"RecipeID": 8, "Title": "Cheese on Toast", "Source": "wikibooks", "ImagePath": None}]
-    useDb(fetchone=[DETAIL, None, {}], fetchall=[[], [], [], [], [], versions, [], [],
+    useDb(fetchone=[DETAIL, None, {}], fetchall=[[], [], [], [], [], versions, [], [], [], [],
                                            [{"RecipeID": 8, "Craving": 1, "DevouredCount": 0, "Stars": None}]])
     data = readClient.get(f"{A}/recipes/7").get_json()["data"]
     assert data["versions"] == [{"id": 8, "title": "Cheese on Toast", "source": "wikibooks", "hasImage": False,

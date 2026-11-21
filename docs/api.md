@@ -63,11 +63,17 @@ Diets: `vegetarian`, `vegan`, `gluten-free`, `dairy-free`. Avoid items: `meat`, 
 
 | Route | Answer |
 |---|---|
-| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source, technique}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage, craving, devouredCount, stars}]` (shown recipes only), credit fields), plus `description` (text or null), `nutrition`, `removed` (always `false`) and `mine` (see "What you keep"). `technique` is how a drink is made: `shaken`, `stirred`, `built`, `blended`, `thrown`. `nutrition` is per serving, or null when the recipe has none: `{calories, proteinG, carbsG, fatG, satFatG, fibreG, sugarG, sodiumMg, from, flagged}`; each value is a number or null, `from` is `source` (the site's own figures) or `estimate` (worked out from the ingredients), and `flagged` is true when the calories fell outside the usual per-serving range for the course (still shown). `404` when missing, removed or hidden, for everyone. |
+| `GET /recipes/<id>` | `data`: the full recipe (part 1's shape: `servings`, `servingsFrom`, times and their `…From`, `ingredients: [{line, quantity, quantityMax, unit, ingredientId, name, note, optional, group}]`, `steps: [{text, group}]`, `tags: {flavour, occasion, source, technique}`, `facts: {complete, contains, diets}`, `versions: [{id, title, source, hasImage, craving, devouredCount, stars}]` (shown recipes only), credit fields), plus `description` (text or null), `nutrition`, `removed` (always `false`) `mine` (see "What you keep") and `pairings` (below). `technique` is how a drink is made: `shaken`, `stirred`, `built`, `blended`, `thrown`. `nutrition` is per serving, or null when the recipe has none: `{calories, proteinG, carbsG, fatG, satFatG, fibreG, sugarG, sodiumMg, from, flagged}`; each value is a number or null, `from` is `source` (the site's own figures) or `estimate` (worked out from the ingredients), and `flagged` is true when the calories fell outside the usual per-serving range for the course (still shown). `404` when missing, removed or hidden, for everyone. Takes `profile` (`on`, the default, or `off`) for its pairings. |
 | `GET /filters` | `data: {kinds, courses, cuisines, difficulties, flavours, occasions, diets: [{value, count}], avoid: [...]}`, counts of shown recipes |
 | `GET /ingredients?q=` | `data: [{id, name}]`, up to 20; `q` 1–60 characters |
 | `GET /random` | the `/recipes` filters (`sort`, `page` ignored); `data: {recipe: tile or null}` |
 | `GET /images/<id>`, `GET /thumbs/<id>` | JPEG (1200 px, 400 px); `404` without one, or for a removed or hidden recipe |
+
+- **Pairings (part 3):** `pairings: [{slot, items: [tile + why]}]` is what goes with the recipe. `slot` is `side`,
+  `sauce`, `dessert`, `drink`, `goes-on` (a main for a side, sauce or bread) or `snack` (for a drink), in that order;
+  each slot gives, in rank order, the first 2 paired recipes that are shown and fit the profile (unless
+  `profile=off`). `why` is the reason in plain words ("same cuisine", "the recipe says to serve it with naan"). A slot
+  with none is left out; no pairings is `[]`. The scraper scores them weekly from `scraper/rules/pairings.json`.
 
 ## Home
 

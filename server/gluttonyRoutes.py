@@ -117,6 +117,11 @@ def home():
 
 @gluttonyBP.route("/recipes/<int:recipeId>", methods=["GET"])
 def recipe(recipeId):
+    """The whole recipe, with its versions and its pairings: per slot the first 2 paired recipes that are shown and
+    fit the account's diet profile (unless profile=off, as for listings)."""
+    profile = request.args.get("profile") or "on"
+    if profile not in ("on", "off"):
+        return fail("profile must be on or off", 400)
     uid = session.requestUID()
     with database() as (conn, cur):
         cur.execute(f"SELECT r.*, fa.Complete {FROM_RECIPES} WHERE r.RecipeID = %s", (recipeId,))
@@ -145,10 +150,17 @@ def recipe(recipeId):
         cur.execute("SELECT RecipeID, Title, Source, ImagePath FROM Recipes WHERE DishKey = %s AND RecipeID <> %s "
                     f"AND {rules.SHOWN_PLAIN} ORDER BY Title LIMIT 20", (row["DishKey"], recipeId))
         versions = cur.fetchall()
+        f = rules.withProfile({}, *session.profileOf(cur, uid)) if profile == "on" else {}
+        where, params = rules.recipeWhere(f)
+        cur.execute(f"SELECT p.Slot, p.Position, p.Why, {rules.TILE_COLUMNS} FROM RecipePairings p "
+                    "JOIN Recipes r ON r.RecipeID = p.PairedID LEFT JOIN RecipeFacts fa ON fa.RecipeID = r.RecipeID "
+                    f"WHERE p.RecipeID = %s AND {where} ORDER BY p.Slot, p.Position", [recipeId, *params])
+        pairings = rules.pairingsOf(cur.fetchall())
         detail = rules.recipeDetail(row, ingredients, steps, tags, contains, diets, versions, nutrition)
+        detail["pairings"] = pairings
         detail["removed"] = False           # only shown recipes get here; kept for older app builds
         detail["mine"] = kept.mineOf(cur, uid, recipeId)
-        kept.attachTileFlags(cur, uid, detail["versions"])
+        kept.attachTileFlags(cur, uid, detail["versions"] + [t for p in pairings for t in p["items"]])
     return ok(detail)
 
 

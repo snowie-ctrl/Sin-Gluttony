@@ -15,6 +15,7 @@ API at `/api/gluttony/` is public through the tunnel at `gluttony.forculus.net`,
 | `schema-part2.sql` | run once by the owner, after part 2's smoke test |
 | `schema-catalog.sql` | run once by the owner, before the new catalog's server code (new catalog, milestone 3) |
 | `gluttonySwitch.py` | `/database/API/util/` (only for the catalog switch; harmless if left) |
+| `schema-part3.sql` | run once by the owner, before part 3's pairing server code (`RecipePairings`) |
 
 Tests: `cd server && .venv/Scripts/python.exe -m pytest -q`.
 
@@ -256,3 +257,24 @@ and release the app build (its Quick fix sends `occasion=basic`).
 and, if pictures changed, the copy of `/pool/appFiles/gluttony`. The VM goes back to `CATALOG=old` until the switch is
 tried again. Once step 6 is merged the scraper refuses `CATALOG=old`, so an undo after that also puts the scraper from
 before the merge back on the VM (`git revert -m 1` of the merge on `main`, then copy it over).
+
+## Part 3: pairings
+
+The scraper sends what goes with each recipe to `POST /api/gluttony-admin/pairings` (LAN, admin token):
+`{"items": [{key, pairings: [{slot, key, rank, why}]}]}`, up to 200 items. Each item replaces that recipe's whole set
+in `RecipePairings` (an empty list clears it), one transaction per item. `slot` is one of `side`, `sauce`,
+`dessert`, `drink`, `goes-on`, `snack`; `rank` 1 to 8 within a slot; `why` 1 to 120 characters. An item whose own
+key or any paired key plutus does not hold (or holds as removed) is refused with `unknown or removed recipe: <key>`;
+the answer is `{stored: [keys], failed: [{key, message}]}`, as for `/recipes/batch`. `GET /api/gluttony/recipes/<id>`
+then gives per slot the first 2 that are shown and fit the profile (`docs/api.md`).
+
+Rollout (spec 2026-11-19 part 3, 2.5):
+
+1. **Back up (owner).** `sudo mysqldump gluttonyDB | gzip > ~/gluttony-backups/gluttonyDB-<date>-prePairings.sql.gz`
+2. **Load the schema (owner).** `sudo mysql gluttonyDB < schema-part3.sql` (from a copy of this folder).
+3. **Copy the server files (Claude).** `gluttonyAdminRoutes.py`, `gluttonyRoutes.py`, `gluttonyRules.py` to
+   `/database/API/util/` (LF endings: `git -c core.autocrlf=false archive`), the old ones kept as `*.bak-<date>`.
+   The recipe page now reads `RecipePairings`, so step 2 comes first.
+4. **Restart Caduceus (owner).** `sudo systemctl restart Caduceus.service`.
+5. **Re-gate (Claude, VM 103).** Copy the scraper and run `main.py --once retag`; it publishes the pairings and its
+   report (`run/last-report.json`, `pairings`) gives pairings per slot and how many recipes found none.

@@ -144,3 +144,28 @@ def test_catalogMigrationUsesTheHouseEngineAndHasNoSetEnumOrJson():
 def test_catalogMigrationTouchesNoUserTable():
     for statement in _catalogStatements():
         assert not re.search(r"\b(Users|Lists|ListItems|Devoured|Ratings|Notes)\b", statement), statement
+
+
+PART3 = (pathlib.Path(__file__).resolve().parent.parent / "schema-part3.sql").read_text(encoding="utf-8")
+PART3_CODE = "\n".join(line for line in PART3.splitlines() if not line.strip().startswith("--"))
+
+
+def test_part3AddsThePairingsTableOnly():
+    assert set(re.findall(r"CREATE TABLE (\w+)", PART3)) == {"RecipePairings"}
+    assert not re.search(r"\b(ALTER|DROP)\s+TABLE\b", PART3_CODE)
+    assert not re.search(r"\b(SET|ENUM)\s*\(|\bJSON\b", PART3_CODE)
+
+
+def test_part3UsesTheHouseEngineAndCollation():
+    bodies = re.findall(r"CREATE TABLE \w+ \((.*?)\n\)(.*?);", PART3, re.S)
+    assert len(bodies) == 1
+    assert bodies[0][1].strip() == "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+
+
+def test_aPairingGoesWithEitherRecipe():
+    pairings = re.search(r"CREATE TABLE RecipePairings \((.*?)\n\)", PART3, re.S).group(1)
+    assert "PRIMARY KEY (RecipeID, Slot, Position)" in pairings
+    assert "FOREIGN KEY (RecipeID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE" in pairings
+    assert "FOREIGN KEY (PairedID) REFERENCES Recipes (RecipeID) ON DELETE CASCADE" in pairings
+    assert "Why VARCHAR(120) NOT NULL" in pairings
+    assert not re.search(r"\bRank\b", pairings)          # RANK is a reserved word in MySQL 8
