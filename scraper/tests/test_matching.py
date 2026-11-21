@@ -43,7 +43,7 @@ def test_theLongestKnownNameInsideALineWins():
     # "boneless" and "skinless" are preparation words, the comma goes, and "thighs" becomes "thigh".
     t = matching.IngredientTable.fromSeed(SEED, PREP, set(RULES["modifierWords"]))
     ingredientId, key = t.match("boneless skinless chicken thighs, cut up")
-    assert ingredientId == 4 and key == "chicken thigh cut up"
+    assert ingredientId == 4 and key == "chicken thigh cut"
 
 
 REAL = matching.IngredientTable.fromSeed(RULES["ingredients"], PREP, set(RULES["modifierWords"]))
@@ -169,3 +169,14 @@ def test_newSpiritsAreAlcohol(name):
 
 def test_anAlcoholFreeSpiritIsNotTheSpirit():
     assert REAL.match("non alcoholic gin")[0] != REAL.match("gin")[0]
+
+
+@pytest.mark.parametrize("line, name", [
+    ("mint sprig", "mint"), ("strawberries hulled and halved", "strawberry"), ("ice to serve", "ice"),
+    ("lemon wheels", "lemon"), ("sparkling water to top up", "sparkling water"), ("golden caster sugar", "sugar"),
+])
+def test_drinkGarnishWordsAreIgnored(line, name):
+    # the words drink recipes add to an ingredient (2026-11-20: these left soft drinks with unknown lines)
+    real = matching.IngredientTable.fromSeed(RULES["ingredients"], PREP, RULES["modifierWords"])
+    ids, _ = real.matchOptions(line)
+    assert ids and ids[0] == real.matchOptions(name)[0][0]

@@ -243,3 +243,27 @@ def test_aTitleWordDoesNotOverruleKnownAlcohol():
     r = tagging.tagRecipe(recipe(kind="drink", title="Virgin Islands rum punch", ingredients=("white rum",)),
                           TABLE, RULES)
     assert r.alcohol == "alcoholic"
+
+
+def test_aKnownSpiritMakesADrinkAlcoholicEvenWithAnUnknownGarnish():
+    # one unknown line ("made-up garnish") leaves the facts incomplete; the vodka still says alcohol is in it
+    r = tagging.tagRecipe(recipe(kind="drink", ingredients=("vodka", "made-up garnish")), TABLE, RULES)
+    assert (r.alcohol, r.course) == ("alcoholic", "cocktail")
+    assert r.facts["contains"] == []            # the published facts keep their safety rule
+    unsure = tagging.tagRecipe(recipe(kind="drink", ingredients=("orange juice", "made-up garnish")), TABLE, RULES)
+    assert (unsure.alcohol, unsure.course) == (None, "cocktail")
+
+
+@pytest.mark.parametrize("line", ["gin London dry", "rum we used white rum", "bottle of decent gin", "cachaça liqueur",
+                                  "Disaronno Or other amaretto", "Barefoot Bubbly Brut Cuvée Champagne"])
+def test_aSpiritNamedInAnUnknownLineMakesADrinkAlcoholic(line):
+    r = tagging.tagRecipe(recipe(kind="drink", ingredients=(line, "orange juice")), TABLE, RULES)
+    assert r.alcohol == "alcoholic"
+
+
+@pytest.mark.parametrize("line", ["made-up ginger syrup", "made-up rum extract", "made-up rice wine vinegar",
+                                  "made-up alcohol-free gin", "made-up non-alcoholic sparkling wine",
+                                  "made-up ginger beer to top up", "sachet made-up wine yeast"])
+def test_aLineThatOnlyLooksLikeASpiritSaysNothing(line):
+    r = tagging.tagRecipe(recipe(kind="drink", ingredients=(line, "orange juice")), TABLE, RULES)
+    assert r.alcohol is None

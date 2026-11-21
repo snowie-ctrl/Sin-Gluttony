@@ -4,6 +4,7 @@ reads the recipes). Values a source stated are marked "source"; values a rule
 worked out are marked "rule", so the app can say "about 30 min".
 """
 import re
+import unicodedata
 
 import facts
 import quantity
@@ -125,13 +126,42 @@ def applyCuisine(recipe, rules):
                 return
 
 
-def _saysAlcoholFree(title, rules):
-    """Whether a drink's title says it has no alcohol, by whole words in rules/siteCourses.json."""
-    padded = " " + " ".join(re.findall(r"[a-z]+", (title or "").lower())) + " "
+def _words(text):
+    plain = unicodedata.normalize("NFKD", (text or "").lower()).encode("ascii", "ignore").decode()
+    return re.findall(r"[a-z]+", plain)
+
+
+def _saysAlcoholFree(text, rules):
+    """Whether a drink's title (or a line) says it has no alcohol, by whole words in rules/siteCourses.json."""
+    padded = " " + " ".join(_words(text)) + " "
     return any(f" {words} " in padded for words in rules["siteCourses"]["alcoholFreeWords"])
 
 
-def applyCourse(recipe, rules):
+def _namesASpirit(text, rules):
+    """Whether an ingredient line the table does not know names a spirit ("gin London dry", "bottle of decent gin"),
+    by whole words: "ginger" is not gin, and "rum extract" or "wine vinegar" is not a drink's alcohol."""
+    table = rules["siteCourses"]
+    if _saysAlcoholFree(text, rules):
+        return False
+    padded = " " + " ".join(_words(text)) + " "
+    for soft in table["notSpirits"]:                 # "ginger beer" is a soft drink
+        padded = padded.replace(f" {soft} ", " ")
+    words = padded.split()
+    return any(word in table["spiritWords"] and (n + 1 == len(words) or words[n + 1] not in table["notSpiritAfter"])
+               for n, word in enumerate(words))
+
+
+def _knownAlcohol(recipe, table, rules):
+    """Whether a recognised ingredient (or any of its options) contains alcohol, or an unrecognised line names a
+    spirit. Unlike the published facts, this does not need every line known: one spirit settles it, whatever the
+    unknown garnish is."""
+    return any(any("alcohol" in table.containsOf(ingredientId)
+                   for ingredientId in [line.ingredientId, *line.alternativeIds]) if line.ingredientId
+               else _namesASpirit(line.name or line.line, rules)
+               for line in recipe.ingredients)
+
+
+def applyCourse(recipe, table, rules):
     # rules/courses.json maps a source's own category to a course, per source ({source: {category: course}}); a
     # recipe-site page carries its course as a hint from siteCourse.classify, used when no map applies.
     mapped = (rules["courses"].get(recipe.source, {}).get((recipe.hints.get("category") or "").lower())
@@ -140,7 +170,7 @@ def applyCourse(recipe, rules):
     course = mapped if mapped in fits else None     # a course that does not fit the kind is a mis-categorised page
     if recipe.kind == "drink":
         if recipe.alcohol is None and recipe.facts:
-            if "alcohol" in recipe.facts["contains"]:
+            if _knownAlcohol(recipe, table, rules):
                 recipe.alcohol = "alcoholic"
             elif recipe.facts["complete"]:
                 recipe.alcohol = "non-alcoholic"
@@ -217,7 +247,7 @@ def tagRecipe(recipe, table, rules):
     applyTime(recipe, rules)
     applyDifficulty(recipe, rules)
     applyCuisine(recipe, rules)
-    applyCourse(recipe, rules)
+    applyCourse(recipe, table, rules)
     applyFlavour(recipe, table, rules)
     applyOccasion(recipe)
     applySourceTags(recipe)

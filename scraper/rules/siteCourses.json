@@ -19,6 +19,12 @@
  "drinkCategories": {"cocktail": ["cocktail", "cocktails"], "mocktail": ["mocktail", "mocktails"]},
  "alcoholFreeWords": ["alcohol free", "non alcoholic", "nonalcoholic", "virgin", "mocktail", "zero proof",
                       "booze free"],
+ "spiritWords": ["gin", "rum", "vodka", "tequila", "mezcal", "mescal", "whisky", "whiskey", "bourbon", "scotch", "brandy",
+                 "cognac", "cachaca", "pisco", "liqueur", "liqueurs", "vermouth", "amaretto", "disaronno", "sake",
+                 "wine", "champagne", "prosecco", "cava", "beer", "lager", "stout", "sherry", "schnapps", "absinthe",
+                 "aperol", "campari", "kahlua", "cointreau", "limoncello"],
+ "notSpiritAfter": ["vinegar", "extract", "essence", "flavouring", "flavoring", "glass", "glasses", "yeast"],
+ "notSpirits": ["ginger beer", "root beer", "birch beer", "wine gum", "wine gums"],
  "drinkTitles": {
   "shake": ["smoothie", "milkshake", "shake", "lassi", "frappe"],
   "coffee/tea": ["coffee", "latte", "cappuccino", "tea", "chai", "hot chocolate", "cocoa"],
