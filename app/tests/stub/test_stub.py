@@ -132,6 +132,27 @@ def test_aRecipeIsServedWholeAndAMissingOneIs404(client):
     assert get(client, "/recipes/999").status_code == 404
 
 
+def test_aMainHasItsPairingsAsTilesWithTheWhy(client):
+    pairings = get(client, "/recipes/1").get_json()["data"]["pairings"]
+    assert [p["slot"] for p in pairings] == ["drink"]               # the side names a recipe the stub does not have
+    drink = pairings[0]["items"][0]
+    assert drink["id"] == 3 and drink["title"] == "Stub Mojito" and drink["why"] == "a fresh drink for a rich main"
+    assert {"kind", "totalMinutes", "hasImage", "craving", "devouredCount", "stars"} <= set(drink)
+    assert get(client, "/recipes/2").get_json()["data"]["pairings"] == []
+
+
+def test_pairingsFollowTheProfileAndLeaveOutRemovedRecipes(client, monkeypatch):
+    monkeypatch.setenv("STUB_DIET", ";alcohol")
+    stub.reset()
+    assert get(client, "/recipes/1").get_json()["data"]["pairings"] == []
+    assert len(get(client, "/recipes/1?profile=off").get_json()["data"]["pairings"]) == 1
+    assert get(client, "/recipes/1?profile=maybe").status_code == 400
+    monkeypatch.delenv("STUB_DIET")
+    monkeypatch.setenv("STUB_REMOVED", "3")
+    stub.reset()
+    assert get(client, "/recipes/1").get_json()["data"]["pairings"] == []
+
+
 def test_aSiteRecipeCarriesItsDescriptionAndNutrition(client):
     detail = get(client, "/recipes/4").get_json()["data"]
     assert detail["source"] == "budgetbytes" and detail["credit"] == "Budget Bytes" and detail["sourceUrl"]

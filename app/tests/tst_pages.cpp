@@ -224,7 +224,7 @@ class TestPages : public QObject
           "steps":[{"text":"Simmer the lentils.","group":null}],
           "tags":{"flavour":[],"occasion":["basic"],"source":[]},
           "facts":{"complete":true,"contains":[],"diets":["vegan"]},
-          "versions":[]}})json";
+          "versions":[],"pairings":[]}})json";
         // A "//" inside a raw string ends moc's reading of the class, so the address goes in afterwards.
         body.replace("SITEURL", "https://example.org/stub-lentil-soup");
         body.replace("FROM", from);
@@ -1167,6 +1167,74 @@ private slots:
             pending += item->childItems();
         }
         QVERIFY(found);
+    }
+
+    // Recipe 1 with a side and a drink that go with it (spec 2026-11-19 part 3, 2.4). Made up.
+    void openPairedRecipe()
+    {
+        server->responses[path("/recipes/1")] = R"json({"status":"ok","data":{"id":1,"kind":"food","title":"Stub Curry",
+          "course":"main","cuisine":"Indian","servings":4,"servingsFrom":"source","totalMinutes":40,"timeFrom":"source",
+          "difficulty":1,"difficultyFrom":"rule","hasImage":false,"source":"bbcgoodfood","sourceUrl":null,"licence":null,
+          "credit":"Stub","imageCredit":null,"videoUrl":null,"ingredients":[],
+          "steps":[{"text":"Simmer it.","group":null}],"tags":{"flavour":[]},
+          "facts":{"complete":true,"contains":[],"diets":[]},"versions":[],
+          "pairings":[
+            {"slot":"side","items":[{"id":5,"kind":"food","title":"Stub Naan","course":"side","cuisine":"Indian",
+              "totalMinutes":20,"timeFrom":"source","difficulty":1,"hasImage":false,"source":"bbcgoodfood",
+              "why":"the recipe says to serve it with naan","craving":false,"devouredCount":0,"stars":null}]},
+            {"slot":"drink","items":[{"id":6,"kind":"drink","title":"Stub Lassi","course":"mocktail","cuisine":"Indian",
+              "totalMinutes":5,"timeFrom":"source","difficulty":1,"hasImage":false,"source":"bbcgoodfood",
+              "why":"a cooling drink for a spicy main","craving":false,"devouredCount":0,"stars":null}]}]}})json";
+        recipes->open(1);
+        nav->navigateTo("recipe-page");
+    }
+
+    void goesWithShowsARowPerSlotWithTheWhy()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openPairedRecipe();
+        QTRY_VERIFY(findVisible("goesWith"));
+        QCOMPARE(findVisible("goesWithSlot-side")->property("text").toString(), QStringLiteral("On the side"));
+        QCOMPARE(findVisible("goesWithSlot-drink")->property("text").toString(), QStringLiteral("To drink"));
+        QCOMPARE(countVisible("goesWithWhy"), 2);
+        QStringList titles, whys;
+        QList<QQuickItem *> pending{find("goesWith")};
+        while (!pending.isEmpty()) {
+            QQuickItem *item = pending.takeFirst();
+            if (item->objectName() == "tileTitle")
+                titles << item->property("text").toString();
+            if (item->objectName() == "goesWithWhy")
+                whys << item->property("text").toString();
+            pending += item->childItems();
+        }
+        QCOMPARE(titles, QStringList({"Stub Naan", "Stub Lassi"}));
+        QCOMPARE(whys, QStringList({"the recipe says to serve it with naan", "a cooling drink for a spicy main"}));
+        // With the diet on (or no profile), the recipe is asked for as listings are: no profile parameter.
+        QVERIFY(!QUrlQuery(requestsTo("/recipes/1").last()).hasQueryItem("profile"));
+    }
+
+    void goesWithIsLeftOutWithoutPairings()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openRecipeOne();                                    // an answer with no pairings at all (an older server)
+        QTRY_VERIFY(findVisible("recipeTitle"));
+        QVERIFY(!findVisible("goesWith"));
+        openSiteRecipe("source");                           // and recipe 8, whose pairings are an empty list
+        QTRY_VERIFY(findVisible("recipeTitle") && findVisible("recipeTitle")->property("text").toString() == "Stub Lentil Soup");
+        QVERIFY(!findVisible("goesWith"));
+    }
+
+    void theRecipeIsAskedForWithoutTheProfileWhileTheDietIsOff()
+    {
+        server->responses[path("/me/diet")] = R"({"status":"ok","data":{"diets":["vegan"],"avoid":[]}})";
+        start();
+        QTRY_VERIFY(diet->loaded());
+        diet->setEnabled(false);
+        openPairedRecipe();
+        QTRY_VERIFY(!requestsTo("/recipes/1").isEmpty());
+        QCOMPARE(QUrlQuery(requestsTo("/recipes/1").last()).queryItemValue("profile"), QStringLiteral("off"));
     }
 
     void anIncompleteRecipeWarnsWhileTheDietIsOn()

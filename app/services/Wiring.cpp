@@ -24,6 +24,7 @@ void wireServices(Session &session, AccountStore &store, Diet &diet, Catalog &ca
     queue.setStore(&store);
     cook.setStore(&store);
     recipes.setStore(&copies);
+    recipes.setDiet(&diet);
     saved.setStore(&copies);
     saved.setQueue(&queue);
     copies.setWaiting([&queue](int recipeId) { return queue.waits(recipeId); });

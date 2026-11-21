@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QUrlQuery>
 
+#include "services/Diet.h"
 #include "services/RecipeStore.h"
 
 
@@ -68,7 +69,11 @@ void Recipes::fetch()
     m_error.clear();
     m_fromCopy = false;
     emit changed();
-    m_api.get(QStringLiteral("/recipes/%1").arg(m_recipeId), QUrlQuery(), [this, generation](const Api::Result &result) {
+    QUrlQuery query;
+    const QString profile = m_diet ? m_diet->profileParam() : QString();
+    if (!profile.isEmpty())
+        query.addQueryItem("profile", profile);
+    m_api.get(QStringLiteral("/recipes/%1").arg(m_recipeId), query, [this, generation](const Api::Result &result) {
         if (generation != m_generation)
             return;
         m_loading = false;

@@ -5,6 +5,7 @@
 
 #include "api/Api.h"
 
+class Diet;
 class RecipeStore;
 
 // The recipe being looked at: its detail (GET /recipes/<id>), and the servings or multiplier chosen for it on
@@ -30,6 +31,9 @@ public:
     explicit Recipes(Api &api, QObject *parent = nullptr);
 
     void setStore(RecipeStore *store) { m_store = store; }
+    // The recipe is asked for with profile=off while the diet is switched off, as listings are: its pairings then
+    // leave the profile be.
+    void setDiet(Diet *diet) { m_diet = diet; }
     bool fromCopy() const { return m_fromCopy; }
 
     int recipeId() const { return m_recipeId; }
@@ -60,6 +64,7 @@ private:
 
     Api &m_api;
     RecipeStore *m_store = nullptr;
+    Diet *m_diet = nullptr;
     bool m_fromCopy = false;
     int m_recipeId = -1;
     QVariantMap m_recipe;

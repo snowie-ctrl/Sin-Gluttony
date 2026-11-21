@@ -27,6 +27,17 @@ TestCase {
         compare(Words.containsText([]), "")
     }
 
+    function test_everyPairingSlotHasALabel() {
+        compare(Words.goesWith, "Goes with")
+        compare(Words.slotLabel("side"), "On the side")
+        compare(Words.slotLabel("sauce"), "Something saucy")
+        compare(Words.slotLabel("dessert"), "For afters")
+        compare(Words.slotLabel("drink"), "To drink")
+        compare(Words.slotLabel("goes-on"), "Pile it on")
+        compare(Words.slotLabel("snack"), "Something to nibble")
+        compare(Words.slotLabel("pudding"), "pudding")      // a slot the app does not know yet still reads
+    }
+
     function test_sourceName_data() {
         return [
             { tag: "bbcgoodfood", source: "bbcgoodfood", name: "BBC Good Food" },

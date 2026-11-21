@@ -20,6 +20,15 @@ export const againHint = "what you devoured lately"
 export const goOnThen = "Go on, then"
 export const seconds = "Seconds?"
 export const secondsHint = "Other ways to make this"
+export const goesWith = "Goes with"
+export const goesWithHint = "what to have alongside"
+
+// A row of "Goes with" per pairing slot the server sends (spec 2026-11-19 part 3, 2.4). A slot this build does not
+// know yet still reads as its own name.
+export function slotLabel(slot) {
+    return ({ side: "On the side", sauce: "Something saucy", dessert: "For afters", drink: "To drink",
+              "goes-on": "Pile it on", snack: "Something to nibble" })[slot] || (slot || "")
+}
 export const browseTitle = "Browse"
 export const ingredientsTitle = "Ingredients"
 export const methodTitle = "Method"

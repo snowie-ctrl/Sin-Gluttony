@@ -13,7 +13,8 @@ import "../logic/nutrition.mjs" as Nutrition
 // there (when it has them), a strip of chips, the actions (▶ Cook mode, ♥ Craving,
 // + List, ✓ Devoured on a day that can be changed, the stars, ✎ Note, with the note under them), then the
 // ingredients (with the nutrition per serving under them) in a column that stays put while the steps scroll,
-// Seconds? and the credit the sources require.
+// Goes with (what to have alongside, a row per slot with the reason under each tile), Seconds? and the credit the
+// sources require.
 // Quantities follow the servings (or multiplier) chosen and the units preference; clicking a changed line shows it
 // as written. A recipe its source removed says so, and works as before for the person who kept it.
 Item {
@@ -705,9 +706,90 @@ Item {
                 }
             }
 
+            // What goes with it (spec 2026-11-19 part 3, 2.4): one row per slot the server sends, small tiles that
+            // open their recipe, each with its reason in small print. No section when there are none.
+            Column {
+                id: goesWith
+                objectName: "goesWith"
+                readonly property var slots: root.r.pairings || []
+                readonly property real tileWidth: Math.min(180, Preferences.tileWidth)
+                anchors { top: body.bottom; topMargin: 32 }
+                width: parent.width
+                spacing: Preferences.spacingMedium
+                visible: goesWith.slots.length > 0
+                height: visible ? implicitHeight : 0
+
+                Row {
+                    spacing: Preferences.spacingSmall
+                    Text {
+                        text: Words.goesWith
+                        color: Preferences.textPrimary
+                        font.family: Preferences.headingFont
+                        font.weight: Font.Black
+                        font.pixelSize: Preferences.fontSizeHeading
+                    }
+                    Text {
+                        anchors.bottom: parent.bottom
+                        text: Words.goesWithHint
+                        color: Preferences.textMuted
+                        font.family: Preferences.appFont
+                        font.pixelSize: Preferences.fontSizeCaption
+                    }
+                }
+
+                Repeater {
+                    model: goesWith.slots
+                    delegate: Column {
+                        id: slotRow
+                        required property var modelData
+                        width: goesWith.width
+                        spacing: Preferences.spacingSmall
+
+                        Text {
+                            objectName: "goesWithSlot-" + slotRow.modelData.slot
+                            text: Words.slotLabel(slotRow.modelData.slot)
+                            color: Preferences.textPrimary
+                            font.family: Preferences.appFont
+                            font.bold: true
+                            font.pixelSize: Preferences.fontSizeLabel
+                        }
+                        Flow {
+                            width: parent.width
+                            spacing: Preferences.spacingMedium
+                            Repeater {
+                                model: slotRow.modelData.items || []
+                                delegate: Column {
+                                    id: paired
+                                    required property var modelData
+                                    width: goesWith.tileWidth
+                                    spacing: 2
+                                    RecipeTile {
+                                        recipe: paired.modelData
+                                        width: paired.width
+                                        height: paired.width * 0.75 + 52
+                                    }
+                                    Text {
+                                        objectName: "goesWithWhy"
+                                        width: paired.width
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 3
+                                        elide: Text.ElideRight
+                                        text: paired.modelData.why || ""
+                                        color: Preferences.textMuted
+                                        font.family: Preferences.appFont
+                                        font.italic: true
+                                        font.pixelSize: Preferences.fontSizeCaption
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             TileRow {
                 id: seconds
-                anchors { top: body.bottom; topMargin: 32 }
+                anchors { top: goesWith.visible ? goesWith.bottom : body.bottom; topMargin: 32 }
                 width: parent.width
                 title: Words.seconds
                 hint: Words.secondsHint
@@ -717,7 +799,8 @@ Item {
             Column {
                 id: credit
                 objectName: "recipeCredit"
-                anchors { top: seconds.visible ? seconds.bottom : body.bottom; topMargin: 32 }
+                anchors { top: seconds.visible ? seconds.bottom : (goesWith.visible ? goesWith.bottom : body.bottom)
+                          topMargin: 32 }
                 width: parent.width
                 spacing: 4
 

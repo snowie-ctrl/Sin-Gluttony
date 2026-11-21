@@ -3,7 +3,9 @@ anyone's account. It listens on 127.0.0.1:5079; tests/stub/grab.ps1 starts it.
 
 It serves the recipes in snapshot/ (taken by snapshot.py from the LAN read API; never committed) or, without one,
 the four in fixture/recipes.json. Filters, the profile and the safety rule follow the server's rules, except that
-include and exclude match only the ingredient itself, not its children.
+include and exclude match only the ingredient itself, not its children. A recipe's pairings name their recipes by id
+(and a why); /recipes/<id> gives per slot the first 2 the stub has that are not removed and fit the profile (unless
+profile=off), as the server does.
 
 Sign in as stub / stub-password (UID 7, token "stub"). Sign up with the key "stub-key" (any other key is 403
 invalid_key); the username "taken" is 409. Signing out makes /device/identify say "new" until the next /auth,
@@ -435,13 +437,39 @@ def recipes():
                "recipes": [flagged(tile(r), reader) for r in rows[start:start + f["pageSize"]]]})
 
 
+SLOTS = ("side", "sauce", "dessert", "drink", "goes-on", "snack")
+PAIRS_SHOWN = 2
+
+
+def pairingsOf(r, f, reader):
+    """Per slot, in the server's slot order, the first PAIRS_SHOWN paired recipes the stub has that are not removed
+    and pass f (the profile); a slot with none is left out."""
+    found = []
+    for slot in SLOTS:
+        items = []
+        for group in r.get("pairings", []):
+            if group["slot"] != slot:
+                continue
+            for item in group["items"]:
+                paired = state["recipes"].get(item["id"])
+                if paired and matches(paired, f) and len(items) < PAIRS_SHOWN:
+                    items.append(flagged(dict(tile(paired), why=item["why"]), reader))
+        if items:
+            found.append({"slot": slot, "items": items})
+    return found
+
+
 @app.route(API + "/recipes/<int:rid>")
 def recipe(rid):
+    profile = request.args.get("profile") or "on"
+    if profile not in ("on", "off"):
+        return fail("error", 400, "profile must be on or off")
     reader = state["readers"][uid()]
     r = visible(rid, reader)
     if not r:
         return fail("error", 404, "no such recipe")
     detail = dict(r)
+    detail["pairings"] = pairingsOf(r, withProfile({}, uid()) if profile == "on" else {}, reader)
     detail["versions"] = [flagged(dict(v), reader) for v in r.get("versions", []) if v["id"] not in state["removed"]]
     detail["removed"] = rid in state["removed"]
     detail["mine"] = mineOf(reader, rid)
