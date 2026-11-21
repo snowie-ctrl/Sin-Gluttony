@@ -21,6 +21,7 @@ import dryrun
 import fdc
 import fdcMatch
 import gate
+import glossary
 import images as images_            # runPass has an `images` switch, so the module needs another name
 import linking
 import matching
@@ -123,6 +124,12 @@ def runSitesPass(mode, log=print, stopRequested=None, images=True, site=None, re
     basics.applyTags(recipes, rules)                                                          # after the gate
     store.writeLines(config.NORMALISED_FILE, (r.toDict() for r in recipes))
     result["unknownIngredients"] = reports.unknownIngredients(recipes)
+    # The seed words the shown recipes use that the app's glossary has no entry for yet (spec 2026-11-19 part 3,
+    # 3.1 upkeep). Secondary, like the pairings: a failure is reported and never fails the pass.
+    try:
+        result["glossaryGaps"] = glossary.reportGaps(recipes, rules)
+    except Exception as e:
+        result["glossaryGaps"] = {"error": f"{type(e).__name__}: {e}"}
     result["calibration"] = nutritionReport.calibrate(recipes)
     store.writeJson(config.FDC_QUEUE_FILE, {"generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                                             "queue": nutritionReport.fdcQueue(recipes, foods)})

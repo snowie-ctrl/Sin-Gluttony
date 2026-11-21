@@ -167,3 +167,20 @@ def test_theReportHasAKindsAndCoursesLinePerSite():
                                         "unparsedLines": 0, "basics": []}, [])
     assert "## Kinds and courses" in text
     assert "- Test Site: 1 drinks (1 shown); 1 recipes with no course (1 shown)" in text
+
+
+def glossaryReport(gaps):
+    summary = {"date": "2026-11-21", "pages": 0, "recipes": 0, "listed": 0, "passRate": None, "sites": [],
+               "reasons": {r: 0 for r in dryrunReport._ORDER}, "unparsedLines": 0, "basics": [], "glossaryGaps": gaps}
+    return dryrunReport.renderMarkdown(summary, [])
+
+
+def test_theReportListsSeedWordsThatAppearWithNoGlossaryEntry():
+    text = glossaryReport([{"term": "deglaze", "recipes": 12}, {"term": "hob", "recipes": 3}])
+    assert "## Glossary gaps" in text
+    assert "| deglaze | 12 |" in text and "| hob | 3 |" in text
+
+
+def test_theGlossaryGapsSayNoneOrNotFound():
+    assert "Every seed word that appears has an entry." in glossaryReport([])
+    assert "The app's glossary was not found" in glossaryReport(None)

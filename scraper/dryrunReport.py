@@ -16,6 +16,7 @@ import time
 
 import basics
 import gate
+import glossary
 import quantity
 import store
 
@@ -186,6 +187,22 @@ def _nutritionSection(summary, queue, unknown=None):
     return out
 
 
+def _glossarySection(summary):
+    """Seed words the shown recipes use in at least three recipes that app/assets/glossary.json has no entry for."""
+    if "glossaryGaps" not in summary:
+        return []
+    gaps = summary["glossaryGaps"]
+    out = ["", "## Glossary gaps", ""]
+    if gaps is None:
+        return out + ["The app's glossary was not found beside the scraper, so nothing was checked."]
+    if not gaps:
+        return out + ["Every seed word that appears has an entry."]
+    out += ["Words from rules/glossarySeed.json that shown recipes use and the app's glossary does not explain yet. "
+            "Adding one is an edit to app/assets/glossary.json, then an app build.", "",
+            "| Word | Shown recipes |", "|---|---|"]
+    return out + [f"| {_cell(g['term'])} | {g['recipes']} |" for g in gaps]
+
+
 def renderMarkdown(summary, groups, queue=None, unknown=None):
     out = [f"# Dry run {summary['date']}", "",
            f"{summary['recipes']} recipes from {summary['pages']} cached pages; {summary['listed']} would be listed "
@@ -225,6 +242,7 @@ def renderMarkdown(summary, groups, queue=None, unknown=None):
             f"{summary['unparsedLines']} lines in all. N a number, U a unit, NU both glued, w words.", "",
             "| Shape | Lines | Example |", "|---|---|---|"]
     out += [f"| `{g['pattern']}` | {g['count']} | {_cell(g['examples'][0])} |" for g in groups[:SHOWN_PATTERNS]]
+    out += _glossarySection(summary)
     out += ["", "## Basics", "", "| Basic | Status | Chosen URL |", "|---|---|---|"]
     out += [f"| {b['name']} | {b['status']} | {b['url'] or '-'} |" for b in summary["basics"]]
     missing = [b["name"] for b in summary["basics"] if not b["url"]]
@@ -244,6 +262,7 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=N
                "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
                "basics": basicsStatus(rules, recipes, skipped, siteState),
                "nutrition": nutritionSummary(recipes), "calibration": calibration or {}}
+    summary["glossaryGaps"] = glossary.reportGaps(recipes, rules)
     summary["basicsFellBack"] = sum(1 for b in summary["basics"] if (b["candidate"] or 1) > 1)
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)

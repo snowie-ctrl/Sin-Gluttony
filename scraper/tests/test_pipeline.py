@@ -2,6 +2,7 @@ import pytest
 
 import adminApi
 import config
+import glossary
 import images
 import pipeline
 import progress
@@ -393,3 +394,27 @@ def test_theRetiredCatalogsRecipesOnPlutusAreNeitherRemovedNorSent(newCatalog, m
         touched = sentKeys(posts, "/recipes/batch") + sentKeys(posts, "/recipes/removed")
         assert not set(retired) & set(touched)
     assert all(key in store.readJson(config.PUBLISHED_FILE)["recipes"] for key in retired)
+
+
+def test_aPassReportsTheGlossaryGaps(newCatalog, monkeypatch, tmp_path):
+    entries = tmp_path / "glossary.json"
+    entries.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(config, "GLOSSARY_FILE", entries)
+    monkeypatch.setattr(glossary, "gaps", lambda recipes, seed, found, minRecipes=3:
+                        [{"term": "toast", "recipes": sum(r.hiddenReason is None for r in recipes)}])
+    result = pipeline.runPass("full")
+    assert result["outcome"] == "ok", result["error"]
+    assert result["glossaryGaps"] == [{"term": "toast", "recipes": 2}]
+
+
+def test_withNoGlossaryFileTheGapsAreNone(newCatalog, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "GLOSSARY_FILE", tmp_path / "missing.json")
+    assert pipeline.runPass("full")["glossaryGaps"] is None
+
+
+def test_aGlossaryFailureIsReportedButThePassStands(newCatalog, monkeypatch):
+    def broken(recipes, rules):
+        raise ValueError("bad seed")
+    monkeypatch.setattr(glossary, "reportGaps", broken)
+    result = pipeline.runPass("full")
+    assert result["outcome"] == "ok" and result["glossaryGaps"] == {"error": "ValueError: bad seed"}
