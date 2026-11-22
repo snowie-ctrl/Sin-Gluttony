@@ -26,9 +26,8 @@ function lower(text) {
     return out
 }
 
-// The glossary as the app hands it over: JSON text, parsed once here and kept. The parsed list stays in this
-// module rather than in QML properties: a large object graph held in a page's `property var` tripped the JS heap
-// in debug builds (Qt 6.11), so QML only ever holds the small marks below.
+// The glossary as the app hands it over: JSON text, parsed once per engine here and kept, so the pages hold only
+// the small marks below rather than every entry.
 let parsedText = null
 let parsedList = []
 
@@ -82,3 +81,9 @@ export function marks(text, glossary) {
                .map(k => ({ start: k.start, end: k.end, term: k.entry.term, text: k.entry.text || "",
                             same: k.entry.same || "" }))
 }
+
+// Whether some word's popup is pinned: then hovering another word shows nothing, so two never overlap. Only one is
+// ever pinned, since a click anywhere else closes it.
+let pinnedOpen = false
+export function setPinned(on) { pinnedOpen = !!on }
+export function anyPinned() { return pinnedOpen }

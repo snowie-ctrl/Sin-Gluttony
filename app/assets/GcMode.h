@@ -7,6 +7,7 @@
 // a recipe arrived mid-collection and the debug build stopped on a heap assertion (found with the glossary's extra
 // allocations; a page with no glossary at all hit it once the timing lined up). Whole collections are a few
 // milliseconds in an app this size. Call before any QML engine exists; an owner's own QV4_GC_TIMELIMIT wins.
+// Revisit on a Qt upgrade: unset it, run tests/tst_pages, and drop this if the heap assertions are gone.
 inline void useWholeGarbageCollections()
 {
     if (!qEnvironmentVariableIsSet("QV4_GC_TIMELIMIT"))

@@ -143,3 +143,16 @@ def test_digitsAndAccentedLettersArePartOfAWord():
     assert spans("hob2 and 2fold") == []
     assert spans("foldé, then fold") == [("fold", "fold")]
     assert spans("İ fold") == [("fold", "fold")]
+
+
+@pytest.mark.parametrize("text", [
+    "Cut in half lengthways.", "Cut in two and serve.", "A knob of ginger, grated.", "100 g unpitted olives",
+    "Clarify the stock with egg whites.", "Roast until the skin crisps.", "Shape into a rounded loaf.",
+    "Serve in a frosted glass.", "50 ml 100-proof rum", "Add to the salt shaker.", "Char siu pork",
+])
+def test_theRealGlossaryNeverMarksCommonPhrasesWrongly(text):
+    """Everyday phrases that a careless form would explain with the wrong definition."""
+    entries = glossary.loadEntries(config.GLOSSARY_FILE)
+    wrong = {"cut in the butter", "knob of butter", "pitted", "clarified butter", "packet of crisps", "heaped",
+             "frosting", "prove", "cocktail shaker", "charred", "crisps"}
+    assert not {term for _, _, term in glossary.marks(text, entries)} & wrong, text

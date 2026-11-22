@@ -24,6 +24,14 @@ Item {
     property var segments: []
     property var shownMark: null            // the mark whose popup is open
     property bool pinned: false
+    property var focusBefore: null          // what had the keys before a pin took them, given back on close
+    // "Same as …" unless the text already says it that way (pak choi's "bok choy" read as bok choy).
+    readonly property string sameLine: {
+        const m = root.shownMark
+        if (!m || !m.same || m.same.toLowerCase() === root.text.slice(m.start, m.end).toLowerCase())
+            return ""
+        return Words.glossarySame(m.same)
+    }
     readonly property int markCount: root.marks.length
 
     signal clicked()
@@ -77,7 +85,10 @@ Item {
     }
 
     function show(segment, pin) {
+        if (pin && !root.pinned)
+            root.focusBefore = root.Window.activeFocusItem
         root.pinned = pin
+        GlossaryLogic.setPinned(pin)
         root.shownMark = segment.mark
         const below = root.mapToItem(tip.parent, segment.x, segment.bottom + 4)
         tip.x = Math.max(8, Math.min(below.x, tip.parent.width - tip.width - 8))
@@ -90,11 +101,13 @@ Item {
     }
 
     onMarksChanged: layoutTimer.restart()
-    onWidthChanged: layoutTimer.restart()
+    onWidthChanged: {
+        layoutTimer.restart()
+        root.closeTip()         // the word moved: a popup left behind would point at nothing
+    }
+    onTextChanged: root.closeTip()
 
-    // The dots are laid out once the text has settled. A timer of the item's own rather than Qt.callLater: the
-    // recipe page makes and drops these items as the recipe arrives, and a queued call into a dropped item tripped
-    // the JS heap in debug builds.
+    // The dots are laid out once the text has settled, by a timer of the item's own, so nothing queued outlives it.
     Timer {
         id: layoutTimer
         interval: 0
@@ -146,7 +159,8 @@ Item {
         cursorShape: hovered || root.clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
         onPositionChanged: event => {
             mouse.hovered = root.segmentAt(event.x, event.y)
-            if (mouse.hovered && !root.pinned)
+            // Only one popup at a time: while another word's popup is pinned, hovering shows nothing.
+            if (mouse.hovered && !root.pinned && !GlossaryLogic.anyPinned())
                 root.show(mouse.hovered, false)
             else if (!mouse.hovered && !root.pinned && tip.opened)
                 tip.close()
@@ -175,7 +189,13 @@ Item {
         closePolicy: root.pinned ? Popup.CloseOnEscape | Popup.CloseOnPressOutside : Popup.NoAutoClose
         onOpened: if (root.pinned) tip.forceActiveFocus()
         onClosed: {
+            if (root.pinned) {
+                GlossaryLogic.setPinned(false)
+                if (root.focusBefore)
+                    root.focusBefore.forceActiveFocus()
+            }
             root.pinned = false
+            root.focusBefore = null
             root.shownMark = null
         }
 
@@ -208,10 +228,10 @@ Item {
             }
             Text {
                 objectName: "glossarySame"
-                visible: !!(root.shownMark && root.shownMark.same)
+                visible: root.sameLine !== ""
                 width: parent.width
                 wrapMode: Text.Wrap
-                text: root.shownMark && root.shownMark.same ? Words.glossarySame(root.shownMark.same) : ""
+                text: root.sameLine
                 color: Preferences.textMuted
                 font.family: Preferences.appFont
                 font.italic: true

@@ -184,3 +184,7 @@ def test_theReportListsSeedWordsThatAppearWithNoGlossaryEntry():
 def test_theGlossaryGapsSayNoneOrNotFound():
     assert "Every seed word that appears has an entry." in glossaryReport([])
     assert "The app's glossary was not found" in glossaryReport(None)
+
+
+def test_aBrokenGlossaryIsSaidAndTheReportStillRenders():
+    assert "The glossary could not be checked: KeyError: 'term'" in glossaryReport({"error": "KeyError: 'term'"})

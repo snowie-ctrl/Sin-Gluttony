@@ -2290,6 +2290,46 @@ private slots:
         QTRY_VERIFY(!findVisible("glossaryDefinition"));
     }
 
+    void aClickBesideTheDotsOnAConvertedLineStillShowsItAsWritten()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        preferences->setProperty("units", "us");
+        openGlossaryRecipe();
+        QTRY_VERIFY(findVisible("ingredient-0"));
+        QQuickItem *line = findVisible("ingredient-0");
+        QTRY_VERIFY(line->property("text").toString() != QStringLiteral("100 g caster sugar"));   // in US units
+        QTRY_VERIFY(!markCentre(line).isNull());
+        // the amount, at the line's start, is plain text
+        const QPoint amount = line->mapToScene(QPointF(4, line->height() / 2)).toPoint();
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, amount);
+        QTRY_COMPARE(line->property("text").toString(), QStringLiteral("As written: 100 g caster sugar"));
+        QVERIFY(!findVisible("glossaryDefinition"));
+    }
+
+    void whileOneWordIsPinnedHoveringAnotherShowsNoSecondPopup()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openGlossaryRecipe();
+        QTRY_VERIFY(findVisible("step-0"));
+        QQuickItem *step = findVisible("step-0");
+        QQuickItem *line = findVisible("ingredient-0");
+        QTRY_VERIFY(!markCentre(step).isNull() && !markCentre(line).isNull());
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, markCentre(step));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        QTest::mouseMove(window(), markCentre(line));
+        QTest::qWait(50);
+        QCOMPARE(countVisible("glossaryDefinition"), 1);
+        QCOMPARE(findVisible("glossaryTerm")->property("text").toString(), QStringLiteral("fold"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!findVisible("glossaryDefinition"));
+        QTest::mouseMove(window(), markCentre(step));             // nothing pinned now: hovering works again
+        QTest::mouseMove(window(), markCentre(line));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        QCOMPARE(findVisible("glossaryTerm")->property("text").toString(), QStringLiteral("caster sugar"));
+    }
+
     void inCookModeEscClosesAPinnedGlossaryPopupBeforeCookMode()
     {
         openCookMode();

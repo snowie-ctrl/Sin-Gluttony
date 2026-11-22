@@ -63,4 +63,11 @@ TestCase {
         compare(Glossary.marks("Fold it.", "{}"), [])
         compare(Glossary.marks("Fold it.", json).length, 1)   // the earlier text is parsed again after a bad one
     }
+
+    function test_onlyOnePinIsRemembered() {
+        Glossary.setPinned(true)
+        verify(Glossary.anyPinned())
+        Glossary.setPinned(false)
+        verify(!Glossary.anyPinned())
+    }
 }

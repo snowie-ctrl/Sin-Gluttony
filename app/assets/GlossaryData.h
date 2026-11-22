@@ -5,10 +5,9 @@
 #include <QString>
 #include <QtDebug>
 
-// The glossary's terms (assets/glossary.json, bundled in the resources) as compact JSON text for QML, which parses
-// it once per page (JSON.parse) into plain objects: each {term, forms, kind, text, same?}. Plain JS objects, because
-// a large nested QVariantList handed to QML tripped the JS heap in debug builds. A missing or broken file gives "[]",
-// so steps simply show unmarked.
+// The glossary's terms (assets/glossary.json, bundled in the resources) as compact JSON text for QML, which
+// glossary.mjs parses once per engine into plain objects: each {term, forms, kind, text, same?}. A missing or broken
+// file gives "[]", so steps simply show unmarked.
 inline QString loadGlossary(const QString &path = QStringLiteral(":/glossary.json"))
 {
     QFile file(path);

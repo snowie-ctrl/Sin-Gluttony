@@ -195,6 +195,8 @@ def _glossarySection(summary):
     out = ["", "## Glossary gaps", ""]
     if gaps is None:
         return out + ["The app's glossary was not found beside the scraper, so nothing was checked."]
+    if isinstance(gaps, dict):
+        return out + [f"The glossary could not be checked: {_cell(gaps.get('error', ''))}"]
     if not gaps:
         return out + ["Every seed word that appears has an entry."]
     out += ["Words from rules/glossarySeed.json that shown recipes use and the app's glossary does not explain yet. "
@@ -262,7 +264,10 @@ def write(folder, siteList, crawled, recipes, skipped, rules, today, siteState=N
                "reasons": reasons, "unparsedLines": sum(g["count"] for g in groups),
                "basics": basicsStatus(rules, recipes, skipped, siteState),
                "nutrition": nutritionSummary(recipes), "calibration": calibration or {}}
-    summary["glossaryGaps"] = glossary.reportGaps(recipes, rules)
+    try:            # secondary, as in the pass: a bad glossary file never stops the owner's report
+        summary["glossaryGaps"] = glossary.reportGaps(recipes, rules)
+    except Exception as e:
+        summary["glossaryGaps"] = {"error": f"{type(e).__name__}: {e}"}
     summary["basicsFellBack"] = sum(1 for b in summary["basics"] if (b["candidate"] or 1) > 1)
     store.writeJson(folder / "summary.json", summary)
     store.writeJson(folder / "unparsed.json", groups)
