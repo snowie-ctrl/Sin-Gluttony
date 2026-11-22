@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Gluttony VERSION 1.2.0 LANGUAGES CXX)
+project(Gluttony VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -69,7 +69,7 @@ endif()
 qt_add_library(gluttony_ui STATIC)
 qt_add_qml_module(gluttony_ui
     URI Gluttony
-    VERSION 1.2.0
+    VERSION 1.3.0
     QML_FILES
         qml/Main.qml
         qml/NavShell.qml
