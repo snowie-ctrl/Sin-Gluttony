@@ -134,7 +134,10 @@ def test_theGlossaryIsConsistent():
 
 def test_theStopListIsTheAppsStopList():
     import re
-    source = (config.BASE_DIR.parent / "app" / "qml" / "logic" / "glossary.mjs").read_text(encoding="utf-8")
+    app = config.BASE_DIR.parent / "app" / "qml" / "logic" / "glossary.mjs"
+    if not app.exists():
+        pytest.skip("no app folder beside this scraper (a deployed copy)")
+    source = app.read_text(encoding="utf-8")
     block = re.search(r"export const STOP = \[(.*?)\]", source, re.S).group(1)
     assert set(re.findall(r'"([^"]+)"', block)) == glossary.STOP
 
