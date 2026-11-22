@@ -20,6 +20,8 @@ Rectangle {
     readonly property var r: Cook.recipe
     readonly property var steps: root.r.steps || []
     readonly property var lines: root.r.ingredients || []
+    // The step whose glossary popup is pinned (part 3, 3.2).
+    property var pinnedGlossary: null
     // The servings and multiplier chosen on the recipe page, when that page holds this recipe.
     readonly property real by: Recipes.recipeId === Cook.recipeId
                                ? Scale.factor(root.r.servings || 0, Recipes.servings, Recipes.multiplier) : 1
@@ -33,7 +35,13 @@ Rectangle {
     Keys.onUpPressed: Cook.previous()
     Keys.onDownPressed: Cook.next()
     Keys.onSpacePressed: Cook.next()
-    Keys.onEscapePressed: Cook.close()
+    // A pinned glossary popup closes first: cook mode keeps the focus, so the popup never sees the key itself.
+    Keys.onEscapePressed: {
+        if (root.pinnedGlossary)
+            root.pinnedGlossary.closeTip()
+        else
+            Cook.close()
+    }
     // The lowest item, so it only gets the presses nothing above it took: it keeps the keys with cook mode (a chip or a
     // line may otherwise take the focus) and, by accepting them, stops a click on blank space reaching the page
     // underneath (the search field, the rail, the recipe's buttons).
@@ -219,19 +227,20 @@ Rectangle {
                         font.weight: Font.Black
                         font.pixelSize: step.current ? Preferences.fontSizeDisplay : Preferences.fontSizeHeading
                     }
-                    Text {
+                    // Glossary words wear a dotted underline here too (part 3, 3.2); a click elsewhere picks the step.
+                    GlossaryText {
+                        id: stepText
                         objectName: "cookStepText-" + step.index
                         width: parent.width - 36 - Preferences.spacingMedium
-                        wrapMode: Text.Wrap
                         lineHeight: 1.25
                         text: Units.withOtherScale(step.modelData.text)
                         color: Preferences.textPrimary
                         font.family: Preferences.appFont
                         font.pixelSize: step.current ? Preferences.fontSizeDisplay : Preferences.fontSizeHeading
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: Cook.goTo(step.index)
-                        }
+                        clickable: true
+                        onClicked: Cook.goTo(step.index)
+                        onPinnedChanged: root.pinnedGlossary = stepText.pinned ? stepText
+                                         : (root.pinnedGlossary === stepText ? null : root.pinnedGlossary)
                     }
                 }
                 Flow {

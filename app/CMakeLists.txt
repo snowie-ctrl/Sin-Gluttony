@@ -18,6 +18,8 @@ qt_add_executable(appGluttony
     assets/resources.qrc
     assets/Preferences.h
     assets/Preferences.cpp
+    assets/GlossaryData.h
+    assets/GcMode.h
 
     api/AppConfig.h
     api/Api.h
@@ -94,6 +96,7 @@ qt_add_qml_module(gluttony_ui
         qml/component/NotePopup.qml
         qml/component/TitlePopup.qml
         qml/component/TimerStack.qml
+        qml/component/GlossaryText.qml
         qml/logic/scale.mjs
         qml/logic/units.mjs
         qml/logic/words.mjs
@@ -106,6 +109,7 @@ qt_add_qml_module(gluttony_ui
         qml/logic/stepIngredients.mjs
         qml/logic/chips.mjs
         qml/logic/nutrition.mjs
+        qml/logic/glossary.mjs
 )
 target_link_libraries(gluttony_ui PRIVATE Qt6::Quick Qt6::QuickControls2)
 

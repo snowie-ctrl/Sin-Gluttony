@@ -29,6 +29,8 @@
 
 #include "FakeServer.h"
 #include "api/Api.h"
+#include "assets/GcMode.h"
+#include "assets/GlossaryData.h"
 #include "assets/Preferences.h"
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
@@ -181,6 +183,7 @@ class TestPages : public QObject
         context->setContextProperty("RecipeStore", copies.get());
         context->setContextProperty("SyncQueue", queue.get());
         context->setContextProperty("Cook", cook.get());
+        context->setContextProperty("GlossaryJson", loadGlossary());
         engine->loadFromModule("Gluttony", "Main");
         QVERIFY(window());
         // Tall enough that the whole filter panel and the recipe page's first screen are on it, so clicks land.
@@ -299,6 +302,31 @@ class TestPages : public QObject
         QTRY_VERIFY(findVisible("settingsPage"));
     }
 
+    // Recipe 9: a line and a step with glossary words (the bundled glossary's caster sugar and fold). Made up.
+    void openGlossaryRecipe()
+    {
+        server->responses[path("/recipes/9")] = R"json({"status":"ok","data":{"id":9,"kind":"food",
+          "title":"Stub Sponge","servings":8,"servingsFrom":"source","hasImage":false,"source":"mealdb",
+          "licence":"TheMealDB","credit":"Stub","ingredients":[
+            {"line":"100 g caster sugar","quantity":100,"quantityMax":null,"unit":"g","ingredientId":110,"name":"sugar","note":null,"optional":false,"group":null}],
+          "steps":[{"text":"Fold the sugar in gently, then fold again.","group":null}],
+          "tags":{"flavour":[],"occasion":[],"source":[]},"facts":{"complete":true,"contains":[],"diets":[]},
+          "versions":[]}})json";
+        recipes->open(9);
+        nav->navigateTo("recipe-page");
+    }
+
+    // The middle of a glossary text's first dotted word, in the window, once its dots are laid out.
+    QPoint markCentre(QQuickItem *text, int which = 0)
+    {
+        const QVariantList segments = text->property("segments").toList();
+        if (segments.size() <= which)
+            return {};
+        const QVariantMap s = segments[which].toMap();
+        return text->mapToScene(QPointF(s["x"].toReal() + s["width"].toReal() / 2,
+                                        (s["top"].toReal() + s["y"].toReal()) / 2)).toPoint();
+    }
+
     // A recipe to cook: three steps (the second with a range), three lines, four servings.
     void openCookRecipe()
     {
@@ -392,6 +420,8 @@ private slots:
     {
         // Before any Preferences exists, so the owner's real ini is never read or written.
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path() + "/settings");
+        // The engines collect garbage as main.cpp's does (assets/GcMode.h).
+        useWholeGarbageCollections();
     }
 
     void init()
@@ -2203,6 +2233,81 @@ private slots:
         QTRY_VERIFY(!cook->active());
         QTRY_VERIFY(!find("cookPage"));
         QVERIFY(findVisible("recipeTitle"));
+    }
+
+    void glossaryWordsWearDotsAndExplainThemselvesOnHover()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openGlossaryRecipe();
+        QTRY_VERIFY(findVisible("ingredient-0"));
+        QQuickItem *line = findVisible("ingredient-0");
+        QQuickItem *step = findVisible("step-0");
+        QCOMPARE(line->property("markCount").toInt(), 1);           // caster sugar
+        QCOMPARE(step->property("markCount").toInt(), 1);           // fold, the first one only
+        QTRY_VERIFY(!markCentre(line).isNull());
+        QVERIFY(!findVisible("glossaryDefinition"));
+        QTest::mouseMove(window(), markCentre(line));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        QCOMPARE(findVisible("glossaryTerm")->property("text").toString(), QStringLiteral("caster sugar"));
+        QVERIFY(findVisible("glossaryDefinition")->property("text").toString().startsWith("Fine white sugar"));
+        QCOMPARE(findVisible("glossarySame")->property("text").toString(), QStringLiteral("Same as superfine sugar."));
+        QTest::mouseMove(window(), QPoint(5, 5));
+        QTRY_VERIFY(!findVisible("glossaryDefinition"));
+    }
+
+    void aClickPinsTheGlossaryPopupAndEscClosesIt()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openGlossaryRecipe();
+        QTRY_VERIFY(findVisible("step-0"));
+        QQuickItem *step = findVisible("step-0");
+        QTRY_VERIFY(!markCentre(step).isNull());
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, markCentre(step));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        QCOMPARE(findVisible("glossaryTerm")->property("text").toString(), QStringLiteral("fold"));
+        QVERIFY(!findVisible("glossarySame"));
+        QTest::mouseMove(window(), QPoint(5, 5));                   // pinned: leaving the word keeps it
+        QTest::qWait(50);
+        QVERIFY(findVisible("glossaryDefinition"));
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!findVisible("glossaryDefinition"));
+        QVERIFY(findVisible("recipeTitle"));
+    }
+
+    void aClickElsewhereClosesThePinnedGlossaryPopup()
+    {
+        start();
+        QTRY_VERIFY(find("navShell"));
+        openGlossaryRecipe();
+        QTRY_VERIFY(findVisible("step-0"));
+        QQuickItem *step = findVisible("step-0");
+        QTRY_VERIFY(!markCentre(step).isNull());
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, markCentre(step));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        click(findVisible("recipeTitle"));
+        QTRY_VERIFY(!findVisible("glossaryDefinition"));
+    }
+
+    void inCookModeEscClosesAPinnedGlossaryPopupBeforeCookMode()
+    {
+        openCookMode();
+        QTRY_VERIFY(find("cookStepText-1"));
+        QQuickItem *simmer = findVisible("cookStepText-1");        // "Pour in the wine and simmer…"
+        QCOMPARE(simmer->property("markCount").toInt(), 1);
+        QTRY_VERIFY(!markCentre(simmer).isNull());
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, markCentre(simmer));
+        QTRY_VERIFY(findVisible("glossaryDefinition"));
+        QCOMPARE(findVisible("glossaryTerm")->property("text").toString(), QStringLiteral("simmer"));
+        QCOMPARE(cook->step(), 0);                                  // a click on a word explains it, not moves
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!findVisible("glossaryDefinition"));
+        QVERIFY(cook->active());
+        QTest::keyClick(window(), Qt::Key_Down);                    // the keys are still cook mode's
+        QTRY_COMPARE(cook->step(), 1);
+        QTest::keyClick(window(), Qt::Key_Escape);
+        QTRY_VERIFY(!cook->active());
     }
 
     void theKeysAndAClickMoveTheLitStep()

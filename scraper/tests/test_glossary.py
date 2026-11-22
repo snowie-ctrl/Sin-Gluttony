@@ -130,3 +130,16 @@ def test_theGlossaryIsConsistent():
             assert form == form.lower().strip(), (e["term"], form)
             assert form not in glossary.STOP, (e["term"], form)
             assert seen.setdefault(form, e["term"]) == e["term"], f"{form!r} is in {seen[form]!r} and {e['term']!r}"
+
+
+def test_theStopListIsTheAppsStopList():
+    import re
+    source = (config.BASE_DIR.parent / "app" / "qml" / "logic" / "glossary.mjs").read_text(encoding="utf-8")
+    block = re.search(r"export const STOP = \[(.*?)\]", source, re.S).group(1)
+    assert set(re.findall(r'"([^"]+)"', block)) == glossary.STOP
+
+
+def test_digitsAndAccentedLettersArePartOfAWord():
+    assert spans("hob2 and 2fold") == []
+    assert spans("foldé, then fold") == [("fold", "fold")]
+    assert spans("İ fold") == [("fold", "fold")]

@@ -591,27 +591,25 @@ Item {
                                 font.bold: true
                                 font.pixelSize: Preferences.fontSizeLabel
                             }
-                            Text {
+                            // Glossary words wear a dotted underline (part 3, 3.2); a click elsewhere on a converted
+                            // line shows it as written.
+                            GlossaryText {
                                 id: lineText
                                 objectName: "ingredient-" + index
                                 readonly property string shown: Units.lineText(modelData, root.by, root.system, root.r.kind)
                                 width: parent.width
-                                wrapMode: Text.Wrap
                                 text: root.shownOriginal[index] ? Words.showOriginal + modelData.line
                                       : Units.withOptional(shown, modelData.optional)
                                 color: Preferences.textPrimary
                                 font.family: Preferences.appFont
                                 font.pixelSize: Preferences.fontSizeBody
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    enabled: lineText.shown !== modelData.line
-                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: {
-                                        const copy = Object.assign({}, root.shownOriginal)
-                                        copy[index] = !copy[index]
-                                        root.shownOriginal = copy
-                                    }
+                                clickable: lineText.shown !== modelData.line
+                                onClicked: {
+                                    if (!lineText.clickable)
+                                        return
+                                    const copy = Object.assign({}, root.shownOriginal)
+                                    copy[index] = !copy[index]
+                                    root.shownOriginal = copy
                                 }
                             }
                         }
@@ -669,10 +667,9 @@ Item {
                                     font.weight: Font.Black
                                     font.pixelSize: 22
                                 }
-                                Text {
+                                GlossaryText {
                                     objectName: "step-" + index
                                     width: parent.width - 40
-                                    wrapMode: Text.Wrap
                                     lineHeight: 1.3
                                     text: Units.withOtherScale(modelData.text)
                                     color: Preferences.textPrimary

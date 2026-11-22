@@ -38,6 +38,8 @@ export const metric = "Metric"
 export const us = "US"
 export const about = "about "
 export const showOriginal = "As written: "
+// The glossary popup's last line, when another kitchen calls it something else (spec 2026-11-19 part 3, 3.2).
+export function glossarySame(same) { return "Same as " + same + "." }
 export const loadingWords = "Setting the table…"
 export const tryAgain = "Try again"
 export const back = "Back"

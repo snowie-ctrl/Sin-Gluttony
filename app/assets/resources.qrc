@@ -16,5 +16,6 @@
         <file>images/plus.svg</file>
         <file>images/star.svg</file>
         <file>sounds/chime.wav</file>
+        <file>glossary.json</file>
     </qresource>
 </RCC>

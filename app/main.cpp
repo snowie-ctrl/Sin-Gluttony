@@ -15,6 +15,8 @@
 #include "LinkSuppressor.h"
 #include "api/Api.h"
 #include "api/AuthNetworkFactory.h"
+#include "assets/GcMode.h"
+#include "assets/GlossaryData.h"
 #include "assets/Preferences.h"
 #include "services/AccountStore.h"
 #include "services/Catalog.h"
@@ -35,6 +37,7 @@ Q_IMPORT_QML_PLUGIN(GluttonyPlugin)
 
 int main(int argc, char *argv[])
 {
+    useWholeGarbageCollections();
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("Gluttony"));
     app.setWindowIcon(QIcon(QStringLiteral(":/images/gluttonyAppIcon.png")));
@@ -87,6 +90,8 @@ int main(int argc, char *argv[])
     context->setContextProperty("RecipeStore", &copies);
     context->setContextProperty("SyncQueue", &queue);
     context->setContextProperty("Cook", &cook);
+    // The glossary ships inside the app (spec 2026-11-19 part 3, 3.2), so its words explain themselves offline.
+    context->setContextProperty("GlossaryJson", loadGlossary());
 
     engine.loadFromModule("Gluttony", "Main");
     if (engine.rootObjects().isEmpty())
