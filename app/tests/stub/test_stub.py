@@ -604,3 +604,15 @@ def test_everyDetailCarriesEveryTagTypeTheServerSends(client):
     for recipe in json.loads((stub.HERE / "fixture" / "recipes.json").read_text(encoding="utf-8"))["recipes"]:
         tags = get(client, f"/recipes/{recipe['id']}").get_json()["data"]["tags"]
         assert sorted(tags) == ["flavour", "occasion", "source", "technique"], recipe["id"]
+
+
+def test_theFixtureStepsUseGlossaryWords(client):
+    """Every glossary feature can be tried without plutus: techniques and British kitchen words in the steps."""
+    import json
+    from pathlib import Path
+    entries = json.loads((Path(__file__).resolve().parents[2] / "assets" / "glossary.json").read_text(encoding="utf-8"))
+    forms = {form for entry in entries for form in entry["forms"]}
+    steps = " ".join(step["text"].lower() for rid in (1, 4)
+                     for step in get(client, f"/recipes/{rid}").get_json()["data"]["steps"])
+    for word in ("deglaze", "simmer", "hob", "double cream", "fold"):
+        assert word in forms and word in steps, word

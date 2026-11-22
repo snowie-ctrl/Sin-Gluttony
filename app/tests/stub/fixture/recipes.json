@@ -19,7 +19,8 @@
    "steps": [
     {"text": "Brown the lardons, then the chicken in batches.", "group": null},
     {"text": "Pour in the wine, bring to a simmer, then cover and cook gently for 1 hour.", "group": null},
-    {"text": "Glaze the onions in butter and stir them through.", "group": null}
+    {"text": "Glaze the onions in butter and stir them through.", "group": null},
+    {"text": "Lift out the chicken and deglaze the pan with a splash of the wine on a high hob.", "group": null}
    ],
    "tags": {"flavour": ["savoury"], "occasion": ["party"], "source": [], "technique": []},
    "facts": {"complete": false, "contains": ["alcohol", "meat", "poultry"], "diets": []},
@@ -75,7 +76,7 @@
    ],
    "steps": [
     {"text": "Heat the oven to 180°C.", "group": null},
-    {"text": "Wilt the spinach in the butter, crack in the eggs and bake for 10 minutes.", "group": null}
+    {"text": "Wilt the spinach in the butter, fold in 2 tbsp double cream, crack in the eggs and bake for 10 minutes.", "group": null}
    ],
    "tags": {"flavour": ["savoury"], "occasion": ["brunch", "basic"], "source": [], "technique": []},
    "facts": {"complete": true, "contains": ["dairy", "egg"], "diets": ["vegetarian", "gluten-free"]},
