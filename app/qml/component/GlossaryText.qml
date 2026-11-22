@@ -113,6 +113,8 @@ Item {
         selectByMouse: false
         activeFocusOnPress: false
         wrapMode: TextEdit.Wrap
+        // Text centres a taller line's extra height; the document adds it below, so half goes on top here.
+        topPadding: Math.round((root.lineHeight - 1) * metrics.height / 2)
         textFormat: TextEdit.RichText
         // pre-wrap keeps every character where the plain text has it, so the marks' positions hold.
         text: "<div style=\"white-space: pre-wrap; line-height: " + Math.round(root.lineHeight * 100) + "%\">"
